@@ -754,7 +754,7 @@ pub fn distance_transform(input: &Tensor) -> Result<Tensor, ImgProcError> {
     // Fast path: if no foreground pixels, distance is 0 everywhere.
     let has_foreground = data.iter().any(|&v| v > 0.5);
     if !has_foreground {
-        return Tensor::from_vec(vec![h, w, 1], vec![0.0f32; h * w]).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, 1], vec![0.0f32; h * w])?);
     }
 
     let mut dist = vec![0.0f32; h * w];
@@ -842,7 +842,7 @@ pub fn distance_transform(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], dist).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], dist)?)
 }
 
 /// SIMD-accelerated vertical min step: cur[x] = min(cur[x], src[x] + 1) for all x.
@@ -979,7 +979,7 @@ pub fn distance_transform_l2(
         .map(|&v| if v > 0.5 { DT_L2_INF } else { 0.0 })
         .collect();
     if w == 0 || h == 0 {
-        return Tensor::from_vec(vec![h, w, 1], dist).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, 1], dist)?);
     }
 
     match mask {
@@ -1022,7 +1022,7 @@ pub fn distance_transform_l2(
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], dist).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], dist)?)
 }
 
 /// Serial in-row chamfer propagation, forward (L→R) or backward (R→L):

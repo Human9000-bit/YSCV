@@ -104,7 +104,7 @@ pub fn stereo_block_matching(
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 #[cfg(test)]

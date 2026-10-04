@@ -745,7 +745,7 @@ pub fn dilate_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Applies a 3x3 grayscale/RGB erosion (local minimum per channel).
@@ -898,7 +898,7 @@ pub fn erode_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Applies a 3x3 opening (`erode` followed by `dilate`) per channel.
@@ -924,7 +924,7 @@ pub fn morph_gradient_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
     }
 
     let (h, w, channels) = hwc_shape(input)?;
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Dilate a single-channel `[H, W, 1]` image with an arbitrary structuring element.
@@ -970,7 +970,7 @@ pub fn dilate(input: &Tensor, kernel: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Top-hat transform: `input - opening(input)`.
@@ -983,7 +983,7 @@ pub fn morph_tophat(input: &Tensor) -> Result<Tensor, ImgProcError> {
         *v = input.data()[i] - opened.data()[i];
     }
     let (h, w, c) = hwc_shape(input)?;
-    Tensor::from_vec(vec![h, w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, c], out)?)
 }
 
 /// Black-hat transform: `closing(input) - input`.
@@ -996,7 +996,7 @@ pub fn morph_blackhat(input: &Tensor) -> Result<Tensor, ImgProcError> {
         *v = closed.data()[i] - input.data()[i];
     }
     let (h, w, c) = hwc_shape(input)?;
-    Tensor::from_vec(vec![h, w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, c], out)?)
 }
 
 /// Zhang-Suen thinning algorithm on a binary single-channel `[H, W, 1]` image.
@@ -1078,7 +1078,7 @@ pub fn skeletonize(input: &Tensor) -> Result<Tensor, ImgProcError> {
     }
 
     let out: Vec<f32> = img.iter().map(|&v| v as f32).collect();
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Returns the 8 neighbors P2..P9 in Zhang-Suen order.
@@ -1161,7 +1161,7 @@ pub fn remove_small_objects(input: &Tensor, min_size: usize) -> Result<Tensor, I
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Erode a single-channel `[H, W, 1]` image with an arbitrary structuring element.
@@ -1205,7 +1205,7 @@ pub fn erode(input: &Tensor, kernel: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 // ── Box-kernel morphology: separable sliding min/max, O(n) per pass ──────
@@ -1301,7 +1301,7 @@ fn box_filter_2d(
             out[y * w + x] = pick(at(&right_v, y, x), at(&left_v, y + 2 * r, x));
         }
     }
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Dilation with an all-ones square kernel of odd size `ksize`.
@@ -1677,7 +1677,10 @@ fn packed_from_tensor(input: &Tensor, ksize: usize) -> Result<PackedMask, ImgPro
 }
 
 fn tensor_from_packed(mask: &PackedMask) -> Result<Tensor, ImgProcError> {
-    Tensor::from_vec(vec![mask.height, mask.width, 1], mask.unpack()).map_err(Into::into)
+    Ok(Tensor::from_vec(
+        vec![mask.height, mask.width, 1],
+        mask.unpack(),
+    )?)
 }
 
 /// Binary dilation with a ksize×ksize ones kernel: a pixel is set when the

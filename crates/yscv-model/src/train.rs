@@ -47,25 +47,25 @@ fn build_loss_node(
 
 impl GraphOptimizer for Sgd {
     fn step_graph_node(&mut self, graph: &mut Graph, node: NodeId) -> Result<(), ModelError> {
-        Sgd::step_graph_node(self, graph, node).map_err(Into::into)
+        Ok(Sgd::step_graph_node(self, graph, node)?)
     }
 }
 
 impl GraphOptimizer for Adam {
     fn step_graph_node(&mut self, graph: &mut Graph, node: NodeId) -> Result<(), ModelError> {
-        Adam::step_graph_node(self, graph, node).map_err(Into::into)
+        Ok(Adam::step_graph_node(self, graph, node)?)
     }
 }
 
 impl GraphOptimizer for AdamW {
     fn step_graph_node(&mut self, graph: &mut Graph, node: NodeId) -> Result<(), ModelError> {
-        AdamW::step_graph_node(self, graph, node).map_err(Into::into)
+        Ok(AdamW::step_graph_node(self, graph, node)?)
     }
 }
 
 impl GraphOptimizer for RmsProp {
     fn step_graph_node(&mut self, graph: &mut Graph, node: NodeId) -> Result<(), ModelError> {
-        RmsProp::step_graph_node(self, graph, node).map_err(Into::into)
+        Ok(RmsProp::step_graph_node(self, graph, node)?)
     }
 }
 

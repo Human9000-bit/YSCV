@@ -164,7 +164,10 @@ pub fn deformable_conv2d_nhwc(
         }
     }
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, out_channels], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, out_channels],
+        output,
+    )?)
 }
 
 /// Bilinear interpolation sampling from a single image in an NHWC tensor.

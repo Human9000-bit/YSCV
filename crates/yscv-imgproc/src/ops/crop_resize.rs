@@ -307,7 +307,7 @@ pub fn crop_resize_bilinear(
         });
     }
     let out = crop_resize_bilinear_raw(input.data(), h, w, ch, cx, cy, win_w, win_h, tpl_w, tpl_h);
-    Tensor::from_vec(vec![tpl_h, tpl_w, ch], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![tpl_h, tpl_w, ch], out)?)
 }
 
 /// Fused crop + bilinear resize with a **constant border**: bilinear taps whose
@@ -404,7 +404,7 @@ pub fn crop_resize_bilinear_border(
         tpl_h,
         border,
     );
-    Tensor::from_vec(vec![tpl_h, tpl_w, ch], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![tpl_h, tpl_w, ch], out)?)
 }
 
 // ---- coordinate mapping (shared): cv2 half-pixel + getRectSubPix window offset.

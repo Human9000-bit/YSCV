@@ -162,7 +162,7 @@ pub(super) fn gather_rows(tensor: &Tensor, indices: &[usize]) -> Result<Tensor, 
 
     let mut new_shape = tensor.shape().to_vec();
     new_shape[0] = indices.len();
-    Tensor::from_vec(new_shape, out).map_err(Into::into)
+    Ok(Tensor::from_vec(new_shape, out)?)
 }
 
 pub(super) fn parse_scalar_class_label(

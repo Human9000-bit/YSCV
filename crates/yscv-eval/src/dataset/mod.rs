@@ -48,12 +48,12 @@ pub fn parse_detection_dataset_coco(
     let ground_truth: CocoGroundTruthWire =
         serde_json::from_str(ground_truth_json).map_err(|err| EvalError::InvalidDatasetFormat {
             format: "coco-ground-truth",
-            source: Arc::new(err).into(),
+            source: err.into(),
         })?;
     let predictions: Vec<CocoPredictionWire> =
         serde_json::from_str(predictions_json).map_err(|err| EvalError::InvalidDatasetFormat {
             format: "coco-predictions",
-            source: Arc::new(err).into(),
+            source: err.into(),
         })?;
     build_detection_dataset_from_coco(ground_truth, predictions).map_err(|source| {
         EvalError::InvalidDatasetFormat {

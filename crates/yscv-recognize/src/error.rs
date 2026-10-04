@@ -20,7 +20,7 @@ pub enum RecognizeError {
     EmbeddingDimMismatch { expected: usize, got: usize },
     #[error("recognizer serialization error: {source}")]
     Serialization {
-        #[from]
+        #[source]
         source: Arc<serde_json::Error>,
     },
     #[error("recognizer IO error for {path:?}: {source}")]
@@ -31,4 +31,12 @@ pub enum RecognizeError {
     },
     #[error(transparent)]
     Tensor(#[from] TensorError),
+}
+
+impl From<serde_json::Error> for RecognizeError {
+    fn from(source: serde_json::Error) -> Self {
+        Self::Serialization {
+            source: Arc::new(source),
+        }
+    }
 }

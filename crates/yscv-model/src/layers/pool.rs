@@ -47,26 +47,23 @@ impl MaxPool2dLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .max_pool2d_nhwc(
-                input,
-                self.kernel_h,
-                self.kernel_w,
-                self.stride_h,
-                self.stride_w,
-            )
-            .map_err(Into::into)
-    }
-
-    pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
-        yscv_kernels::max_pool2d_nhwc(
+        Ok(graph.max_pool2d_nhwc(
             input,
             self.kernel_h,
             self.kernel_w,
             self.stride_h,
             self.stride_w,
-        )
-        .map_err(Into::into)
+        )?)
+    }
+
+    pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
+        Ok(yscv_kernels::max_pool2d_nhwc(
+            input,
+            self.kernel_h,
+            self.kernel_w,
+            self.stride_h,
+            self.stride_w,
+        )?)
     }
 }
 
@@ -114,26 +111,23 @@ impl AvgPool2dLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .avg_pool2d_nhwc(
-                input,
-                self.kernel_h,
-                self.kernel_w,
-                self.stride_h,
-                self.stride_w,
-            )
-            .map_err(Into::into)
-    }
-
-    pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
-        yscv_kernels::avg_pool2d_nhwc(
+        Ok(graph.avg_pool2d_nhwc(
             input,
             self.kernel_h,
             self.kernel_w,
             self.stride_h,
             self.stride_w,
-        )
-        .map_err(Into::into)
+        )?)
+    }
+
+    pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
+        Ok(yscv_kernels::avg_pool2d_nhwc(
+            input,
+            self.kernel_h,
+            self.kernel_w,
+            self.stride_h,
+            self.stride_w,
+        )?)
     }
 }
 
@@ -168,7 +162,7 @@ impl GlobalAvgPool2dLayer {
                 out[batch * c + ch] = sum / hw;
             }
         }
-        Tensor::from_vec(vec![n, 1, 1, c], out).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![n, 1, 1, c], out)?)
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
@@ -177,7 +171,7 @@ impl GlobalAvgPool2dLayer {
             return Err(ModelError::InvalidFlattenShape { got: shape });
         }
         let (h, w) = (shape[1], shape[2]);
-        graph.avg_pool2d_nhwc(input, h, w, 1, 1).map_err(Into::into)
+        Ok(graph.avg_pool2d_nhwc(input, h, w, 1, 1)?)
     }
 }
 
@@ -203,9 +197,7 @@ impl AdaptiveAvgPool2dLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .adaptive_avg_pool2d_nhwc(input, self.out_h, self.out_w)
-            .map_err(Into::into)
+        Ok(graph.adaptive_avg_pool2d_nhwc(input, self.out_h, self.out_w)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -268,9 +260,7 @@ impl AdaptiveMaxPool2dLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .adaptive_max_pool2d_nhwc(input, self.out_h, self.out_w)
-            .map_err(Into::into)
+        Ok(graph.adaptive_max_pool2d_nhwc(input, self.out_h, self.out_w)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {

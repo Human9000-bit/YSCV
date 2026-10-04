@@ -112,7 +112,10 @@ pub fn conv2d_nhwc_indirect_padded(
         }
     }
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, c_out], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, c_out],
+        output,
+    )?)
 }
 
 /// im2col for NHWC input without padding.
@@ -232,7 +235,7 @@ pub(super) fn conv2d_im2col_gemm_fused(
             n,
             epilogue,
         );
-        return Tensor::from_aligned(vec![1, out_h, out_w, n], output).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![1, out_h, out_w, n], output)?);
     }
 
     // Tile size: keep im2col_tile + output_tile in ~2 MB per thread.
@@ -324,7 +327,7 @@ pub(super) fn conv2d_im2col_gemm_fused(
         });
     }
 
-    Tensor::from_aligned(vec![1, out_h, out_w, n], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![1, out_h, out_w, n], output)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -714,7 +717,10 @@ fn winograd_conv2d_nhwc(
         }
     }
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, c_out], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, c_out],
+        output,
+    )?)
 }
 
 /// Conv2D with implicit zero-padding — avoids separate padded tensor allocation.
@@ -790,7 +796,10 @@ pub fn conv2d_nhwc_padded(
             None,
         );
         super::note_conv_path(super::ConvKernelPath::FirstLayerRgb3x3);
-        return Tensor::from_aligned(vec![batch, out_h, out_w, c_out], output).map_err(Into::into);
+        return Ok(Tensor::from_aligned(
+            vec![batch, out_h, out_w, c_out],
+            output,
+        )?);
     }
 
     // Winograd F(2×2,3×3) for 3×3 stride-1. Its 2.25× smaller GEMM is paid for
@@ -949,7 +958,7 @@ pub fn conv2d_nhwc_padded(
         }
     }
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, n], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![batch, out_h, out_w, n], output)?)
 }
 
 /// im2col with implicit zero-padding.  Out-of-bounds input reads are zero.

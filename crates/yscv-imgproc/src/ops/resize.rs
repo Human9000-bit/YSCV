@@ -145,7 +145,7 @@ pub fn resize_nearest(input: &Tensor, out_h: usize, out_w: usize) -> Result<Tens
         }
     }
 
-    Tensor::from_vec(vec![out_h, out_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![out_h, out_w, channels], out)?)
 }
 
 /// Coordinate mapping of a bilinear resize, one entry per output index:
@@ -252,5 +252,5 @@ fn resize_bilinear_luts(
             .for_each(|(y, row)| compute_row(y, row));
     }
 
-    Tensor::from_vec(vec![out_h, out_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![out_h, out_w, channels], out)?)
 }

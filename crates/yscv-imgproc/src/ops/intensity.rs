@@ -16,7 +16,7 @@ pub fn adjust_gamma(img: &Tensor, gamma: f32) -> Result<Tensor, ImgProcError> {
         out[i] = data[i].max(0.0).powf(gamma);
     }
 
-    Tensor::from_vec(vec![h, w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, c], out)?)
 }
 
 /// Linearly rescales pixel intensities from `[in_min, in_max]` to `[out_min, out_max]`.
@@ -50,7 +50,7 @@ pub fn rescale_intensity(
         }
     }
 
-    Tensor::from_vec(vec![h, w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, c], out)?)
 }
 
 /// Applies logarithmic transform: `log(1 + pixel)`, normalized to `[0, 1]`.
@@ -79,5 +79,5 @@ pub fn adjust_log(img: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, c], out)?)
 }

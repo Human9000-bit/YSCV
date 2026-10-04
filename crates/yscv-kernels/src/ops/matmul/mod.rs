@@ -1319,7 +1319,7 @@ fn matmul_2d_sequential_with_plan(
     if use_blas() {
         blas_sgemm(left, right, &mut output, plan.m, plan.k, plan.n);
         note_matmul_kernel(MatmulKernel::BlasSgemm);
-        return Tensor::from_aligned(vec![plan.m, plan.n], output).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![plan.m, plan.n], output)?);
     }
 
     if use_blocked(plan.m, plan.k, plan.n) {
@@ -1339,7 +1339,7 @@ fn matmul_2d_sequential_with_plan(
         note_matmul_kernel(MatmulKernel::RowGemm);
     }
 
-    Tensor::from_aligned(vec![plan.m, plan.n], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![plan.m, plan.n], output)?)
 }
 
 #[allow(unsafe_code)]
@@ -1358,7 +1358,7 @@ fn matmul_2d_parallel_with_plan(
     if use_blas() {
         blas_sgemm(left, right, &mut output, plan.m, plan.k, plan.n);
         note_matmul_kernel(MatmulKernel::BlasSgemm);
-        return Tensor::from_aligned(vec![plan.m, plan.n], output).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![plan.m, plan.n], output)?);
     }
 
     if use_blocked(plan.m, plan.k, plan.n) {
@@ -1387,7 +1387,7 @@ fn matmul_2d_parallel_with_plan(
         note_matmul_kernel(MatmulKernel::RowGemm);
     }
 
-    Tensor::from_aligned(vec![plan.m, plan.n], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![plan.m, plan.n], output)?)
 }
 
 // ---------------------------------------------------------------------------

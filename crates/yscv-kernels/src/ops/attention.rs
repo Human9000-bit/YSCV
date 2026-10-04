@@ -428,7 +428,7 @@ pub fn scaled_dot_product_attention(
     if d_k == 0 {
         // Degenerate case: zero-width key dimension → output is all zeros.
         let out = AlignedVec::<f32>::calloc(seq_q * d_v);
-        return Tensor::from_aligned(vec![seq_q, d_v], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![seq_q, d_v], out)?);
     }
 
     // --- 1. Transpose K → K^T [d_k, seq_k] --------------------------------------
@@ -522,7 +522,7 @@ pub fn flash_attention(
 
     if d_k == 0 {
         let out = AlignedVec::<f32>::calloc(seq_q * d_v);
-        return Tensor::from_aligned(vec![seq_q, d_v], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![seq_q, d_v], out)?);
     }
 
     let q = query.data();
@@ -615,7 +615,7 @@ pub fn flash_attention(
         scale_slice_simd(out_row, inv_sum);
     }
 
-    Tensor::from_aligned(vec![seq_q, d_v], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![seq_q, d_v], out)?)
 }
 
 /// Simple 2-D transpose: `[rows, cols]` → `[cols, rows]`.

@@ -1,5 +1,5 @@
 use std::num::NonZeroUsize;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use yscv_tensor::Tensor;
@@ -185,7 +185,7 @@ pub trait Backend {
 
     /// Element-wise division with broadcast.
     fn div(&self, lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, KernelError> {
-        lhs.div(rhs).map_err(Into::into)
+        Ok(lhs.div(rhs)?)
     }
 
     /// Element-wise square root.
@@ -195,7 +195,7 @@ pub trait Backend {
 
     /// Transpose a 2-D matrix.
     fn transpose_2d(&self, input: &Tensor) -> Result<Tensor, KernelError> {
-        input.transpose_2d().map_err(Into::into)
+        Ok(input.transpose_2d()?)
     }
 
     /// Scalar sum of all elements (returns a scalar tensor).
@@ -233,7 +233,7 @@ pub trait BackwardOps: Backend {
             .zip(f.iter())
             .map(|(&u, &x)| if x > 0.0 { u } else { 0.0 })
             .collect();
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     /// Sigmoid backward: `grad_input[i] = upstream[i] * s[i] * (1 - s[i])` where `s` = forward output.
@@ -249,7 +249,7 @@ pub trait BackwardOps: Backend {
             .zip(s.iter())
             .map(|(&u, &s)| u * s * (1.0 - s))
             .collect();
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     /// Tanh backward: `grad_input[i] = upstream[i] * (1 - t[i]^2)` where `t` = forward output.
@@ -265,7 +265,7 @@ pub trait BackwardOps: Backend {
             .zip(t.iter())
             .map(|(&u, &t)| u * (1.0 - t * t))
             .collect();
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     /// Exp backward: `grad_input[i] = upstream[i] * e[i]` where `e` = forward output.
@@ -277,7 +277,7 @@ pub trait BackwardOps: Backend {
         let u = upstream.data();
         let e = forward_output.data();
         let out: Vec<f32> = u.iter().zip(e.iter()).map(|(&u, &e)| u * e).collect();
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     /// Reduce-sum backward: broadcast scalar gradient to all elements of `original_shape`.
@@ -289,7 +289,7 @@ pub trait BackwardOps: Backend {
         let grad_val = upstream.data()[0];
         let len: usize = original_shape.iter().product();
         let out = vec![grad_val; len];
-        Tensor::from_vec(original_shape.to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(original_shape.to_vec(), out)?)
     }
 
     /// MatMul backward: `grad_lhs = upstream @ rhs^T`, `grad_rhs = lhs^T @ upstream`.
@@ -397,7 +397,7 @@ pub trait BackwardOps: Backend {
             }
         }
 
-        Tensor::from_vec(kernel_shape.to_vec(), grad_kernel).map_err(Into::into)
+        Ok(Tensor::from_vec(kernel_shape.to_vec(), grad_kernel)?)
     }
 
     /// Conv2d bias backward: sum upstream gradient over all spatial/batch dims.
@@ -419,7 +419,7 @@ pub trait BackwardOps: Backend {
                 grad_bias[c] += u_data[base + c];
             }
         }
-        Tensor::from_vec(vec![c_out], grad_bias).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![c_out], grad_bias)?)
     }
 
     /// BatchNorm2d input backward: scale upstream by gamma / sqrt(var + eps).
@@ -446,7 +446,7 @@ pub trait BackwardOps: Backend {
             let scale = g_data[ci] / (v_data[ci] + epsilon).sqrt();
             out[i] = u_data[i] * scale;
         }
-        Tensor::from_vec(us.to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(us.to_vec(), out)?)
     }
 
     /// LayerNorm input backward (simplified inference-mode approximation).
@@ -501,7 +501,7 @@ pub trait BackwardOps: Backend {
                     inv_std * (dy_gamma[i] - mean_dy_gamma - x_hat[i] * mean_xhat_dy_gamma);
             }
         }
-        Tensor::from_vec(shape.to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), out)?)
     }
 
     /// MaxPool2d backward: route gradient to argmax positions.
@@ -560,7 +560,7 @@ pub trait BackwardOps: Backend {
                 }
             }
         }
-        Tensor::from_vec(input_shape.to_vec(), grad_input).map_err(Into::into)
+        Ok(Tensor::from_vec(input_shape.to_vec(), grad_input)?)
     }
 
     /// AvgPool2d backward: distribute gradient equally across the pooling window.
@@ -608,7 +608,7 @@ pub trait BackwardOps: Backend {
                 }
             }
         }
-        Tensor::from_vec(input_shape.to_vec(), grad_input).map_err(Into::into)
+        Ok(Tensor::from_vec(input_shape.to_vec(), grad_input)?)
     }
 
     /// Softmax backward: `grad_input = softmax_output * (upstream - sum(upstream * softmax_output))`.
@@ -635,7 +635,7 @@ pub trait BackwardOps: Backend {
                 out[base + i] = s_data[base + i] * (u_data[base + i] - dot);
             }
         }
-        Tensor::from_vec(shape.to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), out)?)
     }
 
     /// Embedding backward: scatter upstream gradients back to the embedding table.
@@ -661,7 +661,10 @@ pub trait BackwardOps: Backend {
                 grad_table[dst_base + d] += u_data[src_base + d];
             }
         }
-        Tensor::from_vec(vec![num_embeddings, embed_dim], grad_table).map_err(Into::into)
+        Ok(Tensor::from_vec(
+            vec![num_embeddings, embed_dim],
+            grad_table,
+        )?)
     }
 
     /// Attention backward: compute gradients for query, key, and value.
@@ -1158,7 +1161,7 @@ pub trait BackwardOps: Backend {
             }
         }
 
-        Tensor::from_vec(input_shape.to_vec(), grad_input).map_err(Into::into)
+        Ok(Tensor::from_vec(input_shape.to_vec(), grad_input)?)
     }
 }
 
@@ -1440,10 +1443,7 @@ impl ThreadedCpuBackend {
     ) -> Result<Self, KernelError> {
         let thread_pool = ThreadPoolBuilder::new()
             .num_threads(num_threads.get())
-            .build()
-            .map_err(|error| KernelError::ThreadPoolBuild {
-                source: Arc::new(error),
-            })?;
+            .build()?;
         Ok(Self {
             matmul_config: config.matmul,
             elementwise_config: config.elementwise,

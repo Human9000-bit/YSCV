@@ -39,7 +39,7 @@ impl DropoutLayer {
         // approximate expectation-preserving proxy without random masking.
         let scale_factor = 1.0 / (1.0 - self.rate);
         let scale = graph.constant(Tensor::scalar(scale_factor));
-        graph.mul(input, scale).map_err(Into::into)
+        Ok(graph.mul(input, scale)?)
     }
 }
 
@@ -61,11 +61,11 @@ impl FlattenLayer {
         }
         let batch = shape[0];
         let features: usize = shape[1..].iter().product();
-        input.reshape(vec![batch, features]).map_err(Into::into)
+        Ok(input.reshape(vec![batch, features])?)
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.flatten(input).map_err(Into::into)
+        Ok(graph.flatten(input)?)
     }
 }
 
@@ -79,11 +79,11 @@ impl SoftmaxLayer {
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
-        yscv_kernels::softmax_last_dim(input).map_err(Into::into)
+        Ok(yscv_kernels::softmax_last_dim(input)?)
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.softmax(input).map_err(Into::into)
+        Ok(graph.softmax(input)?)
     }
 }
 
@@ -139,9 +139,7 @@ impl PixelShuffleLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .pixel_shuffle(input, self.upscale_factor)
-            .map_err(Into::into)
+        Ok(graph.pixel_shuffle(input, self.upscale_factor)?)
     }
 }
 
@@ -231,9 +229,7 @@ impl UpsampleLayer {
             // For bilinear, fall back to inference-only for now.
             return Err(ModelError::InferenceOnlyLayer);
         }
-        graph
-            .upsample_nearest(input, self.scale_factor)
-            .map_err(Into::into)
+        Ok(graph.upsample_nearest(input, self.scale_factor)?)
     }
 }
 
@@ -271,7 +267,7 @@ impl ResidualBlock {
         for layer in &self.layers {
             current = layer.forward(graph, current)?;
         }
-        graph.add(current, input).map_err(Into::into)
+        Ok(graph.add(current, input)?)
     }
 }
 
@@ -357,6 +353,6 @@ impl MaskHead {
             x = Tensor::from_vec(vec![n, nh, nw, c], up)?;
         }
         // Final 1×1 class prediction conv
-        yscv_kernels::conv2d_nhwc(&x, &self.class_conv, None, 1, 1).map_err(Into::into)
+        Ok(yscv_kernels::conv2d_nhwc(&x, &self.class_conv, None, 1, 1)?)
     }
 }

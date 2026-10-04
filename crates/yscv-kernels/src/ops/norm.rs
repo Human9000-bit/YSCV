@@ -25,11 +25,10 @@ pub fn batch_norm2d_nhwc_with_config_and_pool(
     let plan = build_batch_norm2d_plan(input, params)?;
     let row_len = plan.width * plan.channels;
     if plan.output_len == 0 || row_len == 0 {
-        return Tensor::from_vec(
+        return Ok(Tensor::from_vec(
             vec![plan.batch, plan.height, plan.width, plan.channels],
             vec![],
-        )
-        .map_err(Into::into);
+        )?);
     }
     // SAFETY: batch_norm loop writes every element before read.
     #[allow(unsafe_code)]
@@ -71,11 +70,10 @@ pub fn batch_norm2d_nhwc_with_config_and_pool(
         }
     }
 
-    Tensor::from_aligned(
+    Ok(Tensor::from_aligned(
         vec![plan.batch, plan.height, plan.width, plan.channels],
         output,
-    )
-    .map_err(Into::into)
+    )?)
 }
 
 /// # Safety
@@ -90,7 +88,7 @@ pub fn softmax_last_dim_with_config_and_pool(
     let plan = build_softmax_plan(input)?;
     if plan.output_len == 0 || plan.row_len == 0 {
         let output = vec![0.0f32; plan.output_len];
-        return Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into);
+        return Ok(Tensor::from_vec(input.shape().to_vec(), output)?);
     }
 
     // SAFETY: `softmax_last_dim_row` writes every element before we read.
@@ -115,7 +113,7 @@ pub fn softmax_last_dim_with_config_and_pool(
         softmax_rows_fused_dispatch(input_data, output.as_mut_slice(), plan.row_len);
     }
 
-    Tensor::from_aligned(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_aligned(input.shape().to_vec(), output)?)
 }
 
 /// Softmax over the last dimension into a pre-allocated output tensor.
@@ -165,7 +163,7 @@ pub fn log_softmax_last_dim_with_config_and_pool(
     let plan = build_log_softmax_plan(input)?;
     if plan.output_len == 0 || plan.row_len == 0 {
         let output = vec![0.0f32; plan.output_len];
-        return Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into);
+        return Ok(Tensor::from_vec(input.shape().to_vec(), output)?);
     }
 
     // SAFETY: `log_softmax_last_dim_row` writes every element before we read.
@@ -190,7 +188,7 @@ pub fn log_softmax_last_dim_with_config_and_pool(
         log_softmax_rows_fused_dispatch(input_data, output.as_mut_slice(), plan.row_len);
     }
 
-    Tensor::from_aligned(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_aligned(input.shape().to_vec(), output)?)
 }
 
 /// Log-softmax over the last dimension into a pre-allocated output tensor.
@@ -237,11 +235,11 @@ pub fn logsumexp_last_dim_with_config_and_pool(
     let plan = build_logsumexp_plan(input)?;
     let mut output = vec![0.0f32; plan.output_len];
     if output.is_empty() {
-        return Tensor::from_vec(plan.output_shape.clone(), output).map_err(Into::into);
+        return Ok(Tensor::from_vec(plan.output_shape.clone(), output)?);
     }
     if plan.row_len == 0 {
         output.fill(f32::NEG_INFINITY);
-        return Tensor::from_vec(plan.output_shape.clone(), output).map_err(Into::into);
+        return Ok(Tensor::from_vec(plan.output_shape.clone(), output)?);
     }
 
     let input_data = input.data();
@@ -262,7 +260,7 @@ pub fn logsumexp_last_dim_with_config_and_pool(
         }
     }
 
-    Tensor::from_vec(plan.output_shape, output).map_err(Into::into)
+    Ok(Tensor::from_vec(plan.output_shape, output)?)
 }
 
 /// # Safety
@@ -278,7 +276,7 @@ pub fn layer_norm_last_dim_with_config_and_pool(
     let plan = build_layer_norm_plan(input, params)?;
     if plan.output_len == 0 || plan.row_len == 0 {
         let output = vec![0.0f32; plan.output_len];
-        return Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into);
+        return Ok(Tensor::from_vec(input.shape().to_vec(), output)?);
     }
 
     // SAFETY: `layer_norm_last_dim_row` writes every element before we read.
@@ -339,7 +337,7 @@ pub fn layer_norm_last_dim_with_config_and_pool(
         }
     }
 
-    Tensor::from_aligned(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_aligned(input.shape().to_vec(), output)?)
 }
 
 fn build_batch_norm2d_plan(
@@ -1257,11 +1255,10 @@ pub fn group_norm_nhwc_with_config_and_pool(
     let plan = build_group_norm_plan(input, params)?;
     let mut output = vec![0.0f32; plan.output_len];
     if output.is_empty() {
-        return Tensor::from_vec(
+        return Ok(Tensor::from_vec(
             vec![plan.batch, plan.height, plan.width, plan.channels],
             output,
-        )
-        .map_err(Into::into);
+        )?);
     }
 
     let input_data = input.data();
@@ -1360,11 +1357,10 @@ pub fn group_norm_nhwc_with_config_and_pool(
         }
     }
 
-    Tensor::from_vec(
+    Ok(Tensor::from_vec(
         vec![plan.batch, plan.height, plan.width, plan.channels],
         output,
-    )
-    .map_err(Into::into)
+    )?)
 }
 
 fn build_group_norm_plan(
@@ -1449,7 +1445,7 @@ pub fn rms_norm_last_dim_with_config_and_pool(
     let plan = build_rms_norm_plan(input, params)?;
     let mut output = vec![0.0f32; plan.output_len];
     if output.is_empty() || plan.row_len == 0 {
-        return Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into);
+        return Ok(Tensor::from_vec(input.shape().to_vec(), output)?);
     }
 
     let input_data = input.data();
@@ -1468,7 +1464,7 @@ pub fn rms_norm_last_dim_with_config_and_pool(
         }
     }
 
-    Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_vec(input.shape().to_vec(), output)?)
 }
 
 fn build_rms_norm_plan(

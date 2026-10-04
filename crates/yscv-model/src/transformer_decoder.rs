@@ -75,7 +75,7 @@ fn layer_norm_2d(input: &Tensor, gamma: &Tensor, beta: &Tensor) -> Result<Tensor
         beta,
         epsilon: 1e-5,
     };
-    yscv_kernels::layer_norm_last_dim(input, params).map_err(Into::into)
+    Ok(yscv_kernels::layer_norm_last_dim(input, params)?)
 }
 
 /// Single transformer decoder block: masked self-attention → cross-attention → FFN,

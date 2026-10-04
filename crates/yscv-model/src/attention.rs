@@ -209,5 +209,5 @@ fn layer_norm_2d(
         beta,
         epsilon: 1e-5,
     };
-    yscv_kernels::layer_norm_last_dim(input, params).map_err(Into::into)
+    Ok(yscv_kernels::layer_norm_last_dim(input, params)?)
 }

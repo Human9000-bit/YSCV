@@ -147,13 +147,11 @@ impl BatchNorm2dLayer {
         let v_id = self.var_node.ok_or(ModelError::ParamsNotRegistered {
             layer: "BatchNorm2d",
         })?;
-        graph
-            .batch_norm2d_nhwc(input, g_id, b_id, m_id, v_id, self.epsilon)
-            .map_err(Into::into)
+        Ok(graph.batch_norm2d_nhwc(input, g_id, b_id, m_id, v_id, self.epsilon)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
-        yscv_kernels::batch_norm2d_nhwc(
+        Ok(yscv_kernels::batch_norm2d_nhwc(
             input,
             BatchNorm2dParams {
                 gamma: &self.gamma,
@@ -162,8 +160,7 @@ impl BatchNorm2dLayer {
                 variance: &self.running_var,
                 epsilon: self.epsilon,
             },
-        )
-        .map_err(Into::into)
+        )?)
     }
 }
 
@@ -199,9 +196,7 @@ impl LayerNormLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .layer_norm(input, self.gamma, self.beta, self.eps)
-            .map_err(Into::into)
+        Ok(graph.layer_norm(input, self.gamma, self.beta, self.eps)?)
     }
 
     pub fn forward_inference(&self, graph: &Graph, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -283,9 +278,7 @@ impl GroupNormLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph
-            .group_norm(input, self.gamma, self.beta, self.num_groups, self.eps)
-            .map_err(Into::into)
+        Ok(graph.group_norm(input, self.gamma, self.beta, self.num_groups, self.eps)?)
     }
 
     /// Forward inference on NHWC input `[N, H, W, C]`.
@@ -401,9 +394,7 @@ impl InstanceNormLayer {
         let b_id = self.beta_node.ok_or(ModelError::ParamsNotRegistered {
             layer: "InstanceNorm",
         })?;
-        graph
-            .instance_norm_nhwc(input, g_id, b_id, self.eps)
-            .map_err(Into::into)
+        Ok(graph.instance_norm_nhwc(input, g_id, b_id, self.eps)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {

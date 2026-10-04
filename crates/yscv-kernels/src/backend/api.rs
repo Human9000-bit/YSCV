@@ -1000,5 +1000,5 @@ pub fn transpose_conv2d_nhwc(
         }
     }
 
-    Tensor::from_vec(vec![n, oh, ow, oc], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![n, oh, ow, oc], out)?)
 }

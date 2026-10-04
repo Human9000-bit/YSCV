@@ -28,7 +28,7 @@ pub fn imread(path: impl AsRef<Path>) -> Result<Tensor, ImgProcError> {
     let (w, h) = (img.width() as usize, img.height() as usize);
     let raw = img.into_raw();
     let data: Vec<f32> = raw.iter().map(|&b| b as f32 / 255.0).collect();
-    Tensor::from_vec(vec![h, w, 3], data).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 3], data)?)
 }
 
 /// Read an image as grayscale and return it as a `[H, W, 1]` `f32` tensor with values in `[0, 1]`.
@@ -50,7 +50,7 @@ pub fn imread_gray(path: impl AsRef<Path>) -> Result<Tensor, ImgProcError> {
     let (w, h) = (img.width() as usize, img.height() as usize);
     let raw = img.into_raw();
     let data: Vec<f32> = raw.iter().map(|&b| b as f32 / 255.0).collect();
-    Tensor::from_vec(vec![h, w, 1], data).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], data)?)
 }
 
 /// Write a `[H, W, C]` `f32` tensor (values in `[0, 1]`) to disk.

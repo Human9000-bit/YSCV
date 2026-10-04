@@ -458,7 +458,7 @@ fn blend_rows(
                 + right_weight * tensor.data()[partner_start + offset];
         }
     }
-    Tensor::from_vec(tensor.shape().to_vec(), out).map_err(Into::into)
+    Ok(Tensor::from_vec(tensor.shape().to_vec(), out)?)
 }
 
 fn build_partner_indices(batch_size: usize, seed: u64) -> Vec<usize> {

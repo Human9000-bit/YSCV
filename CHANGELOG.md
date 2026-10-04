@@ -61,6 +61,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `&'static str` flag names and the std parse error as source. Run-time failures
   (device not found, missing report path, failed diagnostics, benchmark
   regression) move to `AppError`. `CliError` no longer derives `Eq`.
+- **More errors convert with `?`.** `serde_json::Error` converts into
+  `RecognizeError` and `DatasetFormatError`, and `rayon::ThreadPoolBuildError`
+  into `KernelError` and `OnnxError` (each wraps the source in an `Arc`).
+  `EvalError` deliberately has no `From<serde_json::Error>`: it has several JSON
+  variants that differ by context.
 - **`yscv-quantize`** argument and calibration-sample errors are typed and keep
   their `serde_json` / `TensorError` / `OnnxError` sources.
 

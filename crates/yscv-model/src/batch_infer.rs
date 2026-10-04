@@ -81,7 +81,7 @@ where
     let sample_shape = out_sample_shape.unwrap_or_default();
     let mut final_shape = vec![n];
     final_shape.extend_from_slice(&sample_shape);
-    Tensor::from_vec(final_shape, all_outputs).map_err(Into::into)
+    Ok(Tensor::from_vec(final_shape, all_outputs)?)
 }
 
 /// Collects individual samples into batches for efficient processing.

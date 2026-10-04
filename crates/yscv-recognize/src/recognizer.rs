@@ -165,11 +165,11 @@ impl Recognizer {
     }
 
     pub fn to_json_pretty(&self) -> Result<String, RecognizeError> {
-        Ok(serde_json::to_string_pretty(&self.to_snapshot()).map_err(Arc::new)?)
+        Ok(serde_json::to_string_pretty(&self.to_snapshot())?)
     }
 
     pub fn from_json(json: &str) -> Result<Self, RecognizeError> {
-        let snapshot: RecognizerSnapshot = serde_json::from_str(json).map_err(Arc::new)?;
+        let snapshot: RecognizerSnapshot = serde_json::from_str(json)?;
         Self::from_snapshot(snapshot)
     }
 

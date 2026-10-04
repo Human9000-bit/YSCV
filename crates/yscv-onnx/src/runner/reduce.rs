@@ -82,7 +82,7 @@ where
     if axes.is_empty() {
         let val = op(input.data());
         let out_shape = if keepdims { vec![1; rank] } else { vec![1] };
-        return Tensor::from_vec(out_shape, vec![val]).map_err(OnnxError::from);
+        return Ok(Tensor::from_vec(out_shape, vec![val])?);
     }
 
     let norm_axes: Vec<usize> = axes
@@ -140,7 +140,7 @@ where
         out_data.push(op(&vals));
     }
 
-    Tensor::from_vec(out_shape, out_data).map_err(OnnxError::from)
+    Ok(Tensor::from_vec(out_shape, out_data)?)
 }
 
 #[allow(clippy::too_many_arguments)]

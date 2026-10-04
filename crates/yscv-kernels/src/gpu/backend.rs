@@ -769,7 +769,7 @@ impl GpuBackend {
     /// Download a GPU buffer back to a CPU tensor.
     pub fn download(&self, buf: &GpuBuffer) -> Result<Tensor, KernelError> {
         let data = self.read_buf(&buf.buffer, buf.size)?;
-        Tensor::from_vec(buf.shape.clone(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(buf.shape.clone(), data)?)
     }
 
     /// Run a shader with GPU-resident inputs, producing a GPU-resident output.
@@ -3849,7 +3849,7 @@ impl Backend for GpuBackend {
         );
 
         let data = self.read_buf(&buf_out, m * n)?;
-        Tensor::from_vec(vec![m, n], data).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![m, n], data)?)
     }
 
     fn add(&self, lhs: &Tensor, rhs: &Tensor) -> Result<Tensor, KernelError> {
@@ -3857,7 +3857,7 @@ impl Backend for GpuBackend {
             && len >= MIN_GPU_ELEMENTS
         {
             let out = self.dispatch_elementwise(lhs.data(), rhs.data(), len, 0)?;
-            return Tensor::from_vec(lhs.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(lhs.shape().to_vec(), out)?);
         }
         crate::add(lhs, rhs)
     }
@@ -3867,7 +3867,7 @@ impl Backend for GpuBackend {
             && len >= MIN_GPU_ELEMENTS
         {
             let out = self.dispatch_elementwise(lhs.data(), rhs.data(), len, 1)?;
-            return Tensor::from_vec(lhs.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(lhs.shape().to_vec(), out)?);
         }
         crate::sub(lhs, rhs)
     }
@@ -3877,7 +3877,7 @@ impl Backend for GpuBackend {
             && len >= MIN_GPU_ELEMENTS
         {
             let out = self.dispatch_elementwise(lhs.data(), rhs.data(), len, 2)?;
-            return Tensor::from_vec(lhs.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(lhs.shape().to_vec(), out)?);
         }
         crate::mul(lhs, rhs)
     }
@@ -3968,7 +3968,7 @@ impl Backend for GpuBackend {
             (div_ceil(rows as u32, 256), 1, 1),
         );
         let data = self.read_buf(&buf_out, rows * cols)?;
-        Tensor::from_vec(shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), data)?)
     }
 
     fn log_softmax_last_dim(&self, input: &Tensor) -> Result<Tensor, KernelError> {
@@ -4013,7 +4013,7 @@ impl Backend for GpuBackend {
             (div_ceil(rows as u32, 256), 1, 1),
         );
         let data = self.read_buf(&buf_out, rows * cols)?;
-        Tensor::from_vec(shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), data)?)
     }
 
     fn logsumexp_last_dim(&self, input: &Tensor) -> Result<Tensor, KernelError> {
@@ -4062,7 +4062,7 @@ impl Backend for GpuBackend {
         if out_shape.is_empty() {
             out_shape.push(1);
         }
-        Tensor::from_vec(out_shape, data).map_err(Into::into)
+        Ok(Tensor::from_vec(out_shape, data)?)
     }
 
     fn layer_norm_last_dim(
@@ -4135,7 +4135,7 @@ impl Backend for GpuBackend {
             (div_ceil(rows as u32, 256), 1, 1),
         );
         let data = self.read_buf(&buf_out, rows * cols)?;
-        Tensor::from_vec(shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), data)?)
     }
 
     fn conv2d_nhwc(
@@ -4255,7 +4255,7 @@ impl Backend for GpuBackend {
             ),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(vec![n, oh, ow, oc], data).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![n, oh, ow, oc], data)?)
     }
 
     fn max_pool2d_nhwc(
@@ -4363,7 +4363,7 @@ impl Backend for GpuBackend {
             (div_ceil(total as u32, 256), 1, 1),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), data)?)
     }
 
     fn depthwise_conv2d_nhwc(
@@ -4470,7 +4470,7 @@ impl Backend for GpuBackend {
             ),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(vec![n, oh, ow, oc], data).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![n, oh, ow, oc], data)?)
     }
 
     fn separable_conv2d_nhwc(
@@ -4562,7 +4562,7 @@ impl Backend for GpuBackend {
             (div_ceil(total as u32, 256), 1, 1),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), data)?)
     }
 
     fn rms_norm_last_dim(
@@ -4630,7 +4630,7 @@ impl Backend for GpuBackend {
             (div_ceil(rows as u32, 256), 1, 1),
         );
         let data = self.read_buf(&buf_out, rows * cols)?;
-        Tensor::from_vec(shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), data)?)
     }
 }
 
@@ -4650,10 +4650,10 @@ impl crate::BackwardOps for GpuBackend {
                 .zip(f.iter())
                 .map(|(&u, &x)| if x > 0.0 { u } else { 0.0 })
                 .collect();
-            return Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?);
         }
         let out = self.dispatch_backward_binary(upstream.data(), forward_input.data(), len, 0)?;
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     fn sigmoid_backward(
@@ -4670,10 +4670,10 @@ impl crate::BackwardOps for GpuBackend {
                 .zip(s.iter())
                 .map(|(&u, &s)| u * s * (1.0 - s))
                 .collect();
-            return Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?);
         }
         let out = self.dispatch_backward_binary(upstream.data(), forward_output.data(), len, 1)?;
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     fn tanh_backward(
@@ -4690,10 +4690,10 @@ impl crate::BackwardOps for GpuBackend {
                 .zip(t.iter())
                 .map(|(&u, &t)| u * (1.0 - t * t))
                 .collect();
-            return Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?);
         }
         let out = self.dispatch_backward_binary(upstream.data(), forward_output.data(), len, 2)?;
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     fn exp_backward(
@@ -4706,10 +4706,10 @@ impl crate::BackwardOps for GpuBackend {
             let u = upstream.data();
             let e = forward_output.data();
             let out: Vec<f32> = u.iter().zip(e.iter()).map(|(&u, &e)| u * e).collect();
-            return Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?);
         }
         let out = self.dispatch_backward_binary(upstream.data(), forward_output.data(), len, 3)?;
-        Tensor::from_vec(upstream.shape().to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(upstream.shape().to_vec(), out)?)
     }
 
     fn reduce_sum_backward(
@@ -4721,10 +4721,10 @@ impl crate::BackwardOps for GpuBackend {
         if len < MIN_GPU_ELEMENTS {
             let grad_val = upstream.data()[0];
             let out = vec![grad_val; len];
-            return Tensor::from_vec(original_shape.to_vec(), out).map_err(Into::into);
+            return Ok(Tensor::from_vec(original_shape.to_vec(), out)?);
         }
         let out = self.dispatch_reduce_sum_backward(upstream.data(), len)?;
-        Tensor::from_vec(original_shape.to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(original_shape.to_vec(), out)?)
     }
 
     fn matmul_backward(
@@ -4826,7 +4826,7 @@ impl crate::BackwardOps for GpuBackend {
                     }
                 }
             }
-            return Tensor::from_vec(input_shape.to_vec(), grad_input).map_err(Into::into);
+            return Ok(Tensor::from_vec(input_shape.to_vec(), grad_input)?);
         }
 
         let buf_up = self.storage_buf(upstream.data());
@@ -4899,7 +4899,7 @@ impl crate::BackwardOps for GpuBackend {
             ),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(input_shape.to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(input_shape.to_vec(), data)?)
     }
 }
 
@@ -5001,7 +5001,7 @@ impl GpuBackend {
             ),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(vec![n, oh, ow, c], data).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![n, oh, ow, c], data)?)
     }
 
     /// Transposed convolution (deconvolution) on GPU.
@@ -5108,7 +5108,7 @@ impl GpuBackend {
             ),
         );
         let data = self.read_buf(&buf_out, total)?;
-        Tensor::from_vec(vec![n, oh, ow, oc], data).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![n, oh, ow, oc], data)?)
     }
 }
 
@@ -5218,7 +5218,7 @@ pub fn gpu_transpose(input: &Tensor) -> Result<Tensor, KernelError> {
         (div_ceil(cols as u32, 16), div_ceil(rows as u32, 16), 1),
     );
     let data = backend.read_buf(&buf_out, rows * cols);
-    Tensor::from_vec(vec![cols, rows], data?).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![cols, rows], data?)?)
 }
 
 // ── f16 bit conversion (no external crate needed) ─────────────────

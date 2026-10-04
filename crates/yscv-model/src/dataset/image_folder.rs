@@ -376,6 +376,6 @@ pub(super) fn load_image_as_normalized_rgb_tensor(
     if image_height == output_height && image_width == output_width {
         Ok(image_tensor)
     } else {
-        resize_nearest(&image_tensor, output_height, output_width).map_err(Into::into)
+        Ok(resize_nearest(&image_tensor, output_height, output_width)?)
     }
 }

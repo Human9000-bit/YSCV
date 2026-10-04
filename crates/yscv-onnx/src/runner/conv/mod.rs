@@ -283,7 +283,10 @@ pub(super) fn repack_depthwise_kernel_once(
             }
         }
     }
-    Tensor::from_vec(vec![kh, kw, channels, depth_mult], dw_data).map_err(OnnxError::from)
+    Ok(Tensor::from_vec(
+        vec![kh, kw, channels, depth_mult],
+        dw_data,
+    )?)
 }
 
 mod fused;
@@ -629,27 +632,23 @@ fn conv_compute_nhwc(
                 yscv_kernels::depthwise_conv2d_nhwc_padded_with_activation(
                     input_nhwc, weight, bias, sh, sw, pt, pl, pb, pr, activation,
                 )
-                .map_err(OnnxError::from)
             } else {
                 let dw_kernel =
                     repack_depthwise_kernel_once(weight, o_ch, i_per_g, kh, kw, c, depth_mult)?;
                 yscv_kernels::depthwise_conv2d_nhwc_padded_with_activation(
                     input_nhwc, &dw_kernel, bias, sh, sw, pt, pl, pb, pr, activation,
                 )
-                .map_err(OnnxError::from)
             }
         } else if is_dw_khwc {
             yscv_kernels::depthwise_conv2d_nhwc_with_activation(
                 input_nhwc, weight, bias, sh, sw, activation,
             )
-            .map_err(OnnxError::from)
         } else {
             let dw_kernel =
                 repack_depthwise_kernel_once(weight, o_ch, i_per_g, kh, kw, c, depth_mult)?;
             yscv_kernels::depthwise_conv2d_nhwc_with_activation(
                 input_nhwc, &dw_kernel, bias, sh, sw, activation,
             )
-            .map_err(OnnxError::from)
         }?;
         note_kernel(planned_kernel, kernel);
         apply_conv_activation(&mut out_nhwc, activation, activation_fused);
@@ -879,12 +878,12 @@ pub(super) fn nchw_to_nhwc(input: &Tensor) -> Result<Tensor, OnnxError> {
     // Uses the specialized AVX 8×8 block transpose when c%8==0 and hw%8==0,
     // falling back to the generic `Tensor::permute` for non-aligned shapes
     // (e.g. first-layer RGB c=3).
-    yscv_kernels::nchw_to_nhwc_fast(input).map_err(OnnxError::from)
+    Ok(yscv_kernels::nchw_to_nhwc_fast(input)?)
 }
 
 /// Convert ONNX Conv weight [O, I, KH, KW] to yscv [KH, KW, I, O]
 pub(super) fn oihw_to_khwc_cout(weight: &Tensor) -> Result<Tensor, OnnxError> {
-    weight.permute(&[2, 3, 1, 0]).map_err(OnnxError::from)
+    Ok(weight.permute(&[2, 3, 1, 0])?)
 }
 
 /// Zero-pad an NHWC tensor on H/W dimensions.
@@ -921,7 +920,7 @@ pub(super) fn pad_nhwc_val(
                 .copy_from_slice(&in_data[src_start..src_start + row_bytes]);
         }
     }
-    Tensor::from_vec(vec![n, oh, ow, c], out).map_err(OnnxError::from)
+    Ok(Tensor::from_vec(vec![n, oh, ow, c], out)?)
 }
 
 // ── BNNS NCHW fast path ────────────────────────────────────────────

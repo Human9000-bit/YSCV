@@ -529,7 +529,7 @@ impl ImageAugmentationPipeline {
         let final_sample_shape = out_sample_shape.unwrap_or_else(|| shape[1..].to_vec());
         let mut final_shape = vec![sample_count];
         final_shape.extend_from_slice(&final_sample_shape);
-        Tensor::from_vec(final_shape, out).map_err(Into::into)
+        Ok(Tensor::from_vec(final_shape, out)?)
     }
 }
 
@@ -553,14 +553,14 @@ fn apply_op(
     match op {
         ImageAugmentationOp::HorizontalFlip { probability } => {
             if should_apply(*probability, rng) {
-                flip_horizontal(&input).map_err(Into::into)
+                Ok(flip_horizontal(&input)?)
             } else {
                 Ok(input)
             }
         }
         ImageAugmentationOp::VerticalFlip { probability } => {
             if should_apply(*probability, rng) {
-                flip_vertical(&input).map_err(Into::into)
+                Ok(flip_vertical(&input)?)
             } else {
                 Ok(input)
             }
@@ -604,7 +604,7 @@ fn apply_op(
         }
         ImageAugmentationOp::BoxBlur3x3 { probability } => {
             if should_apply(*probability, rng) {
-                box_blur_3x3(&input).map_err(Into::into)
+                Ok(box_blur_3x3(&input)?)
             } else {
                 Ok(input)
             }
@@ -636,9 +636,7 @@ fn apply_op(
                 rng,
             )
         }
-        ImageAugmentationOp::ChannelNormalize { mean, std } => {
-            normalize(&input, mean, std).map_err(Into::into)
-        }
+        ImageAugmentationOp::ChannelNormalize { mean, std } => Ok(normalize(&input, mean, std)?),
         ImageAugmentationOp::Custom(f) => f(&input),
         ImageAugmentationOp::RandomCrop { height, width } => {
             apply_random_crop(&input, *height, *width, rng)
@@ -654,7 +652,7 @@ fn apply_brightness_delta(input: &Tensor, delta: f32) -> Result<Tensor, ModelErr
     for value in input.data() {
         output.push((*value + delta).clamp(0.0, 1.0));
     }
-    Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_vec(input.shape().to_vec(), output)?)
 }
 
 fn apply_random_rotate90(input: Tensor, rng: &mut LcgRng) -> Result<Tensor, ModelError> {
@@ -697,7 +695,7 @@ fn apply_contrast_scale(input: &Tensor, scale: f32) -> Result<Tensor, ModelError
         let scaled = (*value - mean) * scale + mean;
         output.push(scaled.clamp(0.0, 1.0));
     }
-    Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_vec(input.shape().to_vec(), output)?)
 }
 
 fn apply_gamma_correction(input: &Tensor, gamma: f32) -> Result<Tensor, ModelError> {
@@ -705,7 +703,7 @@ fn apply_gamma_correction(input: &Tensor, gamma: f32) -> Result<Tensor, ModelErr
     for value in input.data() {
         output.push(value.clamp(0.0, 1.0).powf(gamma));
     }
-    Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_vec(input.shape().to_vec(), output)?)
 }
 
 fn apply_gaussian_noise(
@@ -718,7 +716,7 @@ fn apply_gaussian_noise(
         let noise = rng.next_gaussian() * std_dev;
         output.push((*value + noise).clamp(0.0, 1.0));
     }
-    Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_vec(input.shape().to_vec(), output)?)
 }
 
 fn apply_cutout(
@@ -763,7 +761,7 @@ fn apply_cutout(
             }
         }
     }
-    Tensor::from_vec(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_vec(input.shape().to_vec(), output)?)
 }
 
 fn apply_random_resized_crop(
@@ -810,7 +808,7 @@ fn apply_random_resized_crop(
     }
 
     let cropped_tensor = Tensor::from_vec(vec![crop_height, crop_width, channels], cropped)?;
-    resize_nearest(&cropped_tensor, height, width).map_err(Into::into)
+    Ok(resize_nearest(&cropped_tensor, height, width)?)
 }
 
 fn apply_random_crop(
@@ -852,7 +850,10 @@ fn apply_random_crop(
         }
     }
 
-    Tensor::from_vec(vec![crop_height, crop_width, channels], cropped).map_err(Into::into)
+    Ok(Tensor::from_vec(
+        vec![crop_height, crop_width, channels],
+        cropped,
+    )?)
 }
 
 fn apply_gaussian_blur(input: &Tensor, kernel_size: usize) -> Result<Tensor, ModelError> {
@@ -917,7 +918,7 @@ fn apply_gaussian_blur(input: &Tensor, kernel_size: usize) -> Result<Tensor, Mod
         }
     }
 
-    Tensor::from_vec(vec![height, width, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![height, width, channels], out)?)
 }
 
 fn validate_probability(operation: &'static str, probability: f32) -> Result<(), ModelError> {

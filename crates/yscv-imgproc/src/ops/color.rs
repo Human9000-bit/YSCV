@@ -71,7 +71,7 @@ pub fn rgb_to_grayscale(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_aligned(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, 1], out)?)
 }
 
 /// Returns number of pixels processed by SIMD.
@@ -359,7 +359,7 @@ pub fn rgb_to_hsv(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, 3], out)?)
 }
 
 /// Returns number of pixels processed by SIMD.
@@ -707,7 +707,7 @@ pub fn hsv_to_rgb(input: &Tensor) -> Result<Tensor, ImgProcError> {
         out[i * 3 + 2] = b;
     }
 
-    Tensor::from_vec(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 3], out)?)
 }
 
 /// Pre-computed sRGB → linear LUT (256 entries).
@@ -849,7 +849,7 @@ pub fn rgb_to_lab(input: &Tensor) -> Result<Tensor, ImgProcError> {
         if !cfg!(miri) {
             use super::u8ops::gcd;
             gcd::parallel_for(h, process_row);
-            return Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into);
+            return Ok(Tensor::from_aligned(vec![h, w, 3], out)?);
         }
 
         out.par_chunks_mut(w * 3)
@@ -858,7 +858,7 @@ pub fn rgb_to_lab(input: &Tensor) -> Result<Tensor, ImgProcError> {
                 process_row(row);
             });
 
-        return Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![h, w, 3], out)?);
     }
 
     // Small image path: single-threaded SIMD + scalar tail.
@@ -895,7 +895,7 @@ pub fn rgb_to_lab(input: &Tensor) -> Result<Tensor, ImgProcError> {
         out[i * 3 + 2] = 200.0 * (fy - fz);
     }
 
-    Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, 3], out)?)
 }
 
 /// Returns number of pixels processed by SIMD.
@@ -1319,7 +1319,7 @@ pub fn lab_to_rgb(input: &Tensor) -> Result<Tensor, ImgProcError> {
         out[i * 3 + 2] = linear_to_srgb(lin_b).clamp(0.0, 1.0) as f32;
     }
 
-    Tensor::from_vec(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 3], out)?)
 }
 
 /// Converts RGB `[H, W, 3]` to YUV `[H, W, 3]` using BT.601 coefficients.
@@ -1366,7 +1366,7 @@ pub fn rgb_to_yuv(input: &Tensor) -> Result<Tensor, ImgProcError> {
                 dst_row[i * 3 + 2] = 0.615 * r - 0.51499 * g - 0.10001 * b;
             }
         });
-        return Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![h, w, 3], out)?);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1386,7 +1386,7 @@ pub fn rgb_to_yuv(input: &Tensor) -> Result<Tensor, ImgProcError> {
                     dst_row[i * 3 + 2] = 0.615 * r - 0.51499 * g - 0.10001 * b;
                 }
             });
-        return Tensor::from_vec(vec![h, w, 3], out).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, 3], out)?);
     }
 
     // SAFETY: the conversion writes every output element before returning.
@@ -1405,7 +1405,7 @@ pub fn rgb_to_yuv(input: &Tensor) -> Result<Tensor, ImgProcError> {
         out[i * 3 + 2] = 0.615 * r - 0.51499 * g - 0.10001 * b;
     }
 
-    Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, 3], out)?)
 }
 
 /// Returns number of pixels processed by SIMD.
@@ -1658,7 +1658,7 @@ pub fn yuv_to_rgb(input: &Tensor) -> Result<Tensor, ImgProcError> {
             .for_each(|(i, chunk)| compute(chunk, i));
     }
 
-    Tensor::from_vec(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 3], out)?)
 }
 
 // --- Helper functions for LAB conversion ---
@@ -1775,7 +1775,7 @@ pub fn rgb_to_bgr(input: &Tensor) -> Result<Tensor, ImgProcError> {
                 dst_row[i * 3 + 2] = src_row[i * 3];
             }
         });
-        return Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![h, w, 3], out)?);
     }
 
     #[cfg(not(target_os = "macos"))]
@@ -1792,7 +1792,7 @@ pub fn rgb_to_bgr(input: &Tensor) -> Result<Tensor, ImgProcError> {
                     dst_row[i * 3 + 2] = src_row[i * 3];
                 }
             });
-        return Tensor::from_vec(vec![h, w, 3], out).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, 3], out)?);
     }
 
     // SAFETY: the conversion writes every output element before returning.
@@ -1808,7 +1808,7 @@ pub fn rgb_to_bgr(input: &Tensor) -> Result<Tensor, ImgProcError> {
         out[i * 3 + 2] = data[i * 3];
     }
 
-    Tensor::from_aligned(vec![h, w, 3], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, 3], out)?)
 }
 
 /// Returns number of pixels processed by SIMD.

@@ -270,7 +270,7 @@ impl MultiGpuBackend {
             combined.extend_from_slice(partial.data());
         }
 
-        Tensor::from_vec(vec![m, n], combined).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![m, n], combined)?)
     }
 }
 

@@ -768,10 +768,9 @@ fn parallel_chunk_elements_for_threads(len: usize, thread_pool: Option<&ThreadPo
 }
 
 fn binary_fallback(lhs: &Tensor, rhs: &Tensor, kind: BinaryKind) -> Result<Tensor, KernelError> {
-    match kind {
+    Ok(match kind {
         BinaryKind::Add => lhs.add(rhs),
         BinaryKind::Sub => lhs.sub(rhs),
         BinaryKind::Mul => lhs.mul(rhs),
-    }
-    .map_err(Into::into)
+    }?)
 }

@@ -54,7 +54,7 @@ pub fn normalize(input: &Tensor, mean: &[f32], std: &[f32]) -> Result<Tensor, Im
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 #[allow(unsafe_code)]

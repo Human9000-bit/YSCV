@@ -149,5 +149,5 @@ pub fn preprocess_rgb8_for_model(
         }
     }
 
-    Tensor::from_vec(vec![1, target_h, target_w, 3], data).map_err(DetectError::Tensor)
+    Ok(Tensor::from_vec(vec![1, target_h, target_w, 3], data)?)
 }

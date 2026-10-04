@@ -35,7 +35,7 @@ impl RnnCell {
         let sum = xw.add(&hw)?;
         let sum = sum.add(&self.bias.unsqueeze(0)?)?;
         let data: Vec<f32> = sum.data().iter().map(|&v| v.tanh()).collect();
-        Tensor::from_vec(sum.shape().to_vec(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(sum.shape().to_vec(), data)?)
     }
 }
 
@@ -152,7 +152,7 @@ impl GruCell {
             }
         }
 
-        Tensor::from_vec(vec![batch, hs], h_new).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![batch, hs], h_new)?)
     }
 }
 
@@ -298,7 +298,7 @@ pub fn bilstm_forward_sequence(
         }
     }
 
-    Tensor::from_vec(vec![batch, seq_len, 2 * hs], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![batch, seq_len, 2 * hs], out)?)
 }
 
 fn sigmoid_f32(x: f32) -> f32 {

@@ -38,11 +38,10 @@ fn pool2d_nhwc_with_config_and_pool(
     let data = input.data();
     let out_row_len = plan.out_w * plan.channels;
     if plan.output_len == 0 || out_row_len == 0 {
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![plan.batch, plan.out_h, plan.out_w, plan.channels],
             AlignedVec::<f32>::calloc(plan.output_len),
-        )
-        .map_err(Into::into);
+        )?);
     }
 
     // SAFETY: pooling writes every output element before returning.
@@ -65,11 +64,10 @@ fn pool2d_nhwc_with_config_and_pool(
         }
     }
 
-    Tensor::from_aligned(
+    Ok(Tensor::from_aligned(
         vec![plan.batch, plan.out_h, plan.out_w, plan.channels],
         output,
-    )
-    .map_err(Into::into)
+    )?)
 }
 
 fn build_pool2d_plan(input: &Tensor, spec: Pool2dSpec) -> Result<Pool2dPlan, KernelError> {
@@ -750,5 +748,5 @@ fn pool2d_nchw(
         }
     }
 
-    Tensor::from_aligned(vec![n, c, oh, ow], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![n, c, oh, ow], output)?)
 }

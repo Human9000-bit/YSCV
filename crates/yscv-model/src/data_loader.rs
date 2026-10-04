@@ -290,7 +290,7 @@ fn stack_tensors(tensors: &[&Tensor]) -> Result<Tensor, ModelError> {
         data.extend_from_slice(tensor.data());
     }
 
-    Tensor::from_vec(batch_shape, data).map_err(ModelError::from)
+    Ok(Tensor::from_vec(batch_shape, data)?)
 }
 
 /// Build a single batch from the given sample indices.
@@ -667,6 +667,6 @@ impl StreamingDataLoader {
                 data[s + 3],
             ]));
         }
-        Tensor::from_vec(shape, values).map_err(ModelError::from)
+        Ok(Tensor::from_vec(shape, values)?)
     }
 }

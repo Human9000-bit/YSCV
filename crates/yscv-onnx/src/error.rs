@@ -168,3 +168,11 @@ pub enum OnnxError {
     #[error("{lock} lock poisoned")]
     LockPoisoned { lock: &'static str },
 }
+
+impl From<rayon::ThreadPoolBuildError> for OnnxError {
+    fn from(source: rayon::ThreadPoolBuildError) -> Self {
+        Self::ThreadPool {
+            source: Arc::new(source),
+        }
+    }
+}

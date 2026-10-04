@@ -143,7 +143,7 @@ pub fn histogram_equalize(input: &Tensor) -> Result<Tensor, ImgProcError> {
         })
         .collect();
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Computes the integral (summed-area table) image from a `[H, W, 1]` tensor.
@@ -195,7 +195,7 @@ pub fn integral_image(input: &Tensor) -> Result<Tensor, ImgProcError> {
         integral_add_row(&mut sat, prev, cur, w);
     }
 
-    Tensor::from_vec(vec![h, w, 1], sat).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], sat)?)
 }
 
 /// Adds `sat[prev_off..prev_off+w]` into `sat[cur_off..cur_off+w]` using SIMD.
@@ -382,5 +382,5 @@ pub fn clahe(
         });
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }

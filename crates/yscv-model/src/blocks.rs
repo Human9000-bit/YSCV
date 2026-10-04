@@ -166,7 +166,7 @@ impl SqueezeExciteBlock {
                 }
             }
         }
-        Tensor::from_vec(shape.to_vec(), out).map_err(Into::into)
+        Ok(Tensor::from_vec(shape.to_vec(), out)?)
     }
 }
 
@@ -589,7 +589,7 @@ impl AnchorFreeHead {
 
 fn relu_nhwc(t: &Tensor) -> Result<Tensor, ModelError> {
     let data: Vec<f32> = t.data().iter().map(|&v| v.max(0.0)).collect();
-    Tensor::from_vec(t.shape().to_vec(), data).map_err(Into::into)
+    Ok(Tensor::from_vec(t.shape().to_vec(), data)?)
 }
 
 fn upsample_nearest_2x_nhwc(t: &Tensor) -> Result<Tensor, ModelError> {
@@ -610,7 +610,7 @@ fn upsample_nearest_2x_nhwc(t: &Tensor) -> Result<Tensor, ModelError> {
             }
         }
     }
-    Tensor::from_vec(vec![n, new_h, new_w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![n, new_h, new_w, c], out)?)
 }
 
 fn cat_nhwc_channel(a: &Tensor, b: &Tensor) -> Result<Tensor, ModelError> {
@@ -633,7 +633,7 @@ fn cat_nhwc_channel(a: &Tensor, b: &Tensor) -> Result<Tensor, ModelError> {
             }
         }
     }
-    Tensor::from_vec(vec![n, h, w, ca + cb], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![n, h, w, ca + cb], out)?)
 }
 
 fn crop_nhwc(t: &Tensor, target_h: usize, target_w: usize) -> Result<Tensor, ModelError> {
@@ -652,7 +652,7 @@ fn crop_nhwc(t: &Tensor, target_h: usize, target_w: usize) -> Result<Tensor, Mod
             }
         }
     }
-    Tensor::from_vec(vec![n, target_h, target_w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![n, target_h, target_w, c], out)?)
 }
 
 // ---------------------------------------------------------------------------
@@ -749,9 +749,7 @@ impl PatchEmbedding {
         let projected = projected.add(&self.projection_b.unsqueeze(0)?)?;
 
         // Reshape to [batch, num_patches, embed_dim]
-        projected
-            .reshape(vec![batch, num_patches, self.embed_dim])
-            .map_err(Into::into)
+        Ok(projected.reshape(vec![batch, num_patches, self.embed_dim])?)
     }
 }
 

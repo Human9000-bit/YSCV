@@ -79,5 +79,5 @@ pub fn inpaint_telea(img: &Tensor, mask: &Tensor, radius: usize) -> Result<Tenso
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }

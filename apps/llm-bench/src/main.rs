@@ -64,6 +64,8 @@ enum CliError {
     BadIds(String),
     #[error("yscv-onnx: {0}")]
     Onnx(#[from] yscv_onnx::OnnxError),
+    #[error("yscv-tensor: {0}")]
+    Tensor(#[from] yscv_tensor::TensorError),
 }
 
 #[derive(Debug)]
@@ -369,10 +371,8 @@ fn run(args: Args) -> Result<(), CliError> {
     if use_kv_cache {
         let (_, n_heads, head_dim) = args.kv_shape.unwrap();
         for _ in 0..n_layers_for_kv {
-            let k = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new())
-                .map_err(yscv_onnx::OnnxError::from)?;
-            let v = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new())
-                .map_err(yscv_onnx::OnnxError::from)?;
+            let k = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new())?;
+            let v = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new())?;
             past_kv.push((k, v));
         }
     }

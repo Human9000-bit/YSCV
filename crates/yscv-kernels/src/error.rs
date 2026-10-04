@@ -368,3 +368,11 @@ pub enum KernelError {
         reason: &'static str,
     },
 }
+
+impl From<rayon::ThreadPoolBuildError> for KernelError {
+    fn from(source: rayon::ThreadPoolBuildError) -> Self {
+        Self::ThreadPoolBuild {
+            source: Arc::new(source),
+        }
+    }
+}

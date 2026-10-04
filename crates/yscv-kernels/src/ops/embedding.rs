@@ -41,7 +41,7 @@ pub fn embedding_lookup(weight: &Tensor, indices: &Tensor) -> Result<Tensor, Ker
 
     let mut out_shape = indices.shape().to_vec();
     out_shape.push(embed_dim);
-    Tensor::from_aligned(out_shape, output).map_err(Into::into)
+    Ok(Tensor::from_aligned(out_shape, output)?)
 }
 
 /// Applies dropout: randomly zeroes elements with probability `p`.
@@ -59,7 +59,7 @@ pub fn dropout(input: &Tensor, p: f32, seed: u64, training: bool) -> Result<Tens
     }
     if p >= 1.0 {
         let zeros = AlignedVec::<f32>::calloc(input.len());
-        return Tensor::from_aligned(input.shape().to_vec(), zeros).map_err(Into::into);
+        return Ok(Tensor::from_aligned(input.shape().to_vec(), zeros)?);
     }
 
     let scale = 1.0 / (1.0 - p);
@@ -79,5 +79,5 @@ pub fn dropout(input: &Tensor, p: f32, seed: u64, training: bool) -> Result<Tens
         output[i] = if state < threshold { 0.0 } else { val * scale };
     }
 
-    Tensor::from_aligned(input.shape().to_vec(), output).map_err(Into::into)
+    Ok(Tensor::from_aligned(input.shape().to_vec(), output)?)
 }

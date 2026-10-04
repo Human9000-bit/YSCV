@@ -36,7 +36,7 @@ pub fn threshold_binary(
                 unsafe { std::slice::from_raw_parts_mut(dst_ptr.ptr().add(y * row_len), row_len) };
             threshold_binary_simd_slice(src, dst, threshold, max_val);
         });
-        return Tensor::from_aligned(vec![h, w, channels], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![h, w, channels], out)?);
     }
 
     if len >= RAYON_THRESHOLD {
@@ -49,7 +49,7 @@ pub fn threshold_binary(
     } else {
         threshold_binary_simd_slice(data, &mut out, threshold, max_val);
     }
-    Tensor::from_aligned(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, channels], out)?)
 }
 
 /// Inverse binary threshold: outputs `0.0` where value > threshold, else `max_val`.
@@ -80,7 +80,7 @@ pub fn threshold_binary_inv(
                 unsafe { std::slice::from_raw_parts_mut(dst_ptr.ptr().add(y * row_len), row_len) };
             threshold_binary_inv_simd_slice(src, dst, threshold, max_val);
         });
-        return Tensor::from_aligned(vec![h, w, channels], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![h, w, channels], out)?);
     }
 
     if len >= RAYON_THRESHOLD {
@@ -93,7 +93,7 @@ pub fn threshold_binary_inv(
     } else {
         threshold_binary_inv_simd_slice(data, &mut out, threshold, max_val);
     }
-    Tensor::from_aligned(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, channels], out)?)
 }
 
 /// Truncate threshold: caps values above `threshold`.
@@ -120,7 +120,7 @@ pub fn threshold_truncate(input: &Tensor, threshold: f32) -> Result<Tensor, ImgP
                 unsafe { std::slice::from_raw_parts_mut(dst_ptr.ptr().add(y * row_len), row_len) };
             threshold_truncate_simd_slice(src, dst, threshold);
         });
-        return Tensor::from_aligned(vec![h, w, channels], out).map_err(Into::into);
+        return Ok(Tensor::from_aligned(vec![h, w, channels], out)?);
     }
 
     if len >= RAYON_THRESHOLD {
@@ -133,7 +133,7 @@ pub fn threshold_truncate(input: &Tensor, threshold: f32) -> Result<Tensor, ImgP
     } else {
         threshold_truncate_simd_slice(data, &mut out, threshold);
     }
-    Tensor::from_aligned(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_aligned(vec![h, w, channels], out)?)
 }
 
 /// SIMD-accelerated binary threshold for an entire slice.
@@ -865,7 +865,7 @@ pub fn canny_with_scratch(
         .iter()
         .map(|&e| if e == 2 { 1.0 } else { 0.0 })
         .collect();
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Adaptive threshold using a local mean window.
@@ -917,7 +917,7 @@ pub fn adaptive_threshold_mean(
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Adaptive threshold using a Gaussian-weighted local window.
@@ -989,7 +989,7 @@ pub fn adaptive_threshold_gaussian(
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// Connected-component labeling on a binary single-channel HWC image (4-connectivity).

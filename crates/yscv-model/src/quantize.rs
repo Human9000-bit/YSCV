@@ -72,7 +72,7 @@ impl QuantizedTensor {
             .iter()
             .map(|&q| (q as f32 - self.zero_point as f32) * self.scale)
             .collect();
-        Tensor::from_vec(self.shape.clone(), data).map_err(Into::into)
+        Ok(Tensor::from_vec(self.shape.clone(), data)?)
     }
 
     /// Number of elements.

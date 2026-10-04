@@ -459,7 +459,7 @@ pub fn watershed(image: &Tensor, markers: &Tensor) -> Result<Tensor, ImgProcErro
         }
     }
     let out_data: Vec<f32> = labels.iter().map(|&l| l as f32).collect();
-    Tensor::from_vec(vec![h, w, 1], out_data).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out_data)?)
 }
 
 /// Dense optical flow estimation between two grayscale `[H,W,1]` frames.
@@ -557,5 +557,5 @@ pub fn dense_optical_flow(
             out.push(flow_y[y * w + x]);
         }
     }
-    Tensor::from_vec(vec![h, w, 2], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 2], out)?)
 }

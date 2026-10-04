@@ -93,7 +93,9 @@ pub struct CameraDiagnosticsViolation {
 pub fn parse_camera_diagnostics_report_json(
     text: &str,
 ) -> Result<CameraDiagnosticsReport, EvalError> {
-    Ok(serde_json::from_str(text).map_err(Arc::new)?)
+    serde_json::from_str(text).map_err(|source| EvalError::InvalidDiagnosticsReport {
+        source: Arc::new(source),
+    })
 }
 
 pub fn load_camera_diagnostics_report_json_file(

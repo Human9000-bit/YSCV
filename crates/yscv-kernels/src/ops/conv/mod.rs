@@ -500,11 +500,10 @@ pub fn conv2d_nhwc_pointwise_with_residual_relu(
             m,
             activation,
         );
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
             output,
-        )
-        .map_err(Into::into);
+        )?);
     }
     if !pointwise_nx16_direct_disabled()
         && n.is_multiple_of(16)
@@ -527,11 +526,10 @@ pub fn conv2d_nhwc_pointwise_with_residual_relu(
             n,
             activation,
         );
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
             output,
-        )
-        .map_err(Into::into);
+        )?);
     }
     let pointwise_matmul_cfg = pointwise_conv_matmul_config(m, k, n);
     let epilogue = super::matmul::GemmEpilogue {
@@ -552,11 +550,10 @@ pub fn conv2d_nhwc_pointwise_with_residual_relu(
         pointwise_matmul_cfg,
         thread_pool,
     );
-    Tensor::from_aligned(
+    Ok(Tensor::from_aligned(
         vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
         output,
-    )
-    .map_err(Into::into)
+    )?)
 }
 
 /// NHWC convolution with fused activation using a pre-packed weight panel.
@@ -608,11 +605,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
             thread_pool,
         );
         note_conv_path(ConvKernelPath::FirstLayerRgb3x3);
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
             output,
-        )
-        .map_err(Into::into);
+        )?);
     }
 
     // 1x1 pointwise conv is exactly GEMM over flattened NHWC rows:
@@ -636,11 +632,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
                 activation,
             );
             note_conv_path(ConvKernelPath::Pointwise16x16Direct);
-            return Tensor::from_aligned(
+            return Ok(Tensor::from_aligned(
                 vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
                 output,
-            )
-            .map_err(Into::into);
+            )?);
         }
         // Mirror the same nx16 fast path used by conv2d_nhwc_pointwise_with_residual_relu.
         // Effective for non-residual 1T shapes with n%16==0, n>=32, m<=1024
@@ -668,11 +663,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
                 activation,
             );
             note_conv_path(ConvKernelPath::PointwiseNx16Direct);
-            return Tensor::from_aligned(
+            return Ok(Tensor::from_aligned(
                 vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
                 output,
-            )
-            .map_err(Into::into);
+            )?);
         }
         let epilogue = super::matmul::GemmEpilogue {
             bias: bias.map(|b| b.data().as_ptr()),
@@ -698,11 +692,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
             thread_pool,
         );
         note_conv_path(ConvKernelPath::PointwiseGemm);
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
             output,
-        )
-        .map_err(Into::into);
+        )?);
     }
     // Non-pointwise: delegate to the original non-prepacked path by calling
     // the inner body (copy-paste of the rest of the function). We keep the
@@ -764,8 +757,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
             (None, Activation::None) => {}
         }
         note_conv_path(ConvKernelPath::Direct3x3);
-        return Tensor::from_aligned(vec![1, plan.out_h, plan.out_w, plan.out_channels], output)
-            .map_err(Into::into);
+        return Ok(Tensor::from_aligned(
+            vec![1, plan.out_h, plan.out_w, plan.out_channels],
+            output,
+        )?);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -815,8 +810,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
             (None, Activation::None) => {}
         }
         note_conv_path(ConvKernelPath::Direct3x3);
-        return Tensor::from_aligned(vec![1, plan.out_h, plan.out_w, plan.out_channels], output)
-            .map_err(Into::into);
+        return Ok(Tensor::from_aligned(
+            vec![1, plan.out_h, plan.out_w, plan.out_channels],
+            output,
+        )?);
     }
 
     #[cfg(target_arch = "x86_64")]
@@ -865,8 +862,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
             (None, Activation::None) => {}
         }
         note_conv_path(ConvKernelPath::Direct3x3);
-        return Tensor::from_aligned(vec![1, plan.out_h, plan.out_w, plan.out_channels], output)
-            .map_err(Into::into);
+        return Ok(Tensor::from_aligned(
+            vec![1, plan.out_h, plan.out_w, plan.out_channels],
+            output,
+        )?);
     }
 
     // im2col + BLAS sgemm path — only beneficial with external BLAS whose highly
@@ -891,11 +890,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
     let bias_data = bias.map(Tensor::data);
     let out_row_len = plan.out_w * plan.out_channels;
     if plan.output_len == 0 || out_row_len == 0 {
-        return Tensor::from_vec(
+        return Ok(Tensor::from_vec(
             vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
             vec![],
-        )
-        .map_err(Into::into);
+        )?);
     }
 
     // SAFETY: `conv2d_nhwc_row` writes every element in each output row.
@@ -945,11 +943,10 @@ pub fn conv2d_nhwc_with_activation_prepacked(
         apply_conv_activation_inplace(&mut output, activation);
     }
 
-    Tensor::from_aligned(
+    Ok(Tensor::from_aligned(
         vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
         output,
-    )
-    .map_err(Into::into)
+    )?)
 }
 
 /// NHWC depthwise convolution with an explicit parallel config and thread pool.
@@ -990,11 +987,10 @@ pub fn depthwise_conv2d_nhwc_with_activation_with_config_and_pool(
     let bias_data = bias.map(Tensor::data);
     let out_row_len = plan.out_w * plan.out_channels;
     if plan.output_len == 0 || out_row_len == 0 {
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
             AlignedVec::<f32>::calloc(plan.output_len),
-        )
-        .map_err(Into::into);
+        )?);
     }
 
     // SAFETY: convolution writes every output element before returning.
@@ -1030,11 +1026,10 @@ pub fn depthwise_conv2d_nhwc_with_activation_with_config_and_pool(
         }
     }
 
-    Tensor::from_aligned(
+    Ok(Tensor::from_aligned(
         vec![plan.batch, plan.out_h, plan.out_w, plan.out_channels],
         output,
-    )
-    .map_err(Into::into)
+    )?)
 }
 
 /// Depthwise Conv2D with implicit zero-padding — avoids separate padded input allocation.
@@ -1164,11 +1159,10 @@ pub fn depthwise_conv2d_nhwc_padded_with_activation_with_config_and_pool(
         })?;
     let out_row_len = out_w * out_channels;
     if output_len == 0 || out_row_len == 0 {
-        return Tensor::from_aligned(
+        return Ok(Tensor::from_aligned(
             vec![batch, out_h, out_w, out_channels],
             AlignedVec::<f32>::calloc(output_len),
-        )
-        .map_err(Into::into);
+        )?);
     }
 
     let in_data = input.data();
@@ -1211,8 +1205,10 @@ pub fn depthwise_conv2d_nhwc_padded_with_activation_with_config_and_pool(
             thread_pool,
         );
         note_conv_path(ConvKernelPath::DwC16Avx512);
-        return Tensor::from_aligned(vec![batch, out_h, out_w, out_channels], output)
-            .map_err(Into::into);
+        return Ok(Tensor::from_aligned(
+            vec![batch, out_h, out_w, out_channels],
+            output,
+        )?);
     }
 
     // SAFETY: convolution writes every output element before returning.
@@ -1325,8 +1321,10 @@ pub fn depthwise_conv2d_nhwc_padded_with_activation_with_config_and_pool(
                 run(0, item);
             }
         }
-        return Tensor::from_aligned(vec![batch, out_h, out_w, out_channels], output)
-            .map_err(Into::into);
+        return Ok(Tensor::from_aligned(
+            vec![batch, out_h, out_w, out_channels],
+            output,
+        )?);
     }
 
     // Interior pixels (the bulk) run the dm1 row kernel; the padded border is
@@ -1682,7 +1680,10 @@ pub fn depthwise_conv2d_nhwc_padded_with_activation_with_config_and_pool(
         }
     }
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, out_channels], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, out_channels],
+        output,
+    )?)
 }
 
 /// NHWC separable (depthwise + pointwise) convolution with explicit config and thread pool.
@@ -2068,7 +2069,10 @@ fn fused_dw_pw_nhwc_true_fused_dm1(
         apply_conv_activation_inplace(out_row, pw_activation);
     }
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, pw_out_ch], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, pw_out_ch],
+        output,
+    )?)
 }
 
 /// Fused depthwise + pointwise convolution.
@@ -2194,7 +2198,10 @@ fn fused_dw_pw_nhwc(
         },
     );
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, pw_out_ch], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, pw_out_ch],
+        output,
+    )?)
 }
 
 #[allow(unsafe_code, clippy::too_many_arguments)]
@@ -2318,7 +2325,10 @@ fn fused_dw_pw_nhwc_padded_dm1(
         },
     );
 
-    Tensor::from_aligned(vec![batch, out_h, out_w, pw_out_ch], output).map_err(Into::into)
+    Ok(Tensor::from_aligned(
+        vec![batch, out_h, out_w, pw_out_ch],
+        output,
+    )?)
 }
 
 #[allow(clippy::too_many_arguments)]

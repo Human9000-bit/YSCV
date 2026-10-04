@@ -259,7 +259,7 @@ pub fn box_blur_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
                 unsafe { std::slice::from_raw_parts_mut(out_ptr.ptr().add(y * row_len), row_len) };
             compute_row(y, row);
         });
-        return Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, channels], out)?);
     }
 
     if pixels > 4096 {
@@ -272,7 +272,7 @@ pub fn box_blur_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
             .for_each(|(y, row)| compute_row(y, row));
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 // ── Gaussian blur (separable) ─────────────────────────────────────
@@ -491,7 +491,7 @@ pub fn gaussian_blur_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
                 unsafe { std::slice::from_raw_parts_mut(out_ptr.ptr().add(y * row_len), row_len) };
             compute_row(y, row);
         });
-        return Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, channels], out)?);
     }
 
     if pixels > 4096 {
@@ -504,7 +504,7 @@ pub fn gaussian_blur_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
             .for_each(|(y, row)| compute_row(y, row));
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// SIMD vertical `[1,2,1]`/4 pass for c=1
@@ -675,7 +675,7 @@ pub fn gaussian_blur_5x5(input: &Tensor) -> Result<Tensor, ImgProcError> {
             .for_each(|(y, row)| compute_row(y, row));
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 // ── Generic 3x3 kernel (with interior/border split) ───────────────
@@ -749,7 +749,7 @@ pub(crate) fn apply_kernel_3x3(
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Returns an iterator of (y, x) border pixel coordinates for a 3x3 kernel.
@@ -875,7 +875,7 @@ pub fn median_blur_3x3(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Applies NxN median filter on a single-channel `[H, W, 1]` image.
@@ -917,7 +917,7 @@ pub fn median_filter(input: &Tensor, kernel_size: usize) -> Result<Tensor, ImgPr
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// NEON-accelerated bilateral filter for an entire interior row.
@@ -1340,7 +1340,7 @@ pub fn bilateral_filter(
             let row = unsafe { std::slice::from_raw_parts_mut(out_ptr.ptr().add(y * w), w) };
             compute_row(y, row);
         });
-        return Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into);
+        return Ok(Tensor::from_vec(vec![h, w, 1], out)?);
     }
 
     if pixels > 4096 {
@@ -1353,7 +1353,7 @@ pub fn bilateral_filter(
             .for_each(|(y, row)| compute_row(y, row));
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }
 
 /// 2D convolution of a single-channel `[H, W, 1]` image with an arbitrary kernel `[KH, KW, 1]`.
@@ -1396,5 +1396,5 @@ pub fn filter2d(input: &Tensor, kernel: &Tensor) -> Result<Tensor, ImgProcError>
         }
     }
 
-    Tensor::from_vec(vec![h, w, 1], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, 1], out)?)
 }

@@ -71,7 +71,7 @@ pub enum EvalError {
     },
     #[error("invalid diagnostics report: {source}")]
     InvalidDiagnosticsReport {
-        #[from]
+        #[source]
         source: Arc<serde_json::Error>,
     },
     #[error("diagnostics report I/O error for {path:?}: {source}")]
@@ -92,7 +92,7 @@ pub enum EvalError {
 #[derive(Debug, Clone, Error)]
 pub enum DatasetFormatError {
     #[error("invalid JSON: {0}")]
-    Json(#[from] Arc<serde_json::Error>),
+    Json(#[source] Arc<serde_json::Error>),
     #[error("invalid XML: {0}")]
     Xml(#[from] roxmltree::Error),
     #[error("{record} {index}: unreadable CSV record: {source}")]
@@ -184,4 +184,10 @@ pub enum DatasetFormatError {
         expected: usize,
         got: usize,
     },
+}
+
+impl From<serde_json::Error> for DatasetFormatError {
+    fn from(source: serde_json::Error) -> Self {
+        Self::Json(Arc::new(source))
+    }
 }

@@ -571,7 +571,7 @@ fn transpose_2d(input: &Tensor) -> Result<Tensor, AutogradError> {
             data[col * rows + row] = input.data()[row * cols + col];
         }
     }
-    Tensor::from_vec(vec![cols, rows], data).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![cols, rows], data)?)
 }
 
 fn reduce_broadcast_gradient(

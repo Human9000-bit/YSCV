@@ -76,9 +76,7 @@ impl RnnLayer {
         let bias = self
             .b_h_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "Rnn" })?;
-        graph
-            .rnn_forward(input, w_ih, w_hh, bias)
-            .map_err(Into::into)
+        Ok(graph.rnn_forward(input, w_ih, w_hh, bias)?)
     }
 
     /// Forward inference: input `[seq_len, input_size]` -> `[seq_len, hidden_size]`.
@@ -101,9 +99,7 @@ impl RnnLayer {
         };
         let (output, _) = rnn_forward_sequence(&cell, &batched, None)?;
         // output is [1, seq_len, hidden_size], reshape to [seq_len, hidden_size]
-        output
-            .reshape(vec![seq_len, self.hidden_size])
-            .map_err(Into::into)
+        Ok(output.reshape(vec![seq_len, self.hidden_size])?)
     }
 }
 
@@ -164,9 +160,7 @@ impl LstmLayer {
         let bias = self
             .bias_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "Lstm" })?;
-        graph
-            .lstm_forward(input, w_ih, w_hh, bias)
-            .map_err(Into::into)
+        Ok(graph.lstm_forward(input, w_ih, w_hh, bias)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -180,9 +174,7 @@ impl LstmLayer {
         let seq_len = shape[0];
         let batched = input.reshape(vec![1, seq_len, self.input_size])?;
         let (output, _, _) = lstm_forward_sequence(&self.cell, &batched, None, None)?;
-        output
-            .reshape(vec![seq_len, self.hidden_size])
-            .map_err(Into::into)
+        Ok(output.reshape(vec![seq_len, self.hidden_size])?)
     }
 }
 
@@ -251,9 +243,7 @@ impl GruLayer {
         let bias_hh = self
             .bias_hh_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "Gru" })?;
-        graph
-            .gru_forward(input, w_ih, w_hh, bias_ih, bias_hh)
-            .map_err(Into::into)
+        Ok(graph.gru_forward(input, w_ih, w_hh, bias_ih, bias_hh)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -267,8 +257,6 @@ impl GruLayer {
         let seq_len = shape[0];
         let batched = input.reshape(vec![1, seq_len, self.input_size])?;
         let (output, _) = gru_forward_sequence(&self.cell, &batched, None)?;
-        output
-            .reshape(vec![seq_len, self.hidden_size])
-            .map_err(Into::into)
+        Ok(output.reshape(vec![seq_len, self.hidden_size])?)
     }
 }

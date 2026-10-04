@@ -179,20 +179,17 @@ impl Conv2dLayer {
         let w_id = self
             .weight_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "Conv2d" })?;
-        graph
-            .conv2d_nhwc(input, w_id, self.bias_node, self.stride_h, self.stride_w)
-            .map_err(Into::into)
+        Ok(graph.conv2d_nhwc(input, w_id, self.bias_node, self.stride_h, self.stride_w)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
-        yscv_kernels::conv2d_nhwc(
+        Ok(yscv_kernels::conv2d_nhwc(
             input,
             &self.weight,
             self.bias.as_ref(),
             self.stride_h,
             self.stride_w,
-        )
-        .map_err(Into::into)
+        )?)
     }
 }
 
@@ -328,20 +325,23 @@ impl DepthwiseConv2dLayer {
         let w_id = self.weight_node.ok_or(ModelError::ParamsNotRegistered {
             layer: "DepthwiseConv2d",
         })?;
-        graph
-            .depthwise_conv2d_nhwc(input, w_id, self.bias_node, self.stride_h, self.stride_w)
-            .map_err(Into::into)
+        Ok(graph.depthwise_conv2d_nhwc(
+            input,
+            w_id,
+            self.bias_node,
+            self.stride_h,
+            self.stride_w,
+        )?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
-        yscv_kernels::depthwise_conv2d_nhwc(
+        Ok(yscv_kernels::depthwise_conv2d_nhwc(
             input,
             &self.weight,
             self.bias.as_ref(),
             self.stride_h,
             self.stride_w,
-        )
-        .map_err(Into::into)
+        )?)
     }
 }
 
@@ -653,9 +653,14 @@ impl DeformableConv2dLayer {
         let offsets = graph.conv2d_nhwc(padded, ow, None, self.stride, self.stride)?;
 
         // Step 2: Deformable conv using the computed offsets.
-        graph
-            .deformable_conv2d_nhwc(input, w, offsets, self.bias_node, self.stride, self.padding)
-            .map_err(Into::into)
+        Ok(graph.deformable_conv2d_nhwc(
+            input,
+            w,
+            offsets,
+            self.bias_node,
+            self.stride,
+            self.padding,
+        )?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -704,7 +709,7 @@ impl DeformableConv2dLayer {
                 data[dst_row..dst_row + w * c].copy_from_slice(&src[src_row..src_row + w * c]);
             }
         }
-        Tensor::from_vec(vec![batch, new_h, new_w, c], data).map_err(Into::into)
+        Ok(Tensor::from_vec(vec![batch, new_h, new_w, c], data)?)
     }
 }
 
@@ -783,9 +788,7 @@ impl Conv1dLayer {
         let w_id = self
             .weight_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "Conv1d" })?;
-        graph
-            .conv1d_nlc(input, w_id, self.bias_node, self.stride)
-            .map_err(Into::into)
+        Ok(graph.conv1d_nlc(input, w_id, self.bias_node, self.stride)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -910,9 +913,13 @@ impl ConvTranspose2dLayer {
         let w_id = self.weight_node.ok_or(ModelError::ParamsNotRegistered {
             layer: "ConvTranspose2d",
         })?;
-        graph
-            .conv_transpose2d_nhwc(input, w_id, self.bias_node, self.stride_h, self.stride_w)
-            .map_err(Into::into)
+        Ok(graph.conv_transpose2d_nhwc(
+            input,
+            w_id,
+            self.bias_node,
+            self.stride_h,
+            self.stride_w,
+        )?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -1124,16 +1131,14 @@ impl Conv3dLayer {
         let w_id = self
             .weight_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "Conv3d" })?;
-        graph
-            .conv3d_ndhwc(
-                input,
-                w_id,
-                self.bias_node,
-                self.stride.0,
-                self.stride.1,
-                self.stride.2,
-            )
-            .map_err(Into::into)
+        Ok(graph.conv3d_ndhwc(
+            input,
+            w_id,
+            self.bias_node,
+            self.stride.0,
+            self.stride.1,
+            self.stride.2,
+        )?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {

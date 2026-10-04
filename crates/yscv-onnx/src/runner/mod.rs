@@ -161,10 +161,7 @@ fn cached_pool(threads: usize) -> Result<std::sync::Arc<rayon::ThreadPool>, Onnx
         let p = std::sync::Arc::new(
             rayon::ThreadPoolBuilder::new()
                 .num_threads(threads)
-                .build()
-                .map_err(|e| OnnxError::ThreadPool {
-                    source: std::sync::Arc::new(e),
-                })?,
+                .build()?,
         );
         c.push((threads, p.clone()));
         Ok(p)

@@ -13,7 +13,7 @@ impl ReLULayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.relu(input).map_err(Into::into)
+        Ok(graph.relu(input)?)
     }
 }
 
@@ -42,7 +42,7 @@ impl LeakyReLULayer {
         let negative_magnitude = graph.relu(neg_input)?;
         let slope = graph.constant(Tensor::scalar(self.negative_slope));
         let scaled_negative = graph.mul(negative_magnitude, slope)?;
-        graph.sub(positive, scaled_negative).map_err(Into::into)
+        Ok(graph.sub(positive, scaled_negative)?)
     }
 }
 
@@ -56,7 +56,7 @@ impl SigmoidLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.sigmoid(input).map_err(Into::into)
+        Ok(graph.sigmoid(input)?)
     }
 }
 
@@ -70,7 +70,7 @@ impl TanhLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.tanh(input).map_err(Into::into)
+        Ok(graph.tanh(input)?)
     }
 }
 
@@ -90,7 +90,7 @@ impl GELULayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.gelu(input).map_err(Into::into)
+        Ok(graph.gelu(input)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -114,7 +114,7 @@ impl SiLULayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.silu(input).map_err(Into::into)
+        Ok(graph.silu(input)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -138,7 +138,7 @@ impl MishLayer {
     }
 
     pub fn forward(&self, graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
-        graph.mish(input).map_err(Into::into)
+        Ok(graph.mish(input)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {
@@ -190,7 +190,7 @@ impl PReLULayer {
         let a_id = self
             .alpha_node
             .ok_or(ModelError::ParamsNotRegistered { layer: "PReLU" })?;
-        graph.prelu(input, a_id).map_err(Into::into)
+        Ok(graph.prelu(input, a_id)?)
     }
 
     pub fn forward_inference(&self, input: &Tensor) -> Result<Tensor, ModelError> {

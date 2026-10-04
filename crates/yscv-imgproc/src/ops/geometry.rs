@@ -373,7 +373,7 @@ pub fn sobel_3x3_magnitude(input: &Tensor) -> Result<Tensor, ImgProcError> {
                 i += 1;
             }
         });
-        return Tensor::from_vec(shape, out).map_err(Into::into);
+        return Ok(Tensor::from_vec(shape, out)?);
     }
 
     if total > 4096 {
@@ -386,7 +386,7 @@ pub fn sobel_3x3_magnitude(input: &Tensor) -> Result<Tensor, ImgProcError> {
         compute_chunk(&mut out, 0);
     }
 
-    Tensor::from_vec(gx.shape().to_vec(), out).map_err(Into::into)
+    Ok(Tensor::from_vec(gx.shape().to_vec(), out)?)
 }
 
 /// SIMD magnitude: out[i] = sqrt(gx[i]² + gy[i]²). Returns count processed.
@@ -611,7 +611,7 @@ pub fn scharr_3x3_magnitude(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(gx.shape().to_vec(), out).map_err(Into::into)
+    Ok(Tensor::from_vec(gx.shape().to_vec(), out)?)
 }
 
 /// Flips an HWC tensor horizontally (mirror over vertical axis).
@@ -629,7 +629,7 @@ pub fn flip_horizontal(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Flips an HWC tensor vertically (mirror over horizontal axis).
@@ -647,7 +647,7 @@ pub fn flip_vertical(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![h, w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, channels], out)?)
 }
 
 /// Rotates an HWC tensor 90 degrees clockwise.
@@ -668,7 +668,7 @@ pub fn rotate90_cw(input: &Tensor) -> Result<Tensor, ImgProcError> {
         }
     }
 
-    Tensor::from_vec(vec![out_h, out_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![out_h, out_w, channels], out)?)
 }
 
 /// Pads an HWC tensor with a constant value on all sides.
@@ -695,7 +695,7 @@ pub fn pad_constant(
         }
     }
 
-    Tensor::from_vec(vec![out_h, out_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![out_h, out_w, channels], out)?)
 }
 
 /// Crops an HWC tensor to `[crop_h, crop_w, C]` starting at `(top, left)`.
@@ -725,7 +725,7 @@ pub fn crop(
         }
     }
 
-    Tensor::from_vec(vec![crop_h, crop_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![crop_h, crop_w, channels], out)?)
 }
 
 /// Applies a 2x3 affine transformation to an HWC image using bilinear interpolation.
@@ -787,7 +787,7 @@ pub fn warp_affine(
         }
     }
 
-    Tensor::from_vec(vec![out_h, out_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![out_h, out_w, channels], out)?)
 }
 
 /// Applies a 3x3 perspective (homography) transformation to an `[H, W, C]` image.
@@ -819,7 +819,7 @@ pub fn warp_perspective(
         warp_perspective_scalar(in_data, ih, iw, channels, &inv, &mut out, out_h, out_w);
     }
 
-    Tensor::from_vec(vec![out_h, out_w, channels], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![out_h, out_w, channels], out)?)
 }
 
 /// Multi-channel warp perspective, parallelized across output rows.

@@ -29,7 +29,7 @@ fn abs_node(graph: &mut Graph, input: NodeId) -> Result<NodeId, ModelError> {
     let neg_input = graph.sub(zero, input)?;
     let positive = graph.relu(input)?;
     let negative = graph.relu(neg_input)?;
-    graph.add(positive, negative).map_err(Into::into)
+    Ok(graph.add(positive, negative)?)
 }
 
 /// Mean squared error loss: `mean((prediction - target)^2)`.
@@ -44,7 +44,7 @@ pub fn mse_loss(
     let sq = graph.mul(diff, diff)?;
     let sum = graph.sum(sq)?;
     let inv_count = graph.constant(Tensor::scalar(1.0 / element_count as f32));
-    graph.mul(sum, inv_count).map_err(Into::into)
+    Ok(graph.mul(sum, inv_count)?)
 }
 
 /// Mean absolute error loss: `mean(abs(prediction - target))`.
@@ -59,7 +59,7 @@ pub fn mae_loss(
     let abs = abs_node(graph, diff)?;
     let sum = graph.sum(abs)?;
     let inv_count = graph.constant(Tensor::scalar(1.0 / element_count as f32));
-    graph.mul(sum, inv_count).map_err(Into::into)
+    Ok(graph.mul(sum, inv_count)?)
 }
 
 /// Mean Huber loss:
@@ -89,7 +89,7 @@ pub fn huber_loss(
     let per_element = graph.add(quadratic, linear)?;
     let sum = graph.sum(per_element)?;
     let inv_count = graph.constant(Tensor::scalar(1.0 / element_count as f32));
-    graph.mul(sum, inv_count).map_err(Into::into)
+    Ok(graph.mul(sum, inv_count)?)
 }
 
 /// Mean hinge loss:
@@ -111,7 +111,7 @@ pub fn hinge_loss(
     let positive = graph.relu(raw)?;
     let sum = graph.sum(positive)?;
     let inv_count = graph.constant(Tensor::scalar(1.0 / element_count as f32));
-    graph.mul(sum, inv_count).map_err(Into::into)
+    Ok(graph.mul(sum, inv_count)?)
 }
 
 /// Binary cross-entropy loss for predictions already passed through sigmoid.
@@ -155,7 +155,7 @@ pub fn bce_loss(
     let sum = graph.sum(combined)?;
     let neg_sum = graph.neg(sum)?;
     let inv_count = graph.constant(Tensor::scalar(1.0 / element_count as f32));
-    graph.mul(neg_sum, inv_count).map_err(Into::into)
+    Ok(graph.mul(neg_sum, inv_count)?)
 }
 
 /// Negative log-likelihood loss from log-probabilities.
@@ -210,7 +210,7 @@ pub fn nll_loss(
     let sum = graph.sum(selected_node)?;
     let neg_sum = graph.neg(sum)?;
     let inv_batch = graph.constant(Tensor::scalar(1.0 / batch_size as f32));
-    graph.mul(neg_sum, inv_batch).map_err(Into::into)
+    Ok(graph.mul(neg_sum, inv_batch)?)
 }
 
 /// Cross-entropy loss from raw logits.
@@ -733,5 +733,5 @@ pub fn distillation_loss(
     let weighted_soft = graph.mul(soft_loss, alpha_node)?;
     let weighted_hard = graph.mul(hard_loss, one_minus_alpha)?;
 
-    graph.add(weighted_soft, weighted_hard).map_err(Into::into)
+    Ok(graph.add(weighted_soft, weighted_hard)?)
 }

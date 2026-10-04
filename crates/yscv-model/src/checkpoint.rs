@@ -20,7 +20,7 @@ impl TensorSnapshot {
     }
 
     pub fn into_tensor(self) -> Result<Tensor, ModelError> {
-        Tensor::from_vec(self.shape, self.data).map_err(Into::into)
+        Ok(Tensor::from_vec(self.shape, self.data)?)
     }
 }
 

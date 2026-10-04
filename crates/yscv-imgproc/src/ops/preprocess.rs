@@ -17,7 +17,7 @@ pub fn hwc_to_chw(image: &Tensor) -> Result<Tensor, ImgProcError> {
             }
         }
     }
-    Tensor::from_vec(vec![c, h, w], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![c, h, w], out)?)
 }
 
 /// Convert an image from `[C, H, W]` (CHW) layout to `[H, W, C]` (HWC) layout.
@@ -40,7 +40,7 @@ pub fn chw_to_hwc(image: &Tensor) -> Result<Tensor, ImgProcError> {
             }
         }
     }
-    Tensor::from_vec(vec![h, w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![h, w, c], out)?)
 }
 
 /// Per-channel normalization: `(pixel - mean[c]) / std[c]` for an HWC image.
@@ -69,7 +69,7 @@ pub fn center_crop(image: &Tensor, size: usize) -> Result<Tensor, ImgProcError> 
         let dst_row = y * crop_w * c;
         out[dst_row..dst_row + crop_w * c].copy_from_slice(&src[src_row..src_row + crop_w * c]);
     }
-    Tensor::from_vec(vec![crop_h, crop_w, c], out).map_err(Into::into)
+    Ok(Tensor::from_vec(vec![crop_h, crop_w, c], out)?)
 }
 
 /// Standard ImageNet preprocessing pipeline.
