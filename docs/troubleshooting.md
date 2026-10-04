@@ -168,7 +168,7 @@ consecutive failure, but if you see repeated timeouts:
 4. Manual recovery: `handle.recover_all()?` or
    `pool.recover_failed(slot_idx)`.
 
-### `validate_models: ModelInvalid — expected RKNN / RKNF magic, got [...]`
+### `validate_models: BadRknnMagic — model at ... has magic [...], expected RKNN / RKNF`
 
 The file at `model_path` isn't a real `.rknn` — likely an `.onnx`
 saved with the wrong extension, or a Git-LFS pointer file (8 bytes
@@ -182,12 +182,12 @@ head -c 4 model.rknn | xxd    # first 4 bytes must be `RKNN` or `RKNF`
 If it's an `.onnx` you meant to compile to `.rknn`, just rename the
 file extension to `.onnx` — the framework auto-compiles at startup.
 
-### `validate_models: ModelInvalid — expected ONNX protobuf (first byte 0x08)`
+### `validate_models: BadOnnxMagic — model at ... starts with 0x.., expected ONNX protobuf (first byte 0x08 ...)`
 
 Same as above but for ONNX — file is corrupt or wrong format. Check
 with `python -c "import onnx; onnx.load('model.onnx')"`.
 
-### `MPSGraph compile failed: unsupported op '...'`
+### `node N (Op): unsupported ONNX op type: Op` from `compile_mpsgraph_plan`
 
 Apple's MPSGraph supports a subset of ONNX ops. Two paths:
 
@@ -195,7 +195,8 @@ Apple's MPSGraph supports a subset of ONNX ops. Two paths:
    (`compile_metal_plan`/`run_metal_plan`) — covers more ops, slower.
 2. Fall back to the CPU runner (`run_onnx_model`) for that model.
 
-The unsupported op name in the error is your search key. We add new
+The unsupported op name in the error (`OnnxError::AtNode` wrapping
+`OnnxError::UnsupportedOpType`) is your search key. We add new
 op support upstream regularly; check
 [docs/onnx-inference.md](onnx-inference.md) for current coverage.
 

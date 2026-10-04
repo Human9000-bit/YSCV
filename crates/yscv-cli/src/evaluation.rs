@@ -9,7 +9,7 @@ use yscv_eval::{
     validate_camera_diagnostics_report,
 };
 
-use crate::config::{CliConfig, CliError};
+use crate::config::CliConfig;
 use crate::error::AppError;
 
 pub fn run_dataset_evaluation(cli: &CliConfig) -> Result<(), AppError> {
@@ -291,10 +291,7 @@ pub fn run_dataset_evaluation(cli: &CliConfig) -> Result<(), AppError> {
 
 pub fn run_diagnostics_report_validation(cli: &CliConfig) -> Result<(), AppError> {
     let Some(path) = cli.validate_diagnostics_report_path.as_deref() else {
-        return Err(CliError::Message(
-            "missing diagnostics report path for validation mode".to_string(),
-        )
-        .into());
+        return Err(AppError::MissingReportPath);
     };
     println!(
         "yscv-cli eval: validating diagnostics report {}",
@@ -327,5 +324,5 @@ pub fn run_diagnostics_report_validation(cli: &CliConfig) -> Result<(), AppError
     for violation in &violations {
         println!("  - {}: {}", violation.field, violation.message);
     }
-    Err(CliError::Message("diagnostics report validation failed".to_string()).into())
+    Err(AppError::DiagnosticsValidationFailed)
 }

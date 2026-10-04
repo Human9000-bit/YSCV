@@ -62,18 +62,18 @@ pub fn list_camera_devices() -> Result<Vec<CameraDeviceInfo>, VideoError> {
     let backend = preferred_camera_backend();
     let cameras = match nokhwa::query(backend) {
         Ok(cameras) => cameras,
-        Err(primary_err) if backend != ApiBackend::Auto => {
-            nokhwa::query(ApiBackend::Auto).map_err(|fallback_err| {
-                VideoError::Source(format!(
-                    "failed to enumerate cameras with preferred backend {backend:?}: {primary_err}; \
-                     auto fallback failed: {fallback_err}"
-                ))
-            })?
-        }
+        Err(primary_err) if backend != ApiBackend::Auto => nokhwa::query(ApiBackend::Auto)
+            .map_err(|fallback_err| VideoError::CameraFallback {
+                op: "enumerate",
+                backend,
+                primary: Box::new(primary_err),
+                source: Box::new(fallback_err),
+            })?,
         Err(err) => {
-            return Err(VideoError::Source(format!(
-                "failed to enumerate cameras with backend {backend:?}: {err}"
-            )));
+            return Err(VideoError::Camera {
+                op: "enumerate",
+                source: Box::new(err),
+            });
         }
     };
     let mut devices = Vec::with_capacity(cameras.len());
@@ -266,24 +266,36 @@ impl CameraFrameSource {
         let mut camera =
             open_camera_with_backend(config.device_index, backend).or_else(|primary| {
                 if backend == ApiBackend::Auto {
-                    return Err(primary);
+                    return Err(VideoError::Camera {
+                        op: "open",
+                        source: Box::new(primary),
+                    });
                 }
-                open_camera_with_backend(config.device_index, ApiBackend::Auto).map_err(|fallback| {
-                VideoError::Source(format!(
-                    "failed to create camera source with preferred backend {backend:?}: {primary}; \
-                     auto fallback failed: {fallback}"
-                ))
-            })
+                open_camera_with_backend(config.device_index, ApiBackend::Auto).map_err(
+                    |fallback| VideoError::CameraFallback {
+                        op: "open",
+                        backend,
+                        primary: Box::new(primary),
+                        source: Box::new(fallback),
+                    },
+                )
             })?;
         camera
             .set_resolution(Resolution::new(config.width, config.height))
-            .map_err(|err| VideoError::Source(format!("failed to set camera resolution: {err}")))?;
+            .map_err(|err| VideoError::Camera {
+                op: "set resolution",
+                source: Box::new(err),
+            })?;
         camera
             .set_frame_rate(config.fps)
-            .map_err(|err| VideoError::Source(format!("failed to set camera frame rate: {err}")))?;
-        camera
-            .open_stream()
-            .map_err(|err| VideoError::Source(format!("failed to open camera stream: {err}")))?;
+            .map_err(|err| VideoError::Camera {
+                op: "set frame rate",
+                source: Box::new(err),
+            })?;
+        camera.open_stream().map_err(|err| VideoError::Camera {
+            op: "open stream",
+            source: Box::new(err),
+        })?;
 
         Ok(Self {
             camera,
@@ -293,17 +305,14 @@ impl CameraFrameSource {
     }
 
     pub fn next_rgb8_frame(&mut self) -> Result<Option<Rgb8Frame>, VideoError> {
-        let captured = self
-            .camera
-            .frame()
-            .map_err(|err| VideoError::Source(format!("failed to read camera frame: {err}")))?;
+        let captured = self.camera.frame().map_err(|err| VideoError::Camera {
+            op: "read frame",
+            source: Box::new(err),
+        })?;
         let resolution = captured.resolution();
-        let width = usize::try_from(resolution.width()).map_err(|err| {
-            VideoError::Source(format!("failed to convert frame width to usize: {err}"))
-        })?;
-        let mut height = usize::try_from(resolution.height()).map_err(|err| {
-            VideoError::Source(format!("failed to convert frame height to usize: {err}"))
-        })?;
+        // u32 -> usize is lossless on every target nokhwa supports.
+        let width = resolution.width() as usize;
+        let mut height = resolution.height() as usize;
         let buf = captured.buffer_bytes();
         // Some backends (notably macOS AVFoundation via nokhwa) report a
         // resolution that does not match the actual buffer size.  When the
@@ -337,14 +346,13 @@ const fn preferred_camera_backend() -> ApiBackend {
 }
 
 #[cfg(feature = "native-camera")]
-fn open_camera_with_backend(device_index: u32, backend: ApiBackend) -> Result<Camera, VideoError> {
+fn open_camera_with_backend(
+    device_index: u32,
+    backend: ApiBackend,
+) -> Result<Camera, nokhwa::NokhwaError> {
     let requested =
         RequestedFormat::new::<RgbFormat>(RequestedFormatType::AbsoluteHighestFrameRate);
-    Camera::with_backend(CameraIndex::Index(device_index), requested, backend).map_err(|err| {
-        VideoError::Source(format!(
-            "failed to create camera source with backend {backend:?}: {err}"
-        ))
-    })
+    Camera::with_backend(CameraIndex::Index(device_index), requested, backend)
 }
 
 #[cfg(not(feature = "native-camera"))]

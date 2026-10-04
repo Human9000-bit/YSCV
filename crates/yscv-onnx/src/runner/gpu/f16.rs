@@ -177,10 +177,7 @@ fn exec_conv_f16(
             let bias_data = bias
                 .map(|b| b.data().to_vec())
                 .unwrap_or_else(|| vec![0.0f32; o_ch]);
-            let bias_t =
-                Tensor::from_vec(vec![o_ch], bias_data).map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+            let bias_t = Tensor::from_vec(vec![o_ch], bias_data)?;
             gc.insert(
                 b_key.clone(),
                 GpuTensor {
@@ -854,11 +851,7 @@ pub fn run_compiled_gpu_f16_fused(
                     // Read f16 buffer as f32
                     gpu.flush();
                     let data = gpu.read_buf_f16(out_buf.raw_buffer(), out_buf.len())?;
-                    let t = Tensor::from_vec(shape.to_vec(), data).map_err(|e| {
-                        OnnxError::GpuKernel {
-                            message: e.to_string(),
-                        }
-                    })?;
+                    let t = Tensor::from_vec(shape.to_vec(), data)?;
                     result.insert(name.clone(), t);
                 }
             } else {

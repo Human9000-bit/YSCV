@@ -23,12 +23,15 @@ fn matmul_2d_rejects_non_rank_2_inputs() {
     let rhs = Tensor::from_vec(vec![1, 1], vec![2.0]).unwrap();
 
     let err = matmul_2d(&lhs, &rhs).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::InvalidMatMulRank {
-            left_rank: 0,
-            right_rank: 2
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidMatMulRank {
+                left_rank: 0,
+                right_rank: 2
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -38,12 +41,13 @@ fn matmul_2d_rejects_shape_mismatch() {
     let rhs = Tensor::zeros(vec![4, 2]).unwrap();
 
     let err = matmul_2d(&lhs, &rhs).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::MatMulShapeMismatch {
-            left: vec![2, 3],
-            right: vec![4, 2]
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::MatMulShapeMismatch { ref left, ref right }
+                if left == &[2, 3] && right == &[4, 2]
+        ),
+        "{err:?}"
     );
 }
 

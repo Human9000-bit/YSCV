@@ -33,14 +33,18 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum DrmError {
     #[error("DRM not supported on this platform")]
     NotSupported,
     #[error("libdrm.so not found")]
     LibraryNotFound,
-    #[error("DRM `{op}` failed: {detail}")]
-    CallFailed { op: &'static str, detail: String },
+    #[error("libdrm symbol `{0}` missing")]
+    SymbolMissing(&'static str),
+    #[error("DRM `{op}` failed with return code {ret}")]
+    CallFailed { op: &'static str, ret: i32 },
+    #[error("DRM `{op}` returned no object")]
+    NullResult { op: &'static str },
     #[error("connector `{0}` not found on this device")]
     ConnectorNotFound(String),
     #[error("mode `{0}` not supported by connector")]
@@ -48,7 +52,7 @@ pub enum DrmError {
     #[error("no CRTC available for connector `{0}`")]
     NoCrtc(String),
     #[error("invalid parameter: {0}")]
-    InvalidParameter(String),
+    InvalidParameter(&'static str),
 }
 
 pub type DrmResult<T> = Result<T, DrmError>;
@@ -287,10 +291,7 @@ fn load_drm_lib() -> DrmResult<Arc<DrmLib>> {
             if p.is_null() {
                 // SAFETY: h valid.
                 unsafe { libc::dlclose(h) };
-                return Err(DrmError::CallFailed {
-                    op: stringify!($name),
-                    detail: "symbol not found in libdrm".into(),
-                });
+                return Err(DrmError::SymbolMissing(stringify!($name)));
             }
             // SAFETY: p non-null, types match.
             unsafe { std::mem::transmute_copy::<*mut c_void, $ty>(&p) }
@@ -436,9 +437,7 @@ impl DrmOutput {
     /// For the common path, prefer [`Self::new`] which does all three.
     pub fn open(width: u32, height: u32, pixel_format: u32) -> DrmResult<Self> {
         if width == 0 || height == 0 {
-            return Err(DrmError::InvalidParameter(
-                "width/height must be > 0".into(),
-            ));
+            return Err(DrmError::InvalidParameter("width/height must be > 0"));
         }
         let _lib = load_drm_lib()?;
         #[cfg(target_os = "linux")]
@@ -448,7 +447,7 @@ impl DrmOutput {
             if fd < 0 {
                 return Err(DrmError::CallFailed {
                     op: "drmOpen",
-                    detail: format!("returned fd={fd}"),
+                    ret: fd,
                 });
             }
             Ok(Self {
@@ -500,9 +499,8 @@ impl DrmOutput {
             // SAFETY: fd valid; library symbols resolved.
             let res = unsafe { (self.lib.get_resources)(self.fd) };
             if res.is_null() {
-                return Err(DrmError::CallFailed {
+                return Err(DrmError::NullResult {
                     op: "drmModeGetResources",
-                    detail: "returned null — kernel has no DRM device?".into(),
                 });
             }
             // SAFETY: non-null res returned by get_resources.
@@ -591,16 +589,15 @@ impl DrmOutput {
         {
             if self.connector_id == 0 {
                 return Err(DrmError::InvalidParameter(
-                    "set_mode called before select_connector".into(),
+                    "set_mode called before select_connector",
                 ));
             }
             // Re-fetch connector to get mode list.
             // SAFETY: fd valid; connector_id from earlier select.
             let conn = unsafe { (self.lib.get_connector)(self.fd, self.connector_id) };
             if conn.is_null() {
-                return Err(DrmError::CallFailed {
+                return Err(DrmError::NullResult {
                     op: "drmModeGetConnector",
-                    detail: "returned null on re-fetch".into(),
                 });
             }
             // SAFETY: non-null conn.
@@ -635,17 +632,20 @@ impl DrmOutput {
         #[cfg(target_os = "linux")]
         {
             if dma_fd < 0 {
-                return Err(DrmError::InvalidParameter(
-                    "dma_fd must be non-negative".into(),
-                ));
+                return Err(DrmError::InvalidParameter("dma_fd must be non-negative"));
             }
             let mut handle: u32 = 0;
             // SAFETY: fd valid; handle out-pointer writable.
             let ret = unsafe { (self.lib.prime_fd_to_handle)(self.fd, dma_fd, &mut handle) };
-            if ret != 0 || handle == 0 {
+            if ret != 0 {
                 return Err(DrmError::CallFailed {
                     op: "drmPrimeFDToHandle",
-                    detail: format!("ret={ret} handle={handle}"),
+                    ret,
+                });
+            }
+            if handle == 0 {
+                return Err(DrmError::NullResult {
+                    op: "drmPrimeFDToHandle",
                 });
             }
             Ok(handle)
@@ -664,7 +664,7 @@ impl DrmOutput {
         {
             if self.crtc_id == 0 || self.mode.is_none() {
                 return Err(DrmError::InvalidParameter(
-                    "present() before select_connector + set_mode".into(),
+                    "present() before select_connector + set_mode",
                 ));
             }
 
@@ -705,10 +705,15 @@ impl DrmOutput {
                     )
                 }
             };
-            if ret != 0 || fb_id == 0 {
+            if ret != 0 {
                 return Err(DrmError::CallFailed {
                     op: "drmModeAddFB/AddFB2",
-                    detail: format!("ret={ret}"),
+                    ret,
+                });
+            }
+            if fb_id == 0 {
+                return Err(DrmError::NullResult {
+                    op: "drmModeAddFB/AddFB2",
                 });
             }
 
@@ -734,7 +739,7 @@ impl DrmOutput {
                     unsafe { (self.lib.rm_fb)(self.fd, fb_id) };
                     return Err(DrmError::CallFailed {
                         op: "drmModeSetCrtc",
-                        detail: format!("ret={ret}"),
+                        ret,
                     });
                 }
                 self.mode_set = true;
@@ -757,7 +762,7 @@ impl DrmOutput {
                     unsafe { (self.lib.rm_fb)(self.fd, fb_id) };
                     return Err(DrmError::CallFailed {
                         op: "drmModePageFlip",
-                        detail: format!("ret={ret}"),
+                        ret,
                     });
                 }
                 // Retire the older FB (two-flip pipeline).
@@ -800,7 +805,7 @@ impl DrmOutput {
             if ret != 0 {
                 return Err(DrmError::CallFailed {
                     op: "drmModeAddFB",
-                    detail: format!("ret={ret}"),
+                    ret,
                 });
             }
             if self.current_fb_id != 0 {
@@ -885,7 +890,10 @@ mod tests {
     #[test]
     fn open_rejects_zero_dims() {
         let res = DrmOutput::open(0, 720, fourcc::NV12);
-        assert!(matches!(res, Err(DrmError::InvalidParameter(_))));
+        assert!(matches!(
+            res,
+            Err(DrmError::InvalidParameter("width/height must be > 0"))
+        ));
     }
 
     #[test]
@@ -908,7 +916,7 @@ mod tests {
         if let Ok(out) = DrmOutput::open(640, 480, fourcc::NV12) {
             assert!(matches!(
                 out.import_dmabuf(-1),
-                Err(DrmError::InvalidParameter(_))
+                Err(DrmError::InvalidParameter("dma_fd must be non-negative"))
             ));
         }
     }

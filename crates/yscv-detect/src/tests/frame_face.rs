@@ -118,12 +118,15 @@ fn detect_faces_from_frame_with_scratch_reuses_buffer_for_resized_frames() {
 fn detect_faces_rejects_grayscale_input() {
     let frame = Frame::new(0, 0, Tensor::from_vec(vec![2, 2, 1], vec![0.5; 4]).unwrap()).unwrap();
     let err = detect_faces_from_frame(&frame, 0.5, 2, 0.4, 4).unwrap_err();
-    assert_eq!(
-        err,
-        DetectError::InvalidChannelCount {
-            expected: 3,
-            got: 1
-        }
+    assert!(
+        matches!(
+            err,
+            DetectError::InvalidChannelCount {
+                expected: 3,
+                got: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -136,7 +139,10 @@ fn detect_faces_rejects_invalid_nms_config() {
     )
     .unwrap();
     let err = detect_faces_from_frame(&frame, 0.5, 2, 0.4, 0).unwrap_err();
-    assert_eq!(err, DetectError::InvalidMaxDetections { max_detections: 0 });
+    assert!(
+        matches!(err, DetectError::InvalidMaxDetections { max_detections: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -248,12 +254,15 @@ fn detect_faces_from_rgb8_with_scratch_reuses_buffer_for_resized_frames() {
 #[test]
 fn detect_faces_from_rgb8_rejects_invalid_buffer_size() {
     let err = detect_faces_from_rgb8(2, 2, &[1, 2, 3], 0.5, 2, 0.4, 4).unwrap_err();
-    assert_eq!(
-        err,
-        DetectError::InvalidRgb8BufferSize {
-            expected: 12,
-            got: 3
-        }
+    assert!(
+        matches!(
+            err,
+            DetectError::InvalidRgb8BufferSize {
+                expected: 12,
+                got: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -262,11 +271,14 @@ fn detect_faces_from_rgb8_with_scratch_rejects_invalid_buffer_size() {
     let mut scratch = Rgb8FaceDetectScratch::default();
     let err = detect_faces_from_rgb8_with_scratch((2, 2), &[1, 2, 3], 0.5, 2, 0.4, 4, &mut scratch)
         .unwrap_err();
-    assert_eq!(
-        err,
-        DetectError::InvalidRgb8BufferSize {
-            expected: 12,
-            got: 3
-        }
+    assert!(
+        matches!(
+            err,
+            DetectError::InvalidRgb8BufferSize {
+                expected: 12,
+                got: 3
+            }
+        ),
+        "{err:?}"
     );
 }

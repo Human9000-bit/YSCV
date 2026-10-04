@@ -1,7 +1,7 @@
 use thiserror::Error;
 
 /// Errors from MPP encoder operations.
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum MppError {
     /// `librockchip_mpp.so` not found on this host.
     #[error("librockchip_mpp.so not found — install Rockchip MPP runtime")]
@@ -17,7 +17,7 @@ pub enum MppError {
 
     /// User passed an invalid encoder configuration.
     #[error("MPP encoder config invalid: {0}")]
-    InvalidConfig(String),
+    InvalidConfig(&'static str),
 
     /// MPP context not initialised yet.
     #[error("MPP encoder not initialised")]

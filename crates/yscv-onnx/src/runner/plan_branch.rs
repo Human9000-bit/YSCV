@@ -267,11 +267,10 @@ pub(crate) fn execute_plan_branch(
                     .runtime_index
                     .prepacked_fused_pw_dw_pw_reduce
                     .get(pw_reduce_idx)
-                    .ok_or_else(|| OnnxError::DecodeFailed {
-                        message: format!(
-                            "FusedPwDwPwReduce: missing prepacked weight for pw_reduce_idx={}",
-                            pw_reduce_idx
-                        ),
+                    .ok_or_else(|| OnnxError::NotPrepacked {
+                        op: "FusedPwDwPwReduce",
+                        node: pw_reduce_node.name.clone(),
+                        weight: "PW reduce",
                     })?;
                 let residual_meta_tuple: Option<(&OnnxNode, u8, u8, Option<&OnnxNode>)> =
                     residual.as_ref().map(|r| {
@@ -724,8 +723,9 @@ pub(crate) fn execute_plan_branch(
                     dequant_node
                         .inputs
                         .first()
-                        .ok_or_else(|| OnnxError::DecodeFailed {
-                            message: format!("{}: missing quantized input", dequant_node.name),
+                        .ok_or_else(|| OnnxError::MissingInput {
+                            node: dequant_node.name.clone(),
+                            input: "x".into(),
                         })?;
                 // The folded activation as real-value bounds: Relu is
                 // `(0, inf)`, a Clip its own min/max, nothing `(-inf, inf)`.
@@ -862,11 +862,7 @@ pub(crate) fn execute_plan_branch(
                                 .clamp(-128.0, 127.0)
                         })
                         .collect();
-                    tensor = Tensor::from_vec(tensor.shape().to_vec(), out).map_err(|e| {
-                        OnnxError::DecodeFailed {
-                            message: e.to_string(),
-                        }
-                    })?;
+                    tensor = Tensor::from_vec(tensor.shape().to_vec(), out)?;
                 } else if identity {
                     if clamp.0.is_finite() || clamp.1.is_finite() {
                         let (lo, hi) = bounds_i8(dq_scale.unwrap_or(1.0));
@@ -883,11 +879,7 @@ pub(crate) fn execute_plan_branch(
                             (f / sout + q_zp).round_ties_even().clamp(-128.0, 127.0)
                         })
                         .collect();
-                    tensor = Tensor::from_vec(tensor.shape().to_vec(), out).map_err(|e| {
-                        OnnxError::DecodeFailed {
-                            message: e.to_string(),
-                        }
-                    })?;
+                    tensor = Tensor::from_vec(tensor.shape().to_vec(), out)?;
                 } else if relu {
                     relu_inplace(&mut tensor);
                 }
@@ -922,8 +914,9 @@ pub(crate) fn execute_plan_branch(
                 let x_name = hs_node
                     .inputs
                     .first()
-                    .ok_or_else(|| OnnxError::DecodeFailed {
-                        message: format!("{}: HardSigmoid missing input", hs_node.name),
+                    .ok_or_else(|| OnnxError::MissingInput {
+                        node: hs_node.name.clone(),
+                        input: "X".into(),
                     })?;
                 if let (Some(ys), Some(x)) = (y_scale, env.get(x_name)) {
                     // One f32->i8 pass: quantize(x * hardsigmoid(x)).

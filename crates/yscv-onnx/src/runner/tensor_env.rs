@@ -497,9 +497,7 @@ impl<'m, 'i> TensorEnv<'m, 'i> {
         };
         note_quant_i8_materialize();
         let data: Vec<f32> = q.data.iter().map(|&v| v as f32).collect();
-        let out = Tensor::from_vec(q.shape, data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let out = Tensor::from_vec(q.shape, data)?;
         self.insert(name.to_string(), out);
         if q.nhwc {
             self.mark_nhwc(name);

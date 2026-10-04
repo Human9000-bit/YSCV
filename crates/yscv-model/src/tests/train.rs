@@ -143,7 +143,10 @@ fn train_step_sgd_with_hinge_loss_rejects_invalid_margin() {
         SupervisedLoss::Hinge { margin: 0.0 },
     )
     .unwrap_err();
-    assert_eq!(err, ModelError::InvalidHingeMargin { margin: 0.0 });
+    assert!(
+        matches!(err, ModelError::InvalidHingeMargin { margin } if margin == 0.0),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -754,7 +757,10 @@ fn train_epochs_sgd_with_scheduler_rejects_zero_epoch_count() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, ModelError::InvalidEpochCount { epochs: 0 });
+    assert!(
+        matches!(err, ModelError::InvalidEpochCount { epochs: 0 }),
+        "{err:?}"
+    );
 }
 
 // ── Gradient accumulation tests ──────────────────────────────────
@@ -1074,7 +1080,10 @@ fn train_step_sgd_with_accumulation_rejects_zero_steps() {
     )
     .unwrap_err();
 
-    assert_eq!(err, ModelError::InvalidAccumulationSteps { steps: 0 });
+    assert!(
+        matches!(err, ModelError::InvalidAccumulationSteps { steps: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]

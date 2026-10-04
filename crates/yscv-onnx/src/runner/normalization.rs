@@ -31,10 +31,7 @@ pub(super) fn exec_batch_norm(node: &OnnxNode, env: &mut TensorEnv) -> Result<()
                 }
             }
         }
-        let result =
-            Tensor::from_vec(vec![n, c, h, w], out_data).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let result = Tensor::from_vec(vec![n, c, h, w], out_data)?;
         env.insert(node.outputs[0].clone(), result);
         // Do NOT mark_nhwc — output stays NCHW
         return Ok(());
@@ -54,9 +51,7 @@ pub(super) fn exec_batch_norm(node: &OnnxNode, env: &mut TensorEnv) -> Result<()
         variance: var,
         epsilon,
     };
-    let out_nhwc = batch_norm2d_nhwc(input_nhwc, params).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out_nhwc = batch_norm2d_nhwc(input_nhwc, params)?;
     env.insert(node.outputs[0].clone(), out_nhwc);
     env.mark_nhwc(&node.outputs[0]);
     Ok(())
@@ -74,22 +69,14 @@ pub(super) fn exec_softmax(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
 
     let out = if axis == ndim - 1 {
         // Fast path: softmax on last dim (most common case)
-        softmax_last_dim(input).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?
+        softmax_last_dim(input)?
     } else {
         // Transpose target axis to last, softmax, transpose back.
         let mut perm: Vec<usize> = (0..ndim).collect();
         perm.swap(axis, ndim - 1);
-        let transposed = input.permute(&perm).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-        let sm = softmax_last_dim(&transposed).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-        sm.permute(&perm).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?
+        let transposed = input.permute(&perm)?;
+        let sm = softmax_last_dim(&transposed)?;
+        sm.permute(&perm)?
     };
     env.insert(node.outputs[0].clone(), out);
     Ok(())
@@ -115,8 +102,10 @@ pub(super) fn exec_instance_norm(node: &OnnxNode, env: &mut TensorEnv) -> Result
 
     let shape = input.shape();
     if shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: "InstanceNorm expects 4D NCHW".into(),
+        return Err(OnnxError::InvalidRank {
+            op: "InstanceNormalization",
+            expected: 4,
+            shape: shape.to_vec(),
         });
     }
     let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
@@ -145,10 +134,7 @@ pub(super) fn exec_instance_norm(node: &OnnxNode, env: &mut TensorEnv) -> Result
         }
     }
 
-    let result =
-        Tensor::from_vec(shape.to_vec(), out_data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(shape.to_vec(), out_data)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -192,10 +178,7 @@ pub(super) fn exec_lp_norm(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
         }
     }
 
-    let result =
-        Tensor::from_vec(shape.to_vec(), out_data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(shape.to_vec(), out_data)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -243,10 +226,7 @@ pub(super) fn exec_layer_norm(node: &OnnxNode, env: &mut TensorEnv) -> Result<()
         }
     }
 
-    let result =
-        Tensor::from_vec(shape.to_vec(), out_data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(shape.to_vec(), out_data)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -283,10 +263,7 @@ pub(super) fn exec_hardmax(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
         }
     }
 
-    let result =
-        Tensor::from_vec(shape.to_vec(), out_data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(shape.to_vec(), out_data)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -300,8 +277,10 @@ pub(super) fn exec_lrn(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
     let size = get_attr_int(node, Attr::Size).unwrap_or(1) as usize;
     let shape = input.shape();
     if shape.len() != 4 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: format!("LRN expects 4D NCHW, got {:?}", shape),
+        return Err(OnnxError::InvalidRank {
+            op: "LRN",
+            expected: 4,
+            shape: shape.to_vec(),
         });
     }
     let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
@@ -329,9 +308,7 @@ pub(super) fn exec_lrn(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
         }
     }
 
-    let result = Tensor::from_vec(shape.to_vec(), out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let result = Tensor::from_vec(shape.to_vec(), out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }

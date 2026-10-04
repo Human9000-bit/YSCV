@@ -709,8 +709,8 @@ pub fn mps_gemm_f16(
         let mps_float16: u32 = 0x10000000 | 16;
 
         let mps_matrix_desc_cls =
-            Class::get("MPSMatrixDescriptor").ok_or_else(|| KernelError::Gpu {
-                message: "MPSMatrixDescriptor class not available".into(),
+            Class::get("MPSMatrixDescriptor").ok_or(KernelError::ObjcClassUnavailable {
+                class: "MPSMatrixDescriptor",
             })?;
 
         let row_bytes_a = if transpose_a {
@@ -746,9 +746,8 @@ pub fn mps_gemm_f16(
             dataType: mps_float16];
 
         // MPSMatrix from buffer + descriptor
-        let mps_matrix_cls = Class::get("MPSMatrix").ok_or_else(|| KernelError::Gpu {
-            message: "MPSMatrix class not available".into(),
-        })?;
+        let mps_matrix_cls = Class::get("MPSMatrix")
+            .ok_or(KernelError::ObjcClassUnavailable { class: "MPSMatrix" })?;
         let alloc_a: *mut Object = msg_send![mps_matrix_cls, alloc];
         let mat_a: *mut Object = msg_send![alloc_a,
             initWithBuffer: a.as_ptr() descriptor: desc_a];
@@ -760,9 +759,10 @@ pub fn mps_gemm_f16(
             initWithBuffer: out.as_ptr() descriptor: desc_c];
 
         // MPSMatrixMultiplication
-        let mps_mm_cls = Class::get("MPSMatrixMultiplication").ok_or_else(|| KernelError::Gpu {
-            message: "MPSMatrixMultiplication class not available".into(),
-        })?;
+        let mps_mm_cls =
+            Class::get("MPSMatrixMultiplication").ok_or(KernelError::ObjcClassUnavailable {
+                class: "MPSMatrixMultiplication",
+            })?;
         let ta = if transpose_a { YES } else { NO };
         let tb = if transpose_b { YES } else { NO };
         let alloc_mm: *mut Object = msg_send![mps_mm_cls, alloc];
@@ -818,8 +818,8 @@ pub fn mps_gemm_f16_encode(
     autoreleasepool(|| unsafe {
         let mps_float16: u32 = 0x10000000 | 16;
         let mps_matrix_desc_cls =
-            Class::get("MPSMatrixDescriptor").ok_or_else(|| KernelError::Gpu {
-                message: "MPSMatrixDescriptor class not available".into(),
+            Class::get("MPSMatrixDescriptor").ok_or(KernelError::ObjcClassUnavailable {
+                class: "MPSMatrixDescriptor",
             })?;
 
         let row_bytes_a = if transpose_a {
@@ -854,9 +854,8 @@ pub fn mps_gemm_f16_encode(
             rowBytes: (n as u64) * 2
             dataType: mps_float16];
 
-        let mps_matrix_cls = Class::get("MPSMatrix").ok_or_else(|| KernelError::Gpu {
-            message: "MPSMatrix class not available".into(),
-        })?;
+        let mps_matrix_cls = Class::get("MPSMatrix")
+            .ok_or(KernelError::ObjcClassUnavailable { class: "MPSMatrix" })?;
         let alloc_a: *mut Object = msg_send![mps_matrix_cls, alloc];
         let mat_a: *mut Object = msg_send![alloc_a,
             initWithBuffer: a.as_ptr() descriptor: desc_a];
@@ -867,9 +866,10 @@ pub fn mps_gemm_f16_encode(
         let mat_c: *mut Object = msg_send![alloc_c,
             initWithBuffer: out.as_ptr() descriptor: desc_c];
 
-        let mps_mm_cls = Class::get("MPSMatrixMultiplication").ok_or_else(|| KernelError::Gpu {
-            message: "MPSMatrixMultiplication class not available".into(),
-        })?;
+        let mps_mm_cls =
+            Class::get("MPSMatrixMultiplication").ok_or(KernelError::ObjcClassUnavailable {
+                class: "MPSMatrixMultiplication",
+            })?;
         let ta = if transpose_a { YES } else { NO };
         let tb = if transpose_b { YES } else { NO };
         let alloc_mm: *mut Object = msg_send![mps_mm_cls, alloc];

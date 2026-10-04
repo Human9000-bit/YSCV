@@ -127,13 +127,17 @@ pub struct Av1ObuHeader {
 /// ```
 pub fn parse_obu_header(data: &[u8]) -> Result<Av1ObuHeader, VideoError> {
     if data.is_empty() {
-        return Err(VideoError::Codec("AV1: empty OBU data".into()));
+        return Err(VideoError::Truncated {
+            what: "AV1 OBU header",
+        });
     }
 
     let byte0 = data[0];
     let forbidden = (byte0 >> 7) & 1;
     if forbidden != 0 {
-        return Err(VideoError::Codec("AV1: obu_forbidden_bit is set".into()));
+        return Err(VideoError::Malformed {
+            what: "AV1 OBU header (obu_forbidden_bit set)",
+        });
     }
 
     let obu_type_raw = (byte0 >> 3) & 0x0F;
@@ -146,9 +150,9 @@ pub fn parse_obu_header(data: &[u8]) -> Result<Av1ObuHeader, VideoError> {
 
     if has_extension {
         if data.len() < 2 {
-            return Err(VideoError::Codec(
-                "AV1: truncated OBU extension header".into(),
-            ));
+            return Err(VideoError::Truncated {
+                what: "AV1 OBU extension header",
+            });
         }
         let byte1 = data[1];
         extension.temporal_id = (byte1 >> 5) & 0x07;
@@ -193,9 +197,13 @@ pub fn read_leb128(data: &[u8]) -> Result<(u64, usize), VideoError> {
 
     // If we consumed max_bytes and all had continuation bit set, that's an error
     if max_bytes == 0 {
-        return Err(VideoError::Codec("AV1: empty LEB128 data".into()));
+        return Err(VideoError::Truncated {
+            what: "AV1 LEB128 value",
+        });
     }
-    Err(VideoError::Codec("AV1: LEB128 overflow (> 8 bytes)".into()))
+    Err(VideoError::Malformed {
+        what: "AV1 LEB128 value (more than 8 bytes)",
+    })
 }
 
 /// Encode a value as LEB128 bytes. Used for testing round-trips.
@@ -383,9 +391,10 @@ pub fn parse_sequence_header(data: &[u8]) -> Result<Av1SequenceHeader, VideoErro
 
     let profile = r.read_bits(3)? as u8;
     if profile > 2 {
-        return Err(VideoError::Codec(format!(
-            "AV1: invalid seq_profile {profile}"
-        )));
+        return Err(VideoError::FieldOutOfRange {
+            field: "AV1 seq_profile",
+            value: profile.into(),
+        });
     }
 
     let still_picture = r.read_bit()? != 0;
@@ -665,7 +674,10 @@ impl Av1FrameType {
             1 => Ok(Self::InterFrame),
             2 => Ok(Self::IntraOnlyFrame),
             3 => Ok(Self::SwitchFrame),
-            _ => Err(VideoError::Codec(format!("AV1: invalid frame_type {v}"))),
+            _ => Err(VideoError::FieldOutOfRange {
+                field: "AV1 frame_type",
+                value: v.into(),
+            }),
         }
     }
 
@@ -1437,7 +1449,9 @@ fn read_uvlc(r: &mut BitstreamReader<'_>) -> Result<u32, VideoError> {
         }
         leading_zeros += 1;
         if leading_zeros > 32 {
-            return Err(VideoError::Codec("AV1: UVLC overflow".into()));
+            return Err(VideoError::Malformed {
+                what: "AV1 UVLC code (more than 32 leading zeros)",
+            });
         }
     }
     if leading_zeros == 0 {
@@ -1521,9 +1535,9 @@ pub fn parse_obus(data: &[u8]) -> Result<Vec<Av1Obu>, VideoError> {
         }
 
         if after_header >= data.len() {
-            return Err(VideoError::Codec(
-                "AV1: truncated OBU (no size field)".into(),
-            ));
+            return Err(VideoError::Truncated {
+                what: "AV1 OBU size field",
+            });
         }
 
         let (obu_size, size_bytes) = read_leb128(&data[after_header..])?;
@@ -1531,12 +1545,12 @@ pub fn parse_obus(data: &[u8]) -> Result<Vec<Av1Obu>, VideoError> {
         let payload_len = obu_size as usize;
 
         if payload_offset + payload_len > data.len() {
-            return Err(VideoError::Codec(format!(
-                "AV1: OBU payload extends past data ({} + {} > {})",
-                payload_offset,
-                payload_len,
-                data.len()
-            )));
+            return Err(VideoError::OutOfBounds {
+                what: "AV1 OBU payload",
+                offset: payload_offset,
+                len: payload_len,
+                available: data.len(),
+            });
         }
 
         obus.push(Av1Obu {

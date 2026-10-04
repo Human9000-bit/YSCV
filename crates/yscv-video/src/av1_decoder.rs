@@ -149,8 +149,8 @@ impl Av1Decoder {
                     }
                 }
                 Av1ObuType::FrameHeader => {
-                    let seq = self.seq_header.as_ref().ok_or_else(|| {
-                        VideoError::Codec("AV1: frame header before sequence header".into())
+                    let seq = self.seq_header.as_ref().ok_or(VideoError::Missing {
+                        what: "AV1 sequence header before frame header",
                     })?;
                     let fh = parse_frame_header(payload, seq)?;
                     if fh.show_existing_frame {
@@ -173,8 +173,8 @@ impl Av1Decoder {
                 }
                 Av1ObuType::Frame => {
                     // Frame OBU = frame header + tile group in one
-                    let seq = self.seq_header.as_ref().ok_or_else(|| {
-                        VideoError::Codec("AV1: frame OBU before sequence header".into())
+                    let seq = self.seq_header.as_ref().ok_or(VideoError::Missing {
+                        what: "AV1 sequence header before frame OBU",
                     })?;
                     let fh = parse_frame_header(payload, seq)?;
                     if fh.show_existing_frame {
@@ -268,7 +268,11 @@ impl Av1Decoder {
         let height = fh.frame_height as usize;
 
         if width == 0 || height == 0 {
-            return Err(VideoError::Codec("AV1: zero frame dimensions".into()));
+            return Err(VideoError::InvalidDimensions {
+                what: "AV1 frame",
+                width,
+                height,
+            });
         }
 
         let chroma_w = if seq.monochrome {
@@ -734,8 +738,8 @@ impl Av1Decoder {
         rf: &Av1ReferenceFrame,
         timestamp_us: u64,
     ) -> Result<DecodedFrame, VideoError> {
-        let seq = self.seq_header.as_ref().ok_or_else(|| {
-            VideoError::Codec("AV1: no sequence header for ref frame output".into())
+        let seq = self.seq_header.as_ref().ok_or(VideoError::Missing {
+            what: "AV1 sequence header for reference frame output",
         })?;
 
         let width = rf.width as usize;

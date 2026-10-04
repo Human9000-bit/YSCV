@@ -17,45 +17,34 @@
 
 #![cfg_attr(not(target_os = "linux"), allow(dead_code, unused_variables))]
 
+use thiserror::Error;
+
 /// Pseudo-cap on SCHED_FIFO priority. POSIX allows 1..=99 but most
 /// distributions block >50 without explicit sysctl. We clamp here.
 pub const RT_PRIO_MAX: u8 = 90;
 
 /// Errors from real-time configuration. Most are non-fatal — caller can
 /// log and continue with degraded scheduling.
-#[derive(Debug)]
+#[derive(Debug, Clone, Error)]
 pub enum RtError {
     /// `sched_setscheduler` returned EPERM — process lacks `CAP_SYS_NICE`.
+    #[error("no CAP_SYS_NICE — run as root or grant via `setcap cap_sys_nice+ep`")]
     NoCapability,
     /// `sched_setaffinity` returned EINVAL — invalid CPU mask.
+    #[error("invalid CPU mask for sched_setaffinity")]
     InvalidAffinity,
     /// `mlockall` returned ENOMEM — RLIMIT_MEMLOCK too low.
+    #[error(
+        "mlockall failed — increase RLIMIT_MEMLOCK (`ulimit -l unlimited` or systemd LimitMEMLOCK=infinity)"
+    )]
     MemlockExceeded,
     /// Other syscall failure (errno).
+    #[error("errno {0}")]
     Errno(i32),
     /// Operation requested but no implementation available on this OS.
+    #[error("not supported on this platform")]
     NotSupported,
 }
-
-impl std::fmt::Display for RtError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            RtError::NoCapability => write!(
-                f,
-                "no CAP_SYS_NICE — run as root or grant via `setcap cap_sys_nice+ep`"
-            ),
-            RtError::InvalidAffinity => write!(f, "invalid CPU mask for sched_setaffinity"),
-            RtError::MemlockExceeded => write!(
-                f,
-                "mlockall failed — increase RLIMIT_MEMLOCK (`ulimit -l unlimited` or systemd LimitMEMLOCK=infinity)"
-            ),
-            RtError::Errno(e) => write!(f, "errno {e}"),
-            RtError::NotSupported => write!(f, "not supported on this platform"),
-        }
-    }
-}
-
-impl std::error::Error for RtError {}
 
 /// Pin the *current* thread to `SCHED_FIFO` with the given priority.
 ///

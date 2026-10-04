@@ -74,7 +74,16 @@ fn sequential_checkpoint_roundtrip_preserves_leaky_relu_layer() {
 #[test]
 fn checkpoint_parser_reports_invalid_json() {
     let err = checkpoint_from_json("{not-valid-json").unwrap_err();
-    assert!(matches!(err, ModelError::CheckpointSerialization { .. }));
+    assert!(
+        matches!(
+            err,
+            ModelError::Json {
+                what: "checkpoint",
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]

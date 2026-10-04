@@ -155,22 +155,32 @@ impl PipelineHandle {
         }
 
         for task_name in &self.order {
-            let task = self.tasks.get(task_name).ok_or_else(|| {
-                Error::Other(format!("unknown task '{task_name}' in scheduler order"))
-            })?;
-            let dispatcher = self
-                .dispatchers
+            let task = self
+                .tasks
                 .get(task_name)
-                .ok_or_else(|| Error::Other(format!("no dispatcher for task '{task_name}'")))?;
+                .ok_or_else(|| Error::MissingTaskState {
+                    task: task_name.clone(),
+                    what: "task metadata",
+                })?;
+            let dispatcher =
+                self.dispatchers
+                    .get(task_name)
+                    .ok_or_else(|| Error::MissingTaskState {
+                        task: task_name.clone(),
+                        what: "dispatcher",
+                    })?;
             // Resolve each input binding to bytes in `world`.
             let mut gathered: Vec<(&str, Vec<u8>)> = Vec::with_capacity(task.inputs.len());
             for binding in &task.inputs {
-                let bytes = world.get(&binding.source).cloned().ok_or_else(|| {
-                    Error::Other(format!(
-                        "task '{}': input '{}' source '{}' has no producer",
-                        task_name, binding.name, binding.source
-                    ))
-                })?;
+                let bytes =
+                    world
+                        .get(&binding.source)
+                        .cloned()
+                        .ok_or_else(|| Error::NoProducer {
+                            task: task_name.clone(),
+                            input: binding.name.clone(),
+                            src_name: binding.source.clone(),
+                        })?;
                 gathered.push((binding.name.as_str(), bytes));
             }
             // Slice-of-refs view for the dispatcher.
@@ -189,8 +199,10 @@ impl PipelineHandle {
     /// On first error, stops and returns that error.
     pub fn recover_all(&self) -> Result<(), Error> {
         for (name, d) in &self.dispatchers {
-            d.recover()
-                .map_err(|e| Error::Other(format!("recover dispatcher '{name}' failed: {e}")))?;
+            d.recover().map_err(|e| Error::Recover {
+                dispatcher: name.clone(),
+                source: Box::new(e),
+            })?;
         }
         Ok(())
     }

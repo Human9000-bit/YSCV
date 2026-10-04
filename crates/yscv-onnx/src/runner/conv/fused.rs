@@ -192,11 +192,7 @@ pub(crate) fn exec_fused_dw_pw(
         let input_nchwc: &yscv_tensor::Tensor = if input_already_nchwc16 {
             &dw_input_src
         } else {
-            input_nchwc_owned = yscv_kernels::nhwc_to_nchwc(dw_input_nhwc, 16).map_err(|e| {
-                OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                }
-            })?;
+            input_nchwc_owned = yscv_kernels::nhwc_to_nchwc(dw_input_nhwc, 16)?;
             &input_nchwc_owned
         };
         let dw_nchwc = yscv_kernels::conv2d_nchwc_dw3x3_s1_same_pad(
@@ -208,10 +204,7 @@ pub(crate) fn exec_fused_dw_pw(
             yscv_kernels::ParallelElementwiseConfig::default(),
             None,
             None,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
         let pw_nchwc = yscv_kernels::conv2d_nchwc_pointwise_with_activation_prepacked(
             &dw_nchwc,
             &pw_weight_stream,
@@ -221,10 +214,7 @@ pub(crate) fn exec_fused_dw_pw(
             yscv_kernels::ParallelElementwiseConfig::default(),
             None,
             None,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
         let pw_out_channels = pw_ws[3];
         drop(dw_input_src);
         drop(dw_weight);
@@ -253,12 +243,7 @@ pub(crate) fn exec_fused_dw_pw(
             env.insert(pw_node.outputs[0].clone(), pw_nchwc);
             env.mark_nchwc(&pw_node.outputs[0], 16);
         } else {
-            let pw_output =
-                yscv_kernels::nchwc_to_nhwc(&pw_nchwc, pw_out_channels).map_err(|e| {
-                    OnnxError::DecodeFailed {
-                        message: e.to_string(),
-                    }
-                })?;
+            let pw_output = yscv_kernels::nchwc_to_nhwc(&pw_nchwc, pw_out_channels)?;
             env.insert(pw_node.outputs[0].clone(), pw_output);
             env.mark_nhwc(&pw_node.outputs[0]);
         }
@@ -278,10 +263,7 @@ pub(crate) fn exec_fused_dw_pw(
         && dw_pr == 1
         && dw_ws[2].is_multiple_of(8)
     {
-        let input_nchwc =
-            yscv_kernels::nhwc_to_nchwc(dw_input_nhwc, 8).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let input_nchwc = yscv_kernels::nhwc_to_nchwc(dw_input_nhwc, 8)?;
         let dw_nchwc = yscv_kernels::conv2d_nchwc_dw3x3_s1_same_pad(
             &input_nchwc,
             &dw_weight,
@@ -291,10 +273,7 @@ pub(crate) fn exec_fused_dw_pw(
             yscv_kernels::ParallelElementwiseConfig::default(),
             None,
             None,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
         let pw_nchwc = yscv_kernels::conv2d_nchwc_pointwise_with_activation_prepacked(
             &dw_nchwc,
             &pw_weight_stream,
@@ -304,15 +283,8 @@ pub(crate) fn exec_fused_dw_pw(
             yscv_kernels::ParallelElementwiseConfig::default(),
             None,
             None,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-        let pw_output = yscv_kernels::nchwc_to_nhwc(&pw_nchwc, pw_ws[3]).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+        )?;
+        let pw_output = yscv_kernels::nchwc_to_nhwc(&pw_nchwc, pw_ws[3])?;
 
         drop(dw_input_src);
         drop(dw_weight);
@@ -362,10 +334,7 @@ pub(crate) fn exec_fused_dw_pw(
             dw_pr,
             dw_activation,
             pw_activation,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
 
         drop(dw_input_src);
         drop(dw_weight);
@@ -822,12 +791,7 @@ pub(crate) fn exec_fused_pw_dw(
             }
         }
 
-        let dw_out_tensor =
-            Tensor::from_aligned(vec![batch, out_h, out_w, c_exp], out).map_err(|e| {
-                OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                }
-            })?;
+        let dw_out_tensor = Tensor::from_aligned(vec![batch, out_h, out_w, c_exp], out)?;
         env.insert(dw_node.outputs[0].clone(), dw_out_tensor);
         env.mark_nhwc(&dw_node.outputs[0]);
         return Ok(());
@@ -1519,11 +1483,7 @@ pub(crate) fn exec_fused_pw_dw_pw_reduce(
         } else {
             yscv_kernels::fused_pw_expand_dw_pw_reduce_5x5(kernel_args);
         }
-        let t = Tensor::from_aligned(vec![batch, out_h, out_w, c_out], out).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let t = Tensor::from_aligned(vec![batch, out_h, out_w, c_out], out)?;
         (t, false)
     };
 

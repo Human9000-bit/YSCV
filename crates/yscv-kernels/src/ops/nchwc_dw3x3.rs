@@ -61,60 +61,69 @@ pub fn conv2d_nchwc_dw3x3_s1_same_pad(
 ) -> Result<Tensor, KernelError> {
     let in_shape = input.shape();
     if in_shape.len() != 5 {
-        return Err(KernelError::LayoutConversion(format!(
-            "conv2d_nchwc_dw3x3_s1: expected 5-D NCHWc input, got {in_shape:?}"
-        )));
+        return Err(KernelError::UnexpectedShape {
+            op: "conv2d_nchwc_dw3x3_s1",
+            expected: "[N,C/b,H,W,b]",
+            got: in_shape.to_vec(),
+        });
     }
-    let [n_batch, cb, h, w, block] = *<&[usize; 5]>::try_from(in_shape)
-        .map_err(|_| KernelError::LayoutConversion("dw3x3 nchwc: rank mismatch".into()))?;
+    let [n_batch, cb, h, w, block] =
+        *<&[usize; 5]>::try_from(in_shape).map_err(|_| KernelError::UnexpectedShape {
+            op: "conv2d_nchwc_dw3x3_s1",
+            expected: "[N,C/b,H,W,b]",
+            got: in_shape.to_vec(),
+        })?;
     if block == 0 || block > u8::MAX as usize {
-        return Err(KernelError::LayoutConversion(format!(
-            "dw3x3 nchwc: invalid block {block}"
-        )));
+        return Err(KernelError::InvalidNchwcBlock { block });
     }
     if actual_channels > cb * block {
-        return Err(KernelError::LayoutConversion(format!(
-            "dw3x3 nchwc: actual_channels {actual_channels} > cb*block {}",
-            cb * block
-        )));
+        return Err(KernelError::InvalidNchwcChannels {
+            channels: actual_channels,
+            capacity: cb * block,
+        });
     }
     if !actual_channels.is_multiple_of(block) {
-        return Err(KernelError::LayoutConversion(format!(
-            "dw3x3 nchwc: actual_channels {actual_channels} not divisible by block {block} \
-             (caller must dispatch to NHWC path)"
-        )));
+        return Err(KernelError::NchwcChannelsNotBlockAligned {
+            channels: actual_channels,
+            block,
+        });
     }
     let cb_used = actual_channels / block;
 
     let ker_shape = kernel.shape();
-    let [kh, kw, ker_c, dm] = *<&[usize; 4]>::try_from(ker_shape).map_err(|_| {
-        KernelError::LayoutConversion(format!("dw3x3 nchwc: kernel rank != 4, got {ker_shape:?}"))
-    })?;
+    let bad_kernel = || KernelError::UnexpectedShape {
+        op: "conv2d_nchwc_dw3x3_s1",
+        expected: "kernel [3,3,C,1]",
+        got: ker_shape.to_vec(),
+    };
+    let [kh, kw, ker_c, dm] = *<&[usize; 4]>::try_from(ker_shape).map_err(|_| bad_kernel())?;
     if kh != 3 || kw != 3 || dm != 1 {
-        return Err(KernelError::LayoutConversion(format!(
-            "dw3x3 nchwc: expected 3×3 kernel dm=1, got {kh}×{kw} dm={dm}"
-        )));
+        return Err(bad_kernel());
     }
     if ker_c != actual_channels {
-        return Err(KernelError::LayoutConversion(format!(
-            "dw3x3 nchwc: kernel C {ker_c} != actual_channels {actual_channels}"
-        )));
+        return Err(KernelError::NchwcChannelMismatch {
+            op: "conv2d_nchwc_dw3x3_s1",
+            what: "kernel",
+            got: ker_c,
+            expected: actual_channels,
+        });
     }
     if let Some(b) = bias {
         let bs = b.shape();
         let blen: usize = bs.iter().product();
         if blen != actual_channels {
-            return Err(KernelError::LayoutConversion(format!(
-                "dw3x3 nchwc: bias len {blen} != actual_channels {actual_channels}"
-            )));
+            return Err(KernelError::NchwcChannelMismatch {
+                op: "conv2d_nchwc_dw3x3_s1",
+                what: "bias",
+                got: blen,
+                expected: actual_channels,
+            });
         }
     }
 
-    let input_data = input.try_data().map_err(KernelError::from)?;
-    let kernel_data = kernel.try_data().map_err(KernelError::from)?;
-    let bias_data = bias
-        .map(|b| b.try_data().map_err(KernelError::from))
-        .transpose()?;
+    let input_data = input.try_data()?;
+    let kernel_data = kernel.try_data()?;
+    let bias_data = bias.map(|b| b.try_data()).transpose()?;
 
     let in_n_stride = cb * h * w * block;
     let in_cb_stride = h * w * block;
@@ -210,7 +219,7 @@ pub fn conv2d_nchwc_dw3x3_s1_same_pad(
             );
 
             let out_shape = vec![n_batch, cb, h, w, block];
-            let out_tensor = Tensor::from_aligned(out_shape, out).map_err(KernelError::from)?;
+            let out_tensor = Tensor::from_aligned(out_shape, out)?;
             return Ok(out_tensor.with_layout(Layout::NCHWc { block: block as u8 }));
         }
     }
@@ -283,7 +292,7 @@ pub fn conv2d_nchwc_dw3x3_s1_same_pad(
     );
 
     let out_shape = vec![n_batch, cb, h, w, block];
-    let out_tensor = Tensor::from_aligned(out_shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(out_shape, out)?;
     Ok(out_tensor.with_layout(Layout::NCHWc { block: block as u8 }))
 }
 

@@ -3,7 +3,7 @@ use yscv_autograd::AutogradError;
 use yscv_tensor::TensorError;
 
 /// Errors returned by optimizer configuration and update steps.
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum OptimError {
     #[error("invalid learning rate: {lr}; expected finite lr >= 0")]
     InvalidLearningRate { lr: f32 },

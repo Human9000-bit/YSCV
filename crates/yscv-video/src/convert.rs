@@ -64,10 +64,10 @@ pub(crate) fn rgb8_bytes_to_frame(
     let expected = width
         .checked_mul(height)
         .and_then(|pixels| pixels.checked_mul(3))
-        .ok_or_else(|| {
-            VideoError::Source(format!(
-                "raw frame dimensions overflow for width={width}, height={height}"
-            ))
+        .ok_or(VideoError::InvalidDimensions {
+            what: "raw RGB8 frame (byte count overflows usize)",
+            width,
+            height,
         })?;
     if bytes.len() != expected {
         return Err(VideoError::RawFrameSizeMismatch {

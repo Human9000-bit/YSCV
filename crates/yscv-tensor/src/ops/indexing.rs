@@ -213,8 +213,10 @@ impl Tensor {
     pub fn diag(vector: &Tensor) -> Result<Self, TensorError> {
         let shape = vector.shape();
         if shape.len() != 1 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("diag requires a 1D tensor, got shape {:?}", shape),
+            return Err(TensorError::InvalidRank {
+                op: "diag",
+                expected: 1,
+                got: shape.len(),
             });
         }
         let n = shape[0];
@@ -229,8 +231,10 @@ impl Tensor {
     pub fn diag_extract(&self) -> Result<Self, TensorError> {
         let shape = self.shape();
         if shape.len() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("diag_extract requires a 2D tensor, got shape {:?}", shape),
+            return Err(TensorError::InvalidRank {
+                op: "diag_extract",
+                expected: 2,
+                got: shape.len(),
             });
         }
         let n = shape[0].min(shape[1]);

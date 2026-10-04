@@ -386,9 +386,7 @@ pub fn run_onnx_model_gpu(
     model: &OnnxModel,
     inputs: FxHashMap<String, Tensor>,
 ) -> Result<FxHashMap<String, Tensor>, OnnxError> {
-    let gpu = GpuBackend::new().map_err(|e| OnnxError::DecodeFailed {
-        message: format!("GPU init: {e}"),
-    })?;
+    let gpu = GpuBackend::new()?;
     run_onnx_model_gpu_with(&gpu, model, inputs)
 }
 
@@ -1134,11 +1132,7 @@ fn to_cpu(
             } else {
                 gpu.flush();
                 let data = gpu.read_buf_f16(gt.buf.raw_buffer(), gt.buf.len())?;
-                let tensor = Tensor::from_vec(gt.buf.shape().to_vec(), data).map_err(|e| {
-                    OnnxError::GpuKernel {
-                        message: e.to_string(),
-                    }
-                })?;
+                let tensor = Tensor::from_vec(gt.buf.shape().to_vec(), data)?;
                 env.insert(name.to_string(), tensor);
             }
         } else if gt.nhwc && gt.buf.shape().len() == 4 {
@@ -1245,9 +1239,7 @@ pub fn profile_onnx_model_gpu(
     model: &OnnxModel,
     inputs: FxHashMap<String, Tensor>,
 ) -> Result<FxHashMap<String, (f64, usize)>, OnnxError> {
-    let gpu = GpuBackend::new().map_err(|e| OnnxError::DecodeFailed {
-        message: format!("GPU init: {e}"),
-    })?;
+    let gpu = GpuBackend::new()?;
     let plan = plan_gpu_execution(model);
     let mut wc = GpuWeightCache::new();
 
@@ -1709,11 +1701,7 @@ fn exec_conv_act(
                 let bias_data = bias
                     .map(|b| b.data().to_vec())
                     .unwrap_or_else(|| vec![0.0f32; o_ch]);
-                let bias_t = Tensor::from_vec(vec![o_ch], bias_data).map_err(|e| {
-                    OnnxError::DecodeFailed {
-                        message: e.to_string(),
-                    }
-                })?;
+                let bias_t = Tensor::from_vec(vec![o_ch], bias_data)?;
                 gc.insert(
                     b_key.clone(),
                     GpuTensor {
@@ -1760,11 +1748,7 @@ fn exec_conv_act(
                 let bias_data = bias
                     .map(|b| b.data().to_vec())
                     .unwrap_or_else(|| vec![0.0f32; o_ch]);
-                let bias_t = Tensor::from_vec(vec![o_ch], bias_data).map_err(|e| {
-                    OnnxError::DecodeFailed {
-                        message: e.to_string(),
-                    }
-                })?;
+                let bias_t = Tensor::from_vec(vec![o_ch], bias_data)?;
                 gc.insert(
                     b_key.clone(),
                     GpuTensor {
@@ -1810,12 +1794,7 @@ fn exec_conv_act(
                     }
                 }
             }
-            let dw_kernel =
-                Tensor::from_vec(vec![kh, kw, c, depth_mult], dw_data).map_err(|e| {
-                    OnnxError::DecodeFailed {
-                        message: e.to_string(),
-                    }
-                })?;
+            let dw_kernel = Tensor::from_vec(vec![kh, kw, c, depth_mult], dw_data)?;
             gc.insert(
                 dw_key.clone(),
                 GpuTensor {
@@ -1827,10 +1806,7 @@ fn exec_conv_act(
             let bias_data = bias
                 .map(|b| b.data().to_vec())
                 .unwrap_or_else(|| vec![0.0f32; o_ch]);
-            let bias_t =
-                Tensor::from_vec(vec![o_ch], bias_data).map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+            let bias_t = Tensor::from_vec(vec![o_ch], bias_data)?;
             gc.insert(
                 b_key.clone(),
                 GpuTensor {
@@ -2047,15 +2023,9 @@ fn exec_softmax(
         };
         let mut perm: Vec<usize> = (0..ndim).collect();
         perm.swap(axis, ndim - 1);
-        let transposed = input.permute(&perm).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-        let sm = softmax_last_dim(&transposed).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-        let result = sm.permute(&perm).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let transposed = input.permute(&perm)?;
+        let sm = softmax_last_dim(&transposed)?;
+        let result = sm.permute(&perm)?;
         let gpu_buf = gpu.upload(&result);
         gc.insert(
             node.outputs[0].clone(),
@@ -2290,9 +2260,7 @@ fn exec_concat_gpu(
                 .get(name.as_str())
                 .is_some_and(|g| g.buf.shape().len() == 4 && !g.nhwc)
             {
-                ensure_nhwc(gpu, name, gc).map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+                ensure_nhwc(gpu, name, gc)?;
             }
         }
     }
@@ -2526,10 +2494,7 @@ fn exec_shape_gpu(
         } else {
             gt.buf.shape().iter().map(|&d| d as f32).collect()
         };
-        let out =
-            Tensor::from_vec(vec![shape.len()], shape).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let out = Tensor::from_vec(vec![shape.len()], shape)?;
         env.insert(node.outputs[0].clone(), out);
         Ok(())
     } else {
@@ -2907,11 +2872,9 @@ fn exec_constant_of_shape_gpu(
         let t = gpu.download(&gt.buf)?;
         t.data().iter().map(|&v| v as usize).collect()
     } else {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "missing shape input '{}' for ConstantOfShape '{}'",
-                shape_name, node.name
-            ),
+        return Err(OnnxError::MissingInput {
+            node: node.name.clone(),
+            input: shape_name.clone(),
         });
     };
 
@@ -2920,9 +2883,7 @@ fn exec_constant_of_shape_gpu(
 
     // Create filled tensor on CPU — no GPU needed for a constant
     let data = vec![value; total];
-    let out = Tensor::from_vec(shape, data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(shape, data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -2954,10 +2915,7 @@ fn exec_expand_gpu(
         let ones_t = Tensor::from_vec(
             target_shape.clone(),
             vec![1.0f32; target_shape.iter().product()],
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
         let ones_buf = gpu.upload(&ones_t);
         let data_buf = &gc.get(data_name.as_str()).unwrap().buf;
         let nhwc = gc.get(data_name.as_str()).unwrap().nhwc;

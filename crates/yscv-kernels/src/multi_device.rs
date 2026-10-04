@@ -154,11 +154,9 @@ impl MultiGpuBackend {
 
         for &idx in device_indices {
             if idx >= all_infos.len() {
-                return Err(KernelError::Gpu {
-                    message: format!(
-                        "device index {idx} out of range (available: {})",
-                        all_infos.len()
-                    ),
+                return Err(KernelError::GpuDeviceIndexOutOfRange {
+                    index: idx,
+                    available: all_infos.len(),
                 });
             }
             devices.push(GpuBackend::new()?);
@@ -166,9 +164,7 @@ impl MultiGpuBackend {
         }
 
         if devices.is_empty() {
-            return Err(KernelError::Gpu {
-                message: "no GPU devices selected".into(),
-            });
+            return Err(KernelError::NoGpuDevices);
         }
 
         Ok(Self {
@@ -183,9 +179,7 @@ impl MultiGpuBackend {
     pub fn new_all() -> Result<Self, KernelError> {
         let infos = enumerate_gpu_devices();
         if infos.is_empty() {
-            return Err(KernelError::Gpu {
-                message: "no GPU devices available".into(),
-            });
+            return Err(KernelError::NoGpuDevices);
         }
         let indices: Vec<usize> = (0..infos.len()).collect();
         Self::new(&indices)

@@ -74,11 +74,11 @@ pub fn dispatcher_for(task: &InferenceTask) -> Result<Box<dyn AcceleratorDispatc
             #[cfg(not(feature = "rknn"))]
             {
                 let _ = core;
-                Err(Error::Other(format!(
-                    "task '{}' needs Accelerator::Rknn but yscv-pipeline was built without \
-                     --features rknn — rebuild with it",
-                    task.name
-                )))
+                Err(Error::AcceleratorNotCompiled {
+                    task: task.name.clone(),
+                    accelerator: "Rknn",
+                    requires: "--features rknn",
+                })
             }
         }
         Accelerator::RknnMatmul { m, k, n, dtype } => {
@@ -91,11 +91,11 @@ pub fn dispatcher_for(task: &InferenceTask) -> Result<Box<dyn AcceleratorDispatc
             #[cfg(not(feature = "rknn"))]
             {
                 let _ = (m, k, n, dtype);
-                Err(Error::Other(format!(
-                    "task '{}' needs Accelerator::RknnMatmul but yscv-pipeline was \
-                     built without --features rknn — rebuild with it",
-                    task.name
-                )))
+                Err(Error::AcceleratorNotCompiled {
+                    task: task.name.clone(),
+                    accelerator: "RknnMatmul",
+                    requires: "--features rknn",
+                })
             }
         }
         Accelerator::MetalMps => {
@@ -105,11 +105,11 @@ pub fn dispatcher_for(task: &InferenceTask) -> Result<Box<dyn AcceleratorDispatc
             }
             #[cfg(not(all(feature = "metal-backend", target_os = "macos")))]
             {
-                Err(Error::Other(format!(
-                    "task '{}' needs Accelerator::MetalMps which requires \
-                     --features metal-backend on macOS",
-                    task.name
-                )))
+                Err(Error::AcceleratorNotCompiled {
+                    task: task.name.clone(),
+                    accelerator: "MetalMps",
+                    requires: "--features metal-backend on macOS",
+                })
             }
         }
         Accelerator::Gpu => {
@@ -119,14 +119,23 @@ pub fn dispatcher_for(task: &InferenceTask) -> Result<Box<dyn AcceleratorDispatc
             }
             #[cfg(not(feature = "gpu"))]
             {
-                Err(Error::Other(format!(
-                    "task '{}' needs Accelerator::Gpu but yscv-pipeline was built \
-                     without --features gpu — rebuild with it",
-                    task.name
-                )))
+                Err(Error::AcceleratorNotCompiled {
+                    task: task.name.clone(),
+                    accelerator: "Gpu",
+                    requires: "--features gpu",
+                })
             }
         }
     }
+}
+
+/// Load a task's ONNX model, tagging a failure with the task and path.
+fn load_onnx(task: &InferenceTask) -> Result<yscv_onnx::OnnxModel, Error> {
+    yscv_onnx::load_onnx_model_from_file(&task.model_path).map_err(|source| Error::LoadModel {
+        task: task.name.clone(),
+        path: task.model_path.clone(),
+        source: Box::new(source),
+    })
 }
 
 // ---- CPU dispatcher -------------------------------------------------
@@ -144,12 +153,7 @@ struct CpuDispatcher {
 
 impl CpuDispatcher {
     fn new(task: &InferenceTask) -> Result<Self, Error> {
-        let model = yscv_onnx::load_onnx_model_from_file(&task.model_path).map_err(|e| {
-            Error::Other(format!(
-                "task '{}': load ONNX {:?} failed — {e}",
-                task.name, task.model_path
-            ))
-        })?;
+        let model = load_onnx(task)?;
         // `OnnxModel::inputs` is a `Vec<String>` of declared input
         // names. Shapes live per-initializer attributes; for a first
         // cut we leave `input_shapes` empty and let `dispatch` require
@@ -172,10 +176,10 @@ impl AcceleratorDispatcher for CpuDispatcher {
             FxHashMap::with_capacity_and_hasher(inputs.len(), FxBuildHasher);
         for &(name, bytes) in inputs {
             if bytes.len() % 4 != 0 {
-                return Err(Error::Other(format!(
-                    "input '{name}': {} bytes is not a whole number of f32s",
-                    bytes.len()
-                )));
+                return Err(Error::InputNotF32 {
+                    input: name.to_string(),
+                    len: bytes.len(),
+                });
             }
             // Reinterpret as f32 LE. For the first-cut we treat the
             // input as a 1-D tensor sized `len / 4`; downstream ops
@@ -191,12 +195,14 @@ impl AcceleratorDispatcher for CpuDispatcher {
                 .get(name)
                 .cloned()
                 .unwrap_or_else(|| vec![n]);
-            let t = yscv_tensor::Tensor::from_vec(shape, data)
-                .map_err(|e| Error::Other(format!("input '{name}': tensor build failed — {e}")))?;
+            let t =
+                yscv_tensor::Tensor::from_vec(shape, data).map_err(|source| Error::BuildInput {
+                    input: name.to_string(),
+                    source,
+                })?;
             feed.insert(name.to_string(), t);
         }
-        let outs = yscv_onnx::run_onnx_model(&self.model, feed)
-            .map_err(|e| Error::Other(format!("CPU ONNX run failed — {e}")))?;
+        let outs = yscv_onnx::run_onnx_model(&self.model, feed)?;
         Ok(outs
             .into_iter()
             .map(|(name, t)| {
@@ -222,8 +228,7 @@ struct RknnDispatcher {
 impl RknnDispatcher {
     fn new(task: &InferenceTask, core: crate::accelerator::NpuCoreSpec) -> Result<Self, Error> {
         let bytes = load_or_compile_rknn(task)?;
-        let pool = yscv_kernels::RknnPipelinedPool::new(&bytes, &[core.to_mask()])
-            .map_err(|e| Error::Kernel(e.to_string()))?;
+        let pool = yscv_kernels::RknnPipelinedPool::new(&bytes, &[core.to_mask()])?;
         Ok(Self {
             label: format!("rknn {:?} ({})", core, task.name),
             pool,
@@ -255,28 +260,12 @@ fn load_or_compile_rknn(task: &InferenceTask) -> Result<Vec<u8>, Error> {
         .unwrap_or("");
 
     if ext.eq_ignore_ascii_case("rknn") {
-        return std::fs::read(&task.model_path).map_err(|e| {
-            Error::Other(format!(
-                "task '{}': read .rknn {:?} failed — {e}",
-                task.name, task.model_path
-            ))
-        });
+        return read_model(task);
     }
 
     if ext.eq_ignore_ascii_case("onnx") {
         let cache_path = task.model_path.with_extension("rknn");
-        let cache_str = cache_path.to_str().ok_or_else(|| {
-            Error::Other(format!(
-                "task '{}': cache path {cache_path:?} is not valid UTF-8",
-                task.name
-            ))
-        })?;
-        let onnx_bytes = std::fs::read(&task.model_path).map_err(|e| {
-            Error::Other(format!(
-                "task '{}': read .onnx {:?} failed — {e}",
-                task.name, task.model_path
-            ))
-        })?;
+        let onnx_bytes = read_model(task)?;
         let cfg = yscv_kernels::RknnCompileConfig::default();
         // `load_onnx_as_rknn` does: check cache → compile → write cache →
         // return an RknnBackend. We want the bytes (to feed the pool),
@@ -285,34 +274,46 @@ fn load_or_compile_rknn(task: &InferenceTask) -> Result<Vec<u8>, Error> {
         if let Ok(cached) = std::fs::read(&cache_path) {
             return Ok(cached);
         }
-        let rknn_bytes = yscv_kernels::compile_onnx_to_rknn(&onnx_bytes, &cfg).map_err(|e| {
-            Error::Kernel(format!(
-                "task '{}': compile {:?} → .rknn failed — {e}",
-                task.name, task.model_path
-            ))
-        })?;
+        let rknn_bytes =
+            yscv_kernels::compile_onnx_to_rknn(&onnx_bytes, &cfg).map_err(|source| {
+                Error::RknnCompile {
+                    task: task.name.clone(),
+                    path: task.model_path.clone(),
+                    source: Box::new(source),
+                }
+            })?;
         // Best-effort cache write — not fatal if it fails (e.g. read-only fs).
-        if let Err(e) = std::fs::write(cache_str, &rknn_bytes) {
+        if let Err(e) = std::fs::write(&cache_path, &rknn_bytes) {
             eprintln!(
-                "[yscv-pipeline] task '{}': couldn't cache compiled rknn at {cache_str}: {e}",
-                task.name
+                "[yscv-pipeline] task '{}': couldn't cache compiled rknn at {}: {e}",
+                task.name,
+                cache_path.display()
             );
         } else {
             eprintln!(
-                "[yscv-pipeline] task '{}': cached compiled rknn at {cache_str} \
+                "[yscv-pipeline] task '{}': cached compiled rknn at {} \
                  ({} bytes)",
                 task.name,
+                cache_path.display(),
                 rknn_bytes.len()
             );
         }
         return Ok(rknn_bytes);
     }
 
-    Err(Error::Other(format!(
-        "task '{}': unsupported model extension `.{ext}` for Accelerator::Rknn \
-         (expected `.rknn` or `.onnx`)",
-        task.name
-    )))
+    Err(Error::UnsupportedModelExtension {
+        task: task.name.clone(),
+        path: task.model_path.clone(),
+    })
+}
+
+#[cfg(feature = "rknn")]
+fn read_model(task: &InferenceTask) -> Result<Vec<u8>, Error> {
+    std::fs::read(&task.model_path).map_err(|source| Error::ModelRead {
+        task: task.name.clone(),
+        path: task.model_path.clone(),
+        source,
+    })
 }
 
 #[cfg(feature = "rknn")]
@@ -322,10 +323,7 @@ impl AcceleratorDispatcher for RknnDispatcher {
     }
 
     fn dispatch(&self, inputs: &[(&str, &[u8])]) -> Result<Vec<(String, Vec<u8>)>, Error> {
-        let outs = self
-            .pool
-            .run(inputs)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
+        let outs = self.pool.run(inputs)?;
         // RKNN always returns dequantized `Vec<Tensor>` in output-index
         // order. The model's output_attrs gives us names.
         // Since the pool doesn't expose the names directly, synthesise
@@ -347,9 +345,7 @@ impl AcceleratorDispatcher for RknnDispatcher {
 
     fn recover(&self) -> Result<(), Error> {
         // Single-slot pool → recover slot 0.
-        self.pool
-            .recover_failed(0)
-            .map_err(|e| Error::Kernel(e.to_string()))
+        Ok(self.pool.recover_failed(0)?)
     }
 }
 
@@ -383,13 +379,14 @@ impl RknnMatmulDispatcher {
         dtype: crate::accelerator::MatmulDtype,
     ) -> Result<Self, Error> {
         if m == 0 || k == 0 || n == 0 {
-            return Err(Error::Other(format!(
-                "task '{}': matmul dims must be > 0 (got {m}×{k}×{n})",
-                task.name
-            )));
+            return Err(Error::ZeroMatmulDim {
+                task: task.name.clone(),
+                m,
+                k,
+                n,
+            });
         }
-        let matmul = yscv_kernels::RknnMatmul::new(m as i32, k as i32, n as i32, dtype.to_rknn())
-            .map_err(|e| Error::Kernel(e.to_string()))?;
+        let matmul = yscv_kernels::RknnMatmul::new(m as i32, k as i32, n as i32, dtype.to_rknn())?;
 
         let a_size = matmul.a_attr().size as usize;
         let b_size = matmul.b_attr().size as usize;
@@ -397,24 +394,12 @@ impl RknnMatmulDispatcher {
 
         // Pre-allocate + bind. `bind_*` is sticky on the matmul ctx,
         // so future `run()` calls reuse this binding.
-        let a_mem = matmul
-            .alloc_mem(a_size)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
-        matmul
-            .bind_a(&a_mem)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
-        let b_mem = matmul
-            .alloc_mem(b_size)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
-        matmul
-            .bind_b(&b_mem)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
-        let c_mem = matmul
-            .alloc_mem(c_size)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
-        matmul
-            .bind_c(&c_mem)
-            .map_err(|e| Error::Kernel(e.to_string()))?;
+        let a_mem = matmul.alloc_mem(a_size)?;
+        matmul.bind_a(&a_mem)?;
+        let b_mem = matmul.alloc_mem(b_size)?;
+        matmul.bind_b(&b_mem)?;
+        let c_mem = matmul.alloc_mem(c_size)?;
+        matmul.bind_c(&c_mem)?;
 
         Ok(Self {
             label: format!("rknn-matmul {m}×{k}×{n} {dtype:?} ({})", task.name),
@@ -447,69 +432,57 @@ impl AcceleratorDispatcher for RknnMatmulDispatcher {
                 "a" => a_bytes = Some(bytes),
                 "b" => b_bytes = Some(bytes),
                 other => {
-                    return Err(Error::Other(format!(
-                        "matmul dispatcher: unknown input '{other}' (expected 'a' or 'b')"
-                    )));
+                    return Err(Error::UnknownMatmulInput {
+                        name: other.to_string(),
+                    });
                 }
             }
         }
-        let a_bytes =
-            a_bytes.ok_or_else(|| Error::Other("matmul dispatcher: missing input 'a'".into()))?;
-        let b_bytes =
-            b_bytes.ok_or_else(|| Error::Other("matmul dispatcher: missing input 'b'".into()))?;
+        let a_bytes = a_bytes.ok_or(Error::MissingMatmulInput { name: "a" })?;
+        let b_bytes = b_bytes.ok_or(Error::MissingMatmulInput { name: "b" })?;
 
         if a_bytes.len() != self.a_size {
-            return Err(Error::Other(format!(
-                "matmul A: {} bytes but the model expects exactly {} \
-                 (M×K with the configured dtype)",
-                a_bytes.len(),
-                self.a_size,
-            )));
+            return Err(Error::MatmulInputSize {
+                name: "a",
+                expected: self.a_size,
+                got: a_bytes.len(),
+            });
         }
         if b_bytes.len() != self.b_size {
-            return Err(Error::Other(format!(
-                "matmul B: {} bytes but the model expects exactly {} \
-                 (K×N with the configured dtype)",
-                b_bytes.len(),
-                self.b_size,
-            )));
+            return Err(Error::MatmulInputSize {
+                name: "b",
+                expected: self.b_size,
+                got: b_bytes.len(),
+            });
         }
 
         // Memcpy → flush → run → invalidate → readback.
         {
-            let mut a = self
-                .a_mem
-                .lock()
-                .map_err(|_| Error::Other("matmul a_mem lock poisoned".into()))?;
+            let mut a = self.a_mem.lock().map_err(|_| Error::LockPoisoned {
+                lock: "matmul a_mem",
+            })?;
             // SAFETY: the matmul call is serialized by the mutex and no NPU
             // operation is in flight while inputs are being populated.
             unsafe { a.as_mut_slice() }.copy_from_slice(a_bytes);
-            a.sync_to_device()
-                .map_err(|e| Error::Kernel(e.to_string()))?;
+            a.sync_to_device()?;
         }
         {
-            let mut b = self
-                .b_mem
-                .lock()
-                .map_err(|_| Error::Other("matmul b_mem lock poisoned".into()))?;
+            let mut b = self.b_mem.lock().map_err(|_| Error::LockPoisoned {
+                lock: "matmul b_mem",
+            })?;
             // SAFETY: the matmul call is serialized by the mutex and no NPU
             // operation is in flight while inputs are being populated.
             unsafe { b.as_mut_slice() }.copy_from_slice(b_bytes);
-            b.sync_to_device()
-                .map_err(|e| Error::Kernel(e.to_string()))?;
+            b.sync_to_device()?;
         }
 
-        self.matmul
-            .run()
-            .map_err(|e| Error::Kernel(e.to_string()))?;
+        self.matmul.run()?;
 
         let c_bytes = {
-            let c = self
-                .c_mem
-                .lock()
-                .map_err(|_| Error::Other("matmul c_mem lock poisoned".into()))?;
-            c.sync_from_device()
-                .map_err(|e| Error::Kernel(e.to_string()))?;
+            let c = self.c_mem.lock().map_err(|_| Error::LockPoisoned {
+                lock: "matmul c_mem",
+            })?;
+            c.sync_from_device()?;
             // SAFETY: the synchronous matmul run completed before reading the
             // output buffer, and the mutex excludes concurrent CPU access.
             (unsafe { c.as_slice() })[..self.c_size].to_vec()
@@ -558,12 +531,7 @@ unsafe impl Sync for MetalDispatcher {}
 #[cfg(all(feature = "metal-backend", target_os = "macos"))]
 impl MetalDispatcher {
     fn new(task: &InferenceTask) -> Result<Self, Error> {
-        let model = yscv_onnx::load_onnx_model_from_file(&task.model_path).map_err(|e| {
-            Error::Other(format!(
-                "task '{}': load ONNX {:?} failed — {e}",
-                task.name, task.model_path
-            ))
-        })?;
+        let model = load_onnx(task)?;
         Ok(Self {
             label: format!("metal-mps ({})", task.name),
             model,
@@ -587,32 +555,33 @@ impl AcceleratorDispatcher for MetalDispatcher {
             .iter()
             .map(|(name, bytes)| {
                 if bytes.len() % 4 != 0 {
-                    return Err(Error::Other(format!(
-                        "input '{name}': {} bytes not divisible by 4 (expect f32 LE)",
-                        bytes.len()
-                    )));
+                    return Err(Error::InputNotF32 {
+                        input: (*name).to_string(),
+                        len: bytes.len(),
+                    });
                 }
                 let n = bytes.len() / 4;
                 let mut data: Vec<f32> = Vec::with_capacity(n);
-                for chunk in bytes.chunks_exact(4) {
-                    data.push(f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]));
+                for chunk in bytes.as_chunks::<4>().0 {
+                    data.push(f32::from_le_bytes(*chunk));
                 }
-                let t = yscv_tensor::Tensor::from_vec(vec![n], data).map_err(|e| {
-                    Error::Other(format!("input '{name}': tensor build failed — {e}"))
+                let t = yscv_tensor::Tensor::from_vec(vec![n], data).map_err(|source| {
+                    Error::BuildInput {
+                        input: (*name).to_string(),
+                        source,
+                    }
                 })?;
                 Ok(((*name).to_string(), t))
             })
             .collect::<Result<_, _>>()?;
 
-        let mut guard = self
-            .plan
-            .lock()
-            .map_err(|_| Error::Other("MetalDispatcher plan lock poisoned".into()))?;
+        let mut guard = self.plan.lock().map_err(|_| Error::LockPoisoned {
+            lock: "MetalDispatcher plan",
+        })?;
         if guard.is_none() {
             let pairs: Vec<(&str, &yscv_tensor::Tensor)> =
                 input_tensors.iter().map(|(n, t)| (n.as_str(), t)).collect();
-            let plan = yscv_onnx::compile_mpsgraph_plan(&self.model, &pairs)
-                .map_err(|e| Error::Other(format!("MPSGraph compile failed: {e}")))?;
+            let plan = yscv_onnx::compile_mpsgraph_plan(&self.model, &pairs)?;
             *guard = Some(plan);
         }
         let plan = guard.as_ref().expect("plan populated above");
@@ -621,8 +590,7 @@ impl AcceleratorDispatcher for MetalDispatcher {
             .iter()
             .map(|(n, t)| (n.as_str(), t.data()))
             .collect();
-        let outs = yscv_onnx::run_mpsgraph_plan(plan, &feeds)
-            .map_err(|e| Error::Other(format!("MPSGraph run failed: {e}")))?;
+        let outs = yscv_onnx::run_mpsgraph_plan(plan, &feeds)?;
 
         Ok(outs
             .into_iter()
@@ -658,12 +626,7 @@ struct GpuDispatcher {
 #[cfg(feature = "gpu")]
 impl GpuDispatcher {
     fn new(task: &InferenceTask) -> Result<Self, Error> {
-        let model = yscv_onnx::load_onnx_model_from_file(&task.model_path).map_err(|e| {
-            Error::Other(format!(
-                "task '{}': load ONNX {:?} failed — {e}",
-                task.name, task.model_path
-            ))
-        })?;
+        let model = load_onnx(task)?;
         Ok(Self {
             label: format!("gpu-wgpu ({})", task.name),
             model,
@@ -683,22 +646,25 @@ impl AcceleratorDispatcher for GpuDispatcher {
             FxHashMap::with_capacity_and_hasher(inputs.len(), FxBuildHasher);
         for &(name, bytes) in inputs {
             if bytes.len() % 4 != 0 {
-                return Err(Error::Other(format!(
-                    "input '{name}': {} bytes not divisible by 4 (expect f32 LE)",
-                    bytes.len()
-                )));
+                return Err(Error::InputNotF32 {
+                    input: name.to_string(),
+                    len: bytes.len(),
+                });
             }
             let n = bytes.len() / 4;
             let mut data: Vec<f32> = Vec::with_capacity(n);
             for chunk in bytes.as_chunks::<4>().0 {
                 data.push(f32::from_le_bytes(*chunk));
             }
-            let t = yscv_tensor::Tensor::from_vec(vec![n], data)
-                .map_err(|e| Error::Other(format!("input '{name}': tensor build failed — {e}")))?;
+            let t = yscv_tensor::Tensor::from_vec(vec![n], data).map_err(|source| {
+                Error::BuildInput {
+                    input: name.to_string(),
+                    source,
+                }
+            })?;
             feed.insert(name.to_string(), t);
         }
-        let outs = yscv_onnx::run_onnx_model_gpu(&self.model, feed)
-            .map_err(|e| Error::Other(format!("wgpu GPU run failed — {e}")))?;
+        let outs = yscv_onnx::run_onnx_model_gpu(&self.model, feed)?;
         Ok(outs
             .into_iter()
             .map(|(name, t)| {
@@ -743,11 +709,14 @@ mod tests {
             }],
             outputs: vec![],
         };
-        match dispatcher_for(&task) {
-            Err(Error::Other(msg)) => assert!(msg.contains("--features rknn")),
-            Err(other) => panic!("expected Error::Other feature-gate, got {other:?}"),
-            Ok(_) => panic!("expected feature-gate error, got Ok"),
-        }
+        let Err(err) = dispatcher_for(&task) else {
+            panic!("expected feature-gate error, got Ok");
+        };
+        assert!(
+            matches!(&err, Error::AcceleratorNotCompiled { task, accelerator: "Rknn", .. } if task == "det"),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("--features rknn"), "{err}");
     }
 
     #[test]
@@ -763,15 +732,16 @@ mod tests {
             }],
             outputs: vec![],
         };
-        match dispatcher_for(&task) {
-            Err(Error::Other(msg)) => {
-                assert!(
-                    msg.contains("metal-backend"),
-                    "expected feature-gate error, got: {msg}"
-                );
-            }
-            Err(other) => panic!("expected Error::Other, got {other:?}"),
-            Ok(_) => panic!("MetalMps without feature should fail"),
-        }
+        let Err(err) = dispatcher_for(&task) else {
+            panic!("MetalMps without feature should fail");
+        };
+        assert!(
+            matches!(&err, Error::AcceleratorNotCompiled { task, accelerator: "MetalMps", .. } if task == "det"),
+            "{err:?}"
+        );
+        assert!(
+            err.to_string().contains("metal-backend"),
+            "expected feature-gate error, got: {err}"
+        );
     }
 }

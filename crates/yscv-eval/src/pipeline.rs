@@ -72,33 +72,31 @@ pub fn parse_pipeline_benchmark_thresholds(
         if line.is_empty() || line.starts_with('#') {
             continue;
         }
-        let (key, value_str) =
-            line.split_once('=')
-                .ok_or_else(|| EvalError::InvalidThresholdEntry {
-                    line: line_no,
-                    message: "expected `stage.metric=value` entry".to_string(),
-                })?;
-        let (stage, metric) =
-            key.split_once('.')
-                .ok_or_else(|| EvalError::InvalidThresholdEntry {
-                    line: line_no,
-                    message: "expected key in form `stage.metric`".to_string(),
-                })?;
+        let (key, value_str) = line
+            .split_once('=')
+            .ok_or(EvalError::MalformedThresholdEntry {
+                line: line_no,
+                expected: "`stage.metric=value` entry",
+            })?;
+        let (stage, metric) = key
+            .split_once('.')
+            .ok_or(EvalError::MalformedThresholdEntry {
+                line: line_no,
+                expected: "key in form `stage.metric`",
+            })?;
+        let value_str = value_str.trim();
         let value =
             value_str
-                .trim()
                 .parse::<f64>()
-                .map_err(|_| EvalError::InvalidThresholdEntry {
+                .map_err(|source| EvalError::InvalidThresholdNumber {
                     line: line_no,
-                    message: format!("invalid numeric value `{}`", value_str.trim()),
+                    value: value_str.to_string(),
+                    source,
                 })?;
         if !value.is_finite() || value < 0.0 {
-            return Err(EvalError::InvalidThresholdEntry {
+            return Err(EvalError::InvalidThresholdValue {
                 line: line_no,
-                message: format!(
-                    "threshold value must be finite and non-negative, got {}",
-                    value_str.trim()
-                ),
+                value,
             });
         }
 
@@ -108,9 +106,10 @@ pub fn parse_pipeline_benchmark_thresholds(
             "recognize" => &mut thresholds.recognize,
             "end_to_end" => &mut thresholds.end_to_end,
             _ => {
-                return Err(EvalError::InvalidThresholdEntry {
+                return Err(EvalError::UnsupportedThresholdKey {
                     line: line_no,
-                    message: format!("unsupported stage `{stage}`"),
+                    key: "stage",
+                    name: stage.to_string(),
                 });
             }
         };
@@ -120,9 +119,10 @@ pub fn parse_pipeline_benchmark_thresholds(
             "max_mean_ms" => stage_thresholds.max_mean_ms = Some(value),
             "max_p95_ms" => stage_thresholds.max_p95_ms = Some(value),
             _ => {
-                return Err(EvalError::InvalidThresholdEntry {
+                return Err(EvalError::UnsupportedThresholdKey {
                     line: line_no,
-                    message: format!("unsupported metric `{metric}`"),
+                    key: "metric",
+                    name: metric.to_string(),
                 });
             }
         }

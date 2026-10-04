@@ -19,8 +19,7 @@ pub fn export_sequential_to_onnx(
     model_name: &str,
 ) -> Result<Vec<u8>, ModelError> {
     let export_graph = build_onnx_graph(model, graph, input_shape)?;
-    export_onnx_model(&export_graph, producer_name, model_name)
-        .map_err(|e| ModelError::OnnxExport(e.to_string()))
+    Ok(export_onnx_model(&export_graph, producer_name, model_name)?)
 }
 
 /// Exports a `SequentialModel` to an ONNX file.
@@ -33,8 +32,12 @@ pub fn export_sequential_to_onnx_file(
     path: &std::path::Path,
 ) -> Result<(), ModelError> {
     let export_graph = build_onnx_graph(model, graph, input_shape)?;
-    export_onnx_model_to_file(&export_graph, producer_name, model_name, path)
-        .map_err(|e| ModelError::OnnxExport(e.to_string()))
+    Ok(export_onnx_model_to_file(
+        &export_graph,
+        producer_name,
+        model_name,
+        path,
+    )?)
 }
 
 fn build_onnx_graph(
@@ -52,20 +55,16 @@ fn build_onnx_graph(
         match layer {
             ModelLayer::Linear(l) => {
                 let weight_tensor = graph
-                    .value(l.weight_node().expect("linear layer has weight node"))
-                    .map_err(|e| ModelError::OnnxExport(format!("Linear weight: {e}")))?
+                    .value(l.weight_node().expect("linear layer has weight node"))?
                     .clone();
                 let bias_tensor = graph
-                    .value(l.bias_node().expect("linear layer has bias node"))
-                    .map_err(|e| ModelError::OnnxExport(format!("Linear bias: {e}")))?
+                    .value(l.bias_node().expect("linear layer has bias node"))?
                     .clone();
 
                 let w_name = format!("linear{idx}_weight");
                 let b_name = format!("linear{idx}_bias");
 
-                let transposed = weight_tensor
-                    .transpose_2d()
-                    .map_err(|e| ModelError::OnnxExport(format!("transpose weight: {e}")))?;
+                let transposed = weight_tensor.transpose_2d()?;
                 initializers.push((w_name.clone(), transposed));
                 initializers.push((b_name.clone(), bias_tensor));
 
@@ -273,8 +272,7 @@ fn build_onnx_graph(
                         }
                     }
                 }
-                let w_onnx = Tensor::from_vec(vec![c, 1, kh, kw], dst)
-                    .map_err(|e| ModelError::OnnxExport(e.to_string()))?;
+                let w_onnx = Tensor::from_vec(vec![c, 1, kh, kw], dst)?;
                 let w_name = format!("dwconv{idx}_weight");
                 initializers.push((w_name.clone(), w_onnx));
 
@@ -320,8 +318,7 @@ fn build_onnx_graph(
                         }
                     }
                 }
-                let dw_onnx = Tensor::from_vec(vec![c, 1, kh, kw], dst)
-                    .map_err(|e| ModelError::OnnxExport(e.to_string()))?;
+                let dw_onnx = Tensor::from_vec(vec![c, 1, kh, kw], dst)?;
                 let dw_name = format!("sepconv{idx}_dw_weight");
                 initializers.push((dw_name.clone(), dw_onnx));
 
@@ -454,10 +451,11 @@ fn build_onnx_graph(
 fn nhwc_weight_to_nchw(w: &Tensor) -> Result<Tensor, ModelError> {
     let s = w.shape();
     if s.len() != 4 {
-        return Err(ModelError::OnnxExport(format!(
-            "conv weight rank must be 4, got {}",
-            s.len()
-        )));
+        return Err(ModelError::InvalidRank {
+            op: "onnx export conv weight",
+            expected: 4,
+            shape: s.to_vec(),
+        });
     }
     let (kh, kw, cin, cout) = (s[0], s[1], s[2], s[3]);
     let src = w.data();
@@ -473,6 +471,5 @@ fn nhwc_weight_to_nchw(w: &Tensor) -> Result<Tensor, ModelError> {
             }
         }
     }
-    Tensor::from_vec(vec![cout, cin, kh, kw], dst)
-        .map_err(|e| ModelError::OnnxExport(e.to_string()))
+    Ok(Tensor::from_vec(vec![cout, cin, kh, kw], dst)?)
 }

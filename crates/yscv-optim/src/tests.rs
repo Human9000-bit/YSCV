@@ -73,12 +73,13 @@ fn sgd_rejects_shape_mismatch() {
     let grad = Tensor::zeros(vec![3]).unwrap();
 
     let err = optimizer.step(0, &mut weights, &grad).unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::ShapeMismatch {
-            weights: vec![2],
-            grad: vec![3]
-        }
+    assert!(
+        matches!(
+            err,
+            OptimError::ShapeMismatch { ref weights, ref grad }
+                if *weights == vec![2] && *grad == vec![3]
+        ),
+        "{err:?}"
     );
 }
 
@@ -105,7 +106,10 @@ fn step_graph_node_requires_gradient() {
     let mut optimizer = Sgd::new(0.1).unwrap();
 
     let err = optimizer.step_graph_node(&mut graph, x).unwrap_err();
-    assert_eq!(err, OptimError::MissingGradient { node: x.0 });
+    assert!(
+        matches!(err, OptimError::MissingGradient { node } if node == x.0),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -134,13 +138,22 @@ fn adam_step_applies_weight_decay() {
 #[test]
 fn adam_rejects_invalid_configuration() {
     let beta1_err = Adam::new(0.1).unwrap().with_beta1(1.0).unwrap_err();
-    assert_eq!(beta1_err, OptimError::InvalidBeta1 { beta1: 1.0 });
+    assert!(
+        matches!(beta1_err, OptimError::InvalidBeta1 { beta1 } if beta1 == 1.0),
+        "{beta1_err:?}"
+    );
 
     let beta2_err = Adam::new(0.1).unwrap().with_beta2(-0.1).unwrap_err();
-    assert_eq!(beta2_err, OptimError::InvalidBeta2 { beta2: -0.1 });
+    assert!(
+        matches!(beta2_err, OptimError::InvalidBeta2 { beta2 } if beta2 == -0.1),
+        "{beta2_err:?}"
+    );
 
     let epsilon_err = Adam::new(0.1).unwrap().with_epsilon(0.0).unwrap_err();
-    assert_eq!(epsilon_err, OptimError::InvalidEpsilon { epsilon: 0.0 });
+    assert!(
+        matches!(epsilon_err, OptimError::InvalidEpsilon { epsilon } if epsilon == 0.0),
+        "{epsilon_err:?}"
+    );
 }
 
 #[test]
@@ -166,7 +179,10 @@ fn adam_step_graph_node_requires_gradient() {
     let mut optimizer = Adam::new(0.1).unwrap();
 
     let err = optimizer.step_graph_node(&mut graph, x).unwrap_err();
-    assert_eq!(err, OptimError::MissingGradient { node: x.0 });
+    assert!(
+        matches!(err, OptimError::MissingGradient { node } if node == x.0),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -208,13 +224,22 @@ fn adamw_step_graph_node_updates_variable_from_backward_grad() {
 #[test]
 fn adamw_rejects_invalid_configuration() {
     let beta1_err = AdamW::new(0.1).unwrap().with_beta1(1.0).unwrap_err();
-    assert_eq!(beta1_err, OptimError::InvalidBeta1 { beta1: 1.0 });
+    assert!(
+        matches!(beta1_err, OptimError::InvalidBeta1 { beta1 } if beta1 == 1.0),
+        "{beta1_err:?}"
+    );
 
     let beta2_err = AdamW::new(0.1).unwrap().with_beta2(-0.1).unwrap_err();
-    assert_eq!(beta2_err, OptimError::InvalidBeta2 { beta2: -0.1 });
+    assert!(
+        matches!(beta2_err, OptimError::InvalidBeta2 { beta2 } if beta2 == -0.1),
+        "{beta2_err:?}"
+    );
 
     let epsilon_err = AdamW::new(0.1).unwrap().with_epsilon(0.0).unwrap_err();
-    assert_eq!(epsilon_err, OptimError::InvalidEpsilon { epsilon: 0.0 });
+    assert!(
+        matches!(epsilon_err, OptimError::InvalidEpsilon { epsilon } if epsilon == 0.0),
+        "{epsilon_err:?}"
+    );
 }
 
 #[test]
@@ -272,13 +297,22 @@ fn rmsprop_step_graph_node_updates_variable_from_backward_grad() {
 #[test]
 fn rmsprop_rejects_invalid_configuration() {
     let alpha_err = RmsProp::new(0.1).unwrap().with_alpha(1.0).unwrap_err();
-    assert_eq!(alpha_err, OptimError::InvalidRmsPropAlpha { alpha: 1.0 });
+    assert!(
+        matches!(alpha_err, OptimError::InvalidRmsPropAlpha { alpha } if alpha == 1.0),
+        "{alpha_err:?}"
+    );
 
     let momentum_err = RmsProp::new(0.1).unwrap().with_momentum(1.0).unwrap_err();
-    assert_eq!(momentum_err, OptimError::InvalidMomentum { momentum: 1.0 });
+    assert!(
+        matches!(momentum_err, OptimError::InvalidMomentum { momentum } if momentum == 1.0),
+        "{momentum_err:?}"
+    );
 
     let epsilon_err = RmsProp::new(0.1).unwrap().with_epsilon(0.0).unwrap_err();
-    assert_eq!(epsilon_err, OptimError::InvalidEpsilon { epsilon: 0.0 });
+    assert!(
+        matches!(epsilon_err, OptimError::InvalidEpsilon { epsilon } if epsilon == 0.0),
+        "{epsilon_err:?}"
+    );
 }
 
 #[test]
@@ -307,10 +341,16 @@ fn step_lr_scheduler_updates_optimizer_lr_on_interval() {
 #[test]
 fn step_lr_scheduler_rejects_invalid_configuration() {
     let err = StepLr::new(0, 0.5).unwrap_err();
-    assert_eq!(err, OptimError::InvalidStepSize { step_size: 0 });
+    assert!(
+        matches!(err, OptimError::InvalidStepSize { step_size: 0 }),
+        "{err:?}"
+    );
 
     let err = StepLr::new(1, 0.0).unwrap_err();
-    assert_eq!(err, OptimError::InvalidStepGamma { gamma: 0.0 });
+    assert!(
+        matches!(err, OptimError::InvalidStepGamma { gamma } if gamma == 0.0),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -334,18 +374,22 @@ fn cosine_scheduler_updates_optimizer_lr_until_floor() {
 #[test]
 fn cosine_scheduler_rejects_invalid_configuration() {
     let err = CosineAnnealingLr::new(0, 0.0).unwrap_err();
-    assert_eq!(err, OptimError::InvalidCosineTMax { t_max: 0 });
+    assert!(
+        matches!(err, OptimError::InvalidCosineTMax { t_max: 0 }),
+        "{err:?}"
+    );
 
     let err = CosineAnnealingLr::new(4, 0.2)
         .unwrap()
         .with_base_lr(0.1)
         .unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::SchedulerMinLrExceedsBase {
-            min_lr: 0.2,
-            base_lr: 0.1
-        }
+    assert!(
+        matches!(
+            err,
+            OptimError::SchedulerMinLrExceedsBase { min_lr, base_lr }
+                if min_lr == 0.2 && base_lr == 0.1
+        ),
+        "{err:?}"
     );
 }
 
@@ -382,7 +426,10 @@ fn linear_warmup_scheduler_increases_lr_to_base() {
 #[test]
 fn linear_warmup_scheduler_rejects_invalid_configuration() {
     let err = LinearWarmupLr::new(0).unwrap_err();
-    assert_eq!(err, OptimError::InvalidWarmupSteps { warmup_steps: 0 });
+    assert!(
+        matches!(err, OptimError::InvalidWarmupSteps { warmup_steps: 0 }),
+        "{err:?}"
+    );
 
     let err = LinearWarmupLr::new(2)
         .unwrap()
@@ -390,12 +437,13 @@ fn linear_warmup_scheduler_rejects_invalid_configuration() {
         .unwrap()
         .with_start_lr(0.02)
         .unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::SchedulerStartLrExceedsBase {
-            start_lr: 0.02,
-            base_lr: 0.01
-        }
+    assert!(
+        matches!(
+            err,
+            OptimError::SchedulerStartLrExceedsBase { start_lr, base_lr }
+                if start_lr == 0.02 && base_lr == 0.01
+        ),
+        "{err:?}"
     );
 }
 
@@ -437,38 +485,47 @@ fn one_cycle_scheduler_updates_optimizer_lr_profile() {
 #[test]
 fn one_cycle_scheduler_rejects_invalid_configuration() {
     let err = OneCycleLr::new(0, 0.1).unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::InvalidOneCycleTotalSteps { total_steps: 0 }
+    assert!(
+        matches!(
+            err,
+            OptimError::InvalidOneCycleTotalSteps { total_steps: 0 }
+        ),
+        "{err:?}"
     );
 
     let err = OneCycleLr::new(10, 0.1)
         .unwrap()
         .with_pct_start(0.0)
         .unwrap_err();
-    assert_eq!(err, OptimError::InvalidOneCyclePctStart { pct_start: 0.0 });
+    assert!(
+        matches!(err, OptimError::InvalidOneCyclePctStart { pct_start } if pct_start == 0.0),
+        "{err:?}"
+    );
 
     let err = OneCycleLr::new(10, 0.1)
         .unwrap()
         .with_final_div_factor(1.0)
         .unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::InvalidOneCycleFinalDivFactor {
-            final_div_factor: 1.0
-        }
+    assert!(
+        matches!(
+            err,
+            OptimError::InvalidOneCycleFinalDivFactor { final_div_factor }
+                if final_div_factor == 1.0
+        ),
+        "{err:?}"
     );
 
     let err = OneCycleLr::new(10, 0.05)
         .unwrap()
         .with_initial_lr(0.1)
         .unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::SchedulerMaxLrBelowInitial {
-            max_lr: 0.05,
-            initial_lr: 0.1
-        }
+    assert!(
+        matches!(
+            err,
+            OptimError::SchedulerMaxLrBelowInitial { max_lr, initial_lr }
+                if max_lr == 0.05 && initial_lr == 0.1
+        ),
+        "{err:?}"
     );
 }
 
@@ -920,12 +977,13 @@ fn adagrad_rejects_shape_mismatch() {
     let grad = Tensor::zeros(vec![3]).unwrap();
 
     let err = optimizer.step(0, &mut weights, &grad).unwrap_err();
-    assert_eq!(
-        err,
-        OptimError::ShapeMismatch {
-            weights: vec![2],
-            grad: vec![3]
-        }
+    assert!(
+        matches!(
+            err,
+            OptimError::ShapeMismatch { ref weights, ref grad }
+                if *weights == vec![2] && *grad == vec![3]
+        ),
+        "{err:?}"
     );
 }
 
@@ -996,7 +1054,10 @@ fn radam_converges_to_adam() {
 #[test]
 fn radam_rejects_invalid_lr() {
     let err = RAdam::new(-0.1).unwrap_err();
-    assert_eq!(err, OptimError::InvalidLearningRate { lr: -0.1 });
+    assert!(
+        matches!(err, OptimError::InvalidLearningRate { lr } if lr == -0.1),
+        "{err:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------

@@ -1,5 +1,6 @@
 use serde::Deserialize;
 use std::path::Path;
+use std::sync::Arc;
 
 use crate::ModelError;
 
@@ -83,9 +84,9 @@ pub fn parse_supervised_dataset_jsonl(
         }
 
         let record: JsonlSupervisedRecord =
-            serde_json::from_str(line).map_err(|error| ModelError::DatasetJsonlParse {
+            serde_json::from_str(line).map_err(|source| ModelError::DatasetJsonlParse {
                 line: line_number,
-                message: error.to_string(),
+                source: Arc::new(source),
             })?;
 
         let input_row = jsonl_field_to_row(record.input);
@@ -115,10 +116,9 @@ pub fn parse_supervised_dataset_jsonl(
         sample_count =
             sample_count
                 .checked_add(1)
-                .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
+                .ok_or_else(|| ModelError::DatasetSizeOverflow {
                     field: "sample_count",
                     shape: vec![sample_count],
-                    message: "sample count overflow".to_string(),
                 })?;
     }
 

@@ -95,12 +95,10 @@ pub struct Pool2dDesc {
 
 // Helper: create NSArray from a &[i64] shape
 unsafe fn ns_array_from_shape(shape: &[i64]) -> Result<*mut Object, KernelError> {
-    let ns_number_cls = Class::get("NSNumber").ok_or_else(|| KernelError::Gpu {
-        message: "NSNumber class not available".into(),
-    })?;
-    let ns_array_cls = Class::get("NSArray").ok_or_else(|| KernelError::Gpu {
-        message: "NSArray class not available".into(),
-    })?;
+    let ns_number_cls =
+        Class::get("NSNumber").ok_or(KernelError::ObjcClassUnavailable { class: "NSNumber" })?;
+    let ns_array_cls =
+        Class::get("NSArray").ok_or(KernelError::ObjcClassUnavailable { class: "NSArray" })?;
 
     // Build NSNumber objects
     let mut numbers: Vec<*mut Object> = Vec::with_capacity(shape.len());
@@ -246,12 +244,11 @@ impl MpsGraph {
     ) -> Result<MpsGraphTensorRef, KernelError> {
         // SAFETY: (category 4) msg_send to valid MPS graph/descriptor objects; classes checked.
         unsafe {
-            let conv_desc_cls =
-                Class::get("MPSGraphConvolution2DOpDescriptor").ok_or_else(|| {
-                    KernelError::Gpu {
-                        message: "MPSGraphConvolution2DOpDescriptor class not available".into(),
-                    }
-                })?;
+            let conv_desc_cls = Class::get("MPSGraphConvolution2DOpDescriptor").ok_or(
+                KernelError::ObjcClassUnavailable {
+                    class: "MPSGraphConvolution2DOpDescriptor",
+                },
+            )?;
             let d: *mut Object = msg_send![conv_desc_cls,
                 descriptorWithStrideInX: desc.stride_w as u64
                 strideInY: desc.stride_h as u64
@@ -394,10 +391,11 @@ impl MpsGraph {
     ) -> Result<MpsGraphTensorRef, KernelError> {
         // SAFETY: (category 4) msg_send to valid MPS graph/descriptor objects; classes checked.
         unsafe {
-            let pool_desc_cls =
-                Class::get("MPSGraphPooling2DOpDescriptor").ok_or_else(|| KernelError::Gpu {
-                    message: "MPSGraphPooling2DOpDescriptor class not available".into(),
-                })?;
+            let pool_desc_cls = Class::get("MPSGraphPooling2DOpDescriptor").ok_or(
+                KernelError::ObjcClassUnavailable {
+                    class: "MPSGraphPooling2DOpDescriptor",
+                },
+            )?;
             let d: *mut Object = msg_send![pool_desc_cls,
                 descriptorWithKernelWidth: desc.kernel_w as u64
                 kernelHeight: desc.kernel_h as u64
@@ -428,10 +426,11 @@ impl MpsGraph {
     ) -> Result<MpsGraphTensorRef, KernelError> {
         // SAFETY: (category 4) msg_send to valid MPS graph/descriptor objects; classes checked.
         unsafe {
-            let pool_desc_cls =
-                Class::get("MPSGraphPooling2DOpDescriptor").ok_or_else(|| KernelError::Gpu {
-                    message: "MPSGraphPooling2DOpDescriptor class not available".into(),
-                })?;
+            let pool_desc_cls = Class::get("MPSGraphPooling2DOpDescriptor").ok_or(
+                KernelError::ObjcClassUnavailable {
+                    class: "MPSGraphPooling2DOpDescriptor",
+                },
+            )?;
             let d: *mut Object = msg_send![pool_desc_cls,
                 descriptorWithKernelWidth: desc.kernel_w as u64
                 kernelHeight: desc.kernel_h as u64
@@ -570,9 +569,8 @@ impl MpsGraph {
     ) -> Result<MpsGraphTensorRef, KernelError> {
         // SAFETY: (category 4) msg_send to valid MPS graph/descriptor objects; classes checked.
         unsafe {
-            let ns_array_cls = Class::get("NSArray").ok_or_else(|| KernelError::Gpu {
-                message: "NSArray class not available".into(),
-            })?;
+            let ns_array_cls = Class::get("NSArray")
+                .ok_or(KernelError::ObjcClassUnavailable { class: "NSArray" })?;
             let ptrs: Vec<*mut Object> = tensors.iter().map(|t| t.ptr).collect();
             let arr: *mut Object = msg_send![ns_array_cls,
                 arrayWithObjects: ptrs.as_ptr()
@@ -668,14 +666,14 @@ impl MpsGraph {
         unsafe {
             // Build feeds dictionary: MPSGraphTensor → MPSGraphShapedType
             let ns_dict_cls =
-                Class::get("NSMutableDictionary").ok_or_else(|| KernelError::Gpu {
-                    message: "NSMutableDictionary class not available".into(),
+                Class::get("NSMutableDictionary").ok_or(KernelError::ObjcClassUnavailable {
+                    class: "NSMutableDictionary",
                 })?;
             let feeds_dict: *mut Object = msg_send![ns_dict_cls, new];
 
             let shaped_type_cls =
-                Class::get("MPSGraphShapedType").ok_or_else(|| KernelError::Gpu {
-                    message: "MPSGraphShapedType class not available".into(),
+                Class::get("MPSGraphShapedType").ok_or(KernelError::ObjcClassUnavailable {
+                    class: "MPSGraphShapedType",
                 })?;
             for &(ref tensor, shape, dtype) in feeds {
                 let shape_arr = ns_array_from_usize(shape)?;
@@ -690,28 +688,29 @@ impl MpsGraph {
             }
 
             // Build targets NSArray
-            let ns_array_cls = Class::get("NSArray").ok_or_else(|| KernelError::Gpu {
-                message: "NSArray class not available".into(),
-            })?;
+            let ns_array_cls = Class::get("NSArray")
+                .ok_or(KernelError::ObjcClassUnavailable { class: "NSArray" })?;
             let target_ptrs: Vec<*mut Object> = target_tensors.iter().map(|t| t.ptr).collect();
             let targets: *mut Object = msg_send![ns_array_cls,
                 arrayWithObjects: target_ptrs.as_ptr()
                 count: target_ptrs.len()];
 
             // Compilation descriptor (optional optimizations)
-            let comp_desc_cls =
-                Class::get("MPSGraphCompilationDescriptor").ok_or_else(|| KernelError::Gpu {
-                    message: "MPSGraphCompilationDescriptor class not available".into(),
-                })?;
+            let comp_desc_cls = Class::get("MPSGraphCompilationDescriptor").ok_or(
+                KernelError::ObjcClassUnavailable {
+                    class: "MPSGraphCompilationDescriptor",
+                },
+            )?;
             let comp_desc: *mut Object = msg_send![comp_desc_cls, new];
             // optimization level 1 = default optimization
             let _: () = msg_send![comp_desc,
                 setOptimizationLevel: 1u64];
 
             // Create MPSGraphDevice from MTLDevice
-            let mpsg_device_cls = Class::get("MPSGraphDevice").ok_or_else(|| KernelError::Gpu {
-                message: "MPSGraphDevice class not available".into(),
-            })?;
+            let mpsg_device_cls =
+                Class::get("MPSGraphDevice").ok_or(KernelError::ObjcClassUnavailable {
+                    class: "MPSGraphDevice",
+                })?;
             let mpsg_device: *mut Object = msg_send![mpsg_device_cls,
                 deviceWithMTLDevice: device.as_ptr()];
 
@@ -748,12 +747,11 @@ impl MpsGraph {
             autoreleasepool(|| {
                 // Build inputsArray: [MPSGraphTensorData]
                 let tensor_data_cls =
-                    Class::get("MPSGraphTensorData").ok_or_else(|| KernelError::Gpu {
-                        message: "MPSGraphTensorData class not available".into(),
+                    Class::get("MPSGraphTensorData").ok_or(KernelError::ObjcClassUnavailable {
+                        class: "MPSGraphTensorData",
                     })?;
-                let ns_array_cls = Class::get("NSArray").ok_or_else(|| KernelError::Gpu {
-                    message: "NSArray class not available".into(),
-                })?;
+                let ns_array_cls = Class::get("NSArray")
+                    .ok_or(KernelError::ObjcClassUnavailable { class: "NSArray" })?;
 
                 let mut input_datas: Vec<*mut Object> = Vec::new();
                 for &(_, buf, shape, dtype) in inputs {
@@ -949,12 +947,11 @@ impl MpsGraph {
         unsafe {
             autoreleasepool(|| {
                 let tensor_data_cls =
-                    Class::get("MPSGraphTensorData").ok_or_else(|| KernelError::Gpu {
-                        message: "MPSGraphTensorData class not available".into(),
+                    Class::get("MPSGraphTensorData").ok_or(KernelError::ObjcClassUnavailable {
+                        class: "MPSGraphTensorData",
                     })?;
-                let ns_array_cls = Class::get("NSArray").ok_or_else(|| KernelError::Gpu {
-                    message: "NSArray class not available".into(),
-                })?;
+                let ns_array_cls = Class::get("NSArray")
+                    .ok_or(KernelError::ObjcClassUnavailable { class: "NSArray" })?;
 
                 let input_specs: Vec<(&Buffer, &[usize], u32)> = inputs
                     .iter()
@@ -1024,8 +1021,8 @@ impl MpsGraph {
         unsafe {
             autoreleasepool(|| {
                 let mps_cb_cls =
-                    Class::get("MPSCommandBuffer").ok_or_else(|| KernelError::Gpu {
-                        message: "MPSCommandBuffer class not available".into(),
+                    Class::get("MPSCommandBuffer").ok_or(KernelError::ObjcClassUnavailable {
+                        class: "MPSCommandBuffer",
                     })?;
                 let mps_cb: *mut Object = msg_send![mps_cb_cls,
                     commandBufferWithCommandBuffer: command_buffer.as_ptr()];
@@ -1045,9 +1042,8 @@ impl MpsGraph {
 
 // Helper: create NSString from &str
 unsafe fn ns_string(s: &str) -> Result<*mut Object, KernelError> {
-    let ns_string_cls = Class::get("NSString").ok_or_else(|| KernelError::Gpu {
-        message: "NSString class not available".into(),
-    })?;
+    let ns_string_cls =
+        Class::get("NSString").ok_or(KernelError::ObjcClassUnavailable { class: "NSString" })?;
     let ns_str: *mut Object = msg_send![ns_string_cls,
         stringWithUTF8String: s.as_ptr() as *const i8];
     Ok(ns_str)
@@ -1055,9 +1051,8 @@ unsafe fn ns_string(s: &str) -> Result<*mut Object, KernelError> {
 
 // Helper: create NSData from raw bytes
 unsafe fn ns_data_from_bytes(ptr: *const u8, len: usize) -> Result<*mut Object, KernelError> {
-    let ns_data_cls = Class::get("NSData").ok_or_else(|| KernelError::Gpu {
-        message: "NSData class not available".into(),
-    })?;
+    let ns_data_cls =
+        Class::get("NSData").ok_or(KernelError::ObjcClassUnavailable { class: "NSData" })?;
     let data: *mut Object = msg_send![ns_data_cls,
         dataWithBytes: ptr
         length: len];

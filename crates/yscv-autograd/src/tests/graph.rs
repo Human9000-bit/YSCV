@@ -35,7 +35,10 @@ fn backward_requires_scalar_target() {
     let mut graph = Graph::new();
     let x = graph.variable(Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap());
     let err = graph.backward(x).unwrap_err();
-    assert_eq!(err, AutogradError::NonScalarTarget { shape: vec![2] });
+    assert!(
+        matches!(err, AutogradError::NonScalarTarget { ref shape } if shape == &[2]),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -55,12 +58,15 @@ fn truncate_rejects_out_of_range_size() {
     let mut graph = Graph::new();
     let _a = graph.variable(Tensor::from_vec(vec![1], vec![1.0]).unwrap());
     let err = graph.truncate(2).unwrap_err();
-    assert_eq!(
-        err,
-        AutogradError::InvalidTruncate {
-            requested: 2,
-            available: 1
-        }
+    assert!(
+        matches!(
+            err,
+            AutogradError::InvalidTruncate {
+                requested: 2,
+                available: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 

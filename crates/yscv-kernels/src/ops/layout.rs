@@ -27,38 +27,53 @@
 //! intrinsics would only help for the strided NCHW↔NCHWc transpose,
 //! which runs at graph boundaries (cold path by construction).
 
-use yscv_tensor::{AlignedVec, Layout, Tensor};
+use yscv_tensor::{AlignedVec, Layout, Tensor, TensorError};
 
 use crate::core::error::KernelError;
 
 /// Returns `(N, C, H, W)` from a 4-D NCHW or NHWC shape, or an error.
 #[inline]
-fn nchw_dims(shape: &[usize]) -> Result<(usize, usize, usize, usize), KernelError> {
+fn nchw_dims(
+    op: &'static str,
+    shape: &[usize],
+) -> Result<(usize, usize, usize, usize), KernelError> {
     match shape {
         [n, c, h, w] => Ok((*n, *c, *h, *w)),
-        _ => Err(KernelError::LayoutConversion(format!(
-            "expected 4-D shape [N,C,H,W], got {shape:?}"
-        ))),
+        _ => Err(KernelError::UnexpectedShape {
+            op,
+            expected: "[N,C,H,W]",
+            got: shape.to_vec(),
+        }),
     }
 }
 
 #[inline]
-fn nhwc_dims(shape: &[usize]) -> Result<(usize, usize, usize, usize), KernelError> {
+fn nhwc_dims(
+    op: &'static str,
+    shape: &[usize],
+) -> Result<(usize, usize, usize, usize), KernelError> {
     match shape {
         [n, h, w, c] => Ok((*n, *h, *w, *c)),
-        _ => Err(KernelError::LayoutConversion(format!(
-            "expected 4-D shape [N,H,W,C], got {shape:?}"
-        ))),
+        _ => Err(KernelError::UnexpectedShape {
+            op,
+            expected: "[N,H,W,C]",
+            got: shape.to_vec(),
+        }),
     }
 }
 
 #[inline]
-fn nchwc_dims(shape: &[usize]) -> Result<(usize, usize, usize, usize, usize), KernelError> {
+fn nchwc_dims(
+    op: &'static str,
+    shape: &[usize],
+) -> Result<(usize, usize, usize, usize, usize), KernelError> {
     match shape {
         [n, co, h, w, b] => Ok((*n, *co, *h, *w, *b)),
-        _ => Err(KernelError::LayoutConversion(format!(
-            "expected 5-D NCHWc shape [N,C/b,H,W,b], got {shape:?}"
-        ))),
+        _ => Err(KernelError::UnexpectedShape {
+            op,
+            expected: "[N,C/b,H,W,b]",
+            got: shape.to_vec(),
+        }),
     }
 }
 
@@ -75,13 +90,11 @@ const fn channel_blocks(channels: usize, block: usize) -> usize {
 #[allow(unsafe_code)]
 pub fn nhwc_to_nchwc(input: &Tensor, block: usize) -> Result<Tensor, KernelError> {
     if block == 0 || !block.is_power_of_two() || block > u8::MAX as usize {
-        return Err(KernelError::LayoutConversion(format!(
-            "block must be power-of-two in 1..=255, got {block}"
-        )));
+        return Err(KernelError::InvalidNchwcBlock { block });
     }
-    let (n, h, w, c) = nhwc_dims(input.shape())?;
+    let (n, h, w, c) = nhwc_dims("nhwc_to_nchwc", input.shape())?;
     let co = channel_blocks(c, block);
-    let src = input.try_data().map_err(KernelError::from)?;
+    let src = input.try_data()?;
 
     let out_len = n * co * h * w * block;
     // When channels are block-aligned every lane is overwritten below, so skip
@@ -129,7 +142,7 @@ pub fn nhwc_to_nchwc(input: &Tensor, block: usize) -> Result<Tensor, KernelError
     }
 
     let shape = vec![n, co, h, w, block];
-    let out_tensor = Tensor::from_aligned(shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(shape, out)?;
     Ok(out_tensor.with_layout(Layout::NCHWc { block: block as u8 }))
 }
 
@@ -138,18 +151,14 @@ pub fn nhwc_to_nchwc(input: &Tensor, block: usize) -> Result<Tensor, KernelError
 /// the padded tail is stripped). Output tensor carries `Layout::NHWC`.
 #[allow(unsafe_code)]
 pub fn nchwc_to_nhwc(input: &Tensor, channels: usize) -> Result<Tensor, KernelError> {
-    let (n, co, h, w, block) = nchwc_dims(input.shape())?;
-    if channels > co * block {
-        return Err(KernelError::LayoutConversion(format!(
-            "channels {channels} exceeds NCHWc capacity {co}*{block}"
-        )));
+    let (n, co, h, w, block) = nchwc_dims("nchwc_to_nhwc", input.shape())?;
+    if channels == 0 || channels > co * block {
+        return Err(KernelError::InvalidNchwcChannels {
+            channels,
+            capacity: co * block,
+        });
     }
-    if channels == 0 {
-        return Err(KernelError::LayoutConversion(
-            "channels must be > 0".to_string(),
-        ));
-    }
-    let src = input.try_data().map_err(KernelError::from)?;
+    let src = input.try_data()?;
 
     let out_len = n * h * w * channels;
     // SAFETY: the layout conversion writes every output element before use.
@@ -191,7 +200,7 @@ pub fn nchwc_to_nhwc(input: &Tensor, channels: usize) -> Result<Tensor, KernelEr
     }
 
     let shape = vec![n, h, w, channels];
-    let out_tensor = Tensor::from_aligned(shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(shape, out)?;
     Ok(out_tensor.with_layout(Layout::NHWC))
 }
 
@@ -203,13 +212,11 @@ pub fn nchwc_to_nhwc(input: &Tensor, channels: usize) -> Result<Tensor, KernelEr
 /// memory write is contiguous.
 pub fn nchw_to_nchwc(input: &Tensor, block: usize) -> Result<Tensor, KernelError> {
     if block == 0 || !block.is_power_of_two() || block > u8::MAX as usize {
-        return Err(KernelError::LayoutConversion(format!(
-            "block must be power-of-two in 1..=255, got {block}"
-        )));
+        return Err(KernelError::InvalidNchwcBlock { block });
     }
-    let (n, c, h, w) = nchw_dims(input.shape())?;
+    let (n, c, h, w) = nchw_dims("nchw_to_nchwc", input.shape())?;
     let co = channel_blocks(c, block);
-    let src = input.try_data().map_err(KernelError::from)?;
+    let src = input.try_data()?;
 
     let out_len = n * co * h * w * block;
     let mut out = AlignedVec::<f32>::calloc(out_len);
@@ -245,7 +252,7 @@ pub fn nchw_to_nchwc(input: &Tensor, block: usize) -> Result<Tensor, KernelError
     }
 
     let shape = vec![n, co, h, w, block];
-    let out_tensor = Tensor::from_aligned(shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(shape, out)?;
     Ok(out_tensor.with_layout(Layout::NCHWc { block: block as u8 }))
 }
 
@@ -254,18 +261,14 @@ pub fn nchw_to_nchwc(input: &Tensor, block: usize) -> Result<Tensor, KernelError
 /// in the source are stripped). Output carries `Layout::NCHW`.
 #[allow(unsafe_code)]
 pub fn nchwc_to_nchw(input: &Tensor, channels: usize) -> Result<Tensor, KernelError> {
-    let (n, co, h, w, block) = nchwc_dims(input.shape())?;
-    if channels > co * block {
-        return Err(KernelError::LayoutConversion(format!(
-            "channels {channels} exceeds NCHWc capacity {co}*{block}"
-        )));
+    let (n, co, h, w, block) = nchwc_dims("nchwc_to_nchw", input.shape())?;
+    if channels == 0 || channels > co * block {
+        return Err(KernelError::InvalidNchwcChannels {
+            channels,
+            capacity: co * block,
+        });
     }
-    if channels == 0 {
-        return Err(KernelError::LayoutConversion(
-            "channels must be > 0".to_string(),
-        ));
-    }
-    let src = input.try_data().map_err(KernelError::from)?;
+    let src = input.try_data()?;
 
     let out_len = n * channels * h * w;
     // SAFETY: the layout conversion writes every output element before use.
@@ -304,7 +307,7 @@ pub fn nchwc_to_nchw(input: &Tensor, channels: usize) -> Result<Tensor, KernelEr
     }
 
     let shape = vec![n, channels, h, w];
-    let out_tensor = Tensor::from_aligned(shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(shape, out)?;
     Ok(out_tensor.with_layout(Layout::NCHW))
 }
 
@@ -324,13 +327,13 @@ pub fn nchwc_to_nchw(input: &Tensor, channels: usize) -> Result<Tensor, KernelEr
 #[allow(unsafe_code)]
 pub fn nchw_to_nhwc_fast(input: &Tensor) -> Result<Tensor, KernelError> {
     let shape = input.shape();
-    let (n, c, h, w) = nchw_dims(shape)?;
+    let (n, c, h, w) = nchw_dims("nchw_to_nhwc_fast", shape)?;
     let hw = h * w;
     let out_count = n
         .checked_mul(c)
         .and_then(|v| v.checked_mul(hw))
-        .ok_or_else(|| {
-            KernelError::LayoutConversion(format!("nchw→nhwc overflow for {shape:?}"))
+        .ok_or_else(|| TensorError::SizeOverflow {
+            shape: shape.to_vec(),
         })?;
 
     // Fast path requires both dims multiple of 8 AND x86 AVX runtime.
@@ -347,10 +350,7 @@ pub fn nchw_to_nhwc_fast(input: &Tensor) -> Result<Tensor, KernelError> {
         // this retag, `nchw_to_nhwc_fast_matches_generic_permute_aligned`
         // failed on aarch64 (the AVX fast path never fires, so this
         // branch is the only one that runs there).
-        return input
-            .permute(&[0, 2, 3, 1])
-            .map(|t| t.with_layout(Layout::NHWC))
-            .map_err(KernelError::from);
+        return Ok(input.permute(&[0, 2, 3, 1])?.with_layout(Layout::NHWC));
     }
 
     #[allow(unused_mut)]
@@ -360,7 +360,7 @@ pub fn nchw_to_nhwc_fast(input: &Tensor) -> Result<Tensor, KernelError> {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     #[allow(unsafe_code)]
     {
-        let src = input.try_data().map_err(KernelError::from)?;
+        let src = input.try_data()?;
         let dst = out.as_mut_slice();
         // SAFETY: AVX runtime feature checked above. Slice bounds
         // verified: src = n*c*hw, dst = n*hw*c (same total floats).
@@ -371,7 +371,7 @@ pub fn nchw_to_nhwc_fast(input: &Tensor) -> Result<Tensor, KernelError> {
     }
 
     let out_shape = vec![n, h, w, c];
-    let out_tensor = Tensor::from_aligned(out_shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(out_shape, out)?;
     Ok(out_tensor.with_layout(Layout::NHWC))
 }
 
@@ -489,13 +489,13 @@ fn layout_par_enabled() -> bool {
 #[allow(unsafe_code)]
 pub fn nhwc_to_nchw_fast(input: &Tensor) -> Result<Tensor, KernelError> {
     let shape = input.shape();
-    let (n, h, w, c) = nhwc_dims(shape)?;
+    let (n, h, w, c) = nhwc_dims("nhwc_to_nchw_fast", shape)?;
     let hw = h * w;
     let out_count = n
         .checked_mul(c)
         .and_then(|v| v.checked_mul(hw))
-        .ok_or_else(|| {
-            KernelError::LayoutConversion(format!("nhwc→nchw overflow for {shape:?}"))
+        .ok_or_else(|| TensorError::SizeOverflow {
+            shape: shape.to_vec(),
         })?;
 
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
@@ -508,16 +508,13 @@ pub fn nhwc_to_nchw_fast(input: &Tensor) -> Result<Tensor, KernelError> {
     let neon_fast = false;
 
     if !x86_fast && !neon_fast {
-        return input
-            .permute(&[0, 3, 1, 2])
-            .map(|t| t.with_layout(Layout::NCHW))
-            .map_err(KernelError::from);
+        return Ok(input.permute(&[0, 3, 1, 2])?.with_layout(Layout::NCHW));
     }
 
     #[allow(unused_mut)]
     // SAFETY: the layout conversion writes every output element before use.
     let mut out = unsafe { AlignedVec::<f32>::uninitialized(out_count) };
-    let src = input.try_data().map_err(KernelError::from)?;
+    let src = input.try_data()?;
     let dst = out.as_mut_slice();
 
     // Parallelize the transpose over output-channel blocks when there's enough
@@ -594,7 +591,7 @@ pub fn nhwc_to_nchw_fast(input: &Tensor) -> Result<Tensor, KernelError> {
 
     let _ = (src, dst); // keep used on archs with no fast path (avoid unused-var warnings)
     let out_shape = vec![n, c, h, w];
-    let out_tensor = Tensor::from_aligned(out_shape, out).map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(out_shape, out)?;
     Ok(out_tensor.with_layout(Layout::NCHW))
 }
 

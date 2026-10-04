@@ -29,14 +29,9 @@ pub(crate) fn ensure_nchw(env: &mut TensorEnv, name: &str) -> Result<(), OnnxErr
         // required ISA. The SIMD path is much faster than the scalar permute
         // on the Reshape inputs.
         let nchw = if t.rank() == 4 {
-            yscv_kernels::nhwc_to_nchw_fast(&t).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?
+            yscv_kernels::nhwc_to_nchw_fast(&t)?
         } else {
-            t.permute(&[0, 3, 1, 2])
-                .map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?
+            t.permute(&[0, 3, 1, 2])?
         };
         env.insert(name.to_string(), nchw);
     }
@@ -133,11 +128,7 @@ fn try_reshape_nhwc_passthrough_inner(
     // O(1) thanks to Arc-shared storage; the slot stays populated for
     // siblings.
     let input = get_tensor(env, &node.name, &node.inputs[0])?;
-    let out = input
-        .reshape(new_shape)
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = input.reshape(new_shape)?;
     env.insert(node.outputs[0].clone(), out);
     env.mark_nhwc(&node.outputs[0]);
     Ok(true)
@@ -297,19 +288,16 @@ pub(crate) fn execute_node_with_layout_kind(
     }
     result.map_err(|e| match e {
         // Already tagged — pass through unchanged.
-        OnnxError::DecodeFailed { message } if message.starts_with("node ") => {
-            OnnxError::DecodeFailed { message }
-        }
-        other => OnnxError::DecodeFailed {
-            message: format!(
-                "node {} ({}): {other}",
-                if node.name.is_empty() {
-                    node.outputs.first().map(String::as_str).unwrap_or("?")
-                } else {
-                    node.name.as_str()
-                },
-                node.op_type
-            ),
+        e @ OnnxError::AtNode { .. } => e,
+        other => OnnxError::AtNode {
+            node: if node.name.is_empty() {
+                node.outputs.first().map_or("?", String::as_str)
+            } else {
+                node.name.as_str()
+            }
+            .to_string(),
+            op_type: node.op_type.clone(),
+            source: Box::new(other),
         },
     })
 }
@@ -390,10 +378,7 @@ fn execute_node_with_layout_kind_inner(
                     .collect();
                 for (name, new_shape) in to_promote {
                     if let Some(t) = env.get(&name) {
-                        let reshaped =
-                            t.reshape(new_shape).map_err(|e| OnnxError::DecodeFailed {
-                                message: e.to_string(),
-                            })?;
+                        let reshaped = t.reshape(new_shape)?;
                         env.insert(name.clone(), reshaped);
                         env.mark_nhwc(&name);
                     }

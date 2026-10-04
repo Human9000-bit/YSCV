@@ -31,21 +31,25 @@ fn parse_pipeline_thresholds_parses_supported_keys() {
 #[test]
 fn parse_pipeline_thresholds_rejects_bad_entries() {
     let err = parse_pipeline_benchmark_thresholds("bad").unwrap_err();
-    assert_eq!(
-        err,
-        EvalError::InvalidThresholdEntry {
-            line: 1,
-            message: "expected `stage.metric=value` entry".to_string(),
-        }
+    assert!(
+        matches!(
+            err,
+            EvalError::MalformedThresholdEntry {
+                line: 1,
+                expected: "`stage.metric=value` entry"
+            }
+        ),
+        "{err:?}"
     );
 
     let err = parse_pipeline_benchmark_thresholds("unknown.max_mean_ms=1").unwrap_err();
-    assert_eq!(
-        err,
-        EvalError::InvalidThresholdEntry {
-            line: 1,
-            message: "unsupported stage `unknown`".to_string(),
-        }
+    assert!(
+        matches!(
+            err,
+            EvalError::UnsupportedThresholdKey { line: 1, key: "stage", ref name }
+                if name == "unknown"
+        ),
+        "{err:?}"
     );
 }
 

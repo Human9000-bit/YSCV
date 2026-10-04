@@ -323,17 +323,23 @@ pub fn parse_mavlink_frame(data: &[u8]) -> Result<(MavlinkMessage, usize), Video
     let stx_pos = data
         .iter()
         .position(|&b| b == MAVLINK_STX_V2)
-        .ok_or_else(|| VideoError::Codec("no MAVLink v2 STX marker found".into()))?;
+        .ok_or(VideoError::Missing {
+            what: "MAVLink v2 STX marker",
+        })?;
 
     let buf = &data[stx_pos..];
     if buf.len() < MIN_FRAME_LEN {
-        return Err(VideoError::Codec("incomplete MAVLink v2 frame".into()));
+        return Err(VideoError::Truncated {
+            what: "MAVLink v2 frame",
+        });
     }
 
     let payload_len = buf[1] as usize;
     let frame_len = MIN_FRAME_LEN + payload_len; // STX(1) + header(9) + payload + CRC(2)
     if buf.len() < frame_len {
-        return Err(VideoError::Codec("incomplete MAVLink v2 frame".into()));
+        return Err(VideoError::Truncated {
+            what: "MAVLink v2 frame",
+        });
     }
 
     // Parse header fields
@@ -364,9 +370,11 @@ pub fn parse_mavlink_frame(data: &[u8]) -> Result<(MavlinkMessage, usize), Video
     let computed = mavlink_crc(crc_data, crc_extra);
 
     if computed != expected_crc {
-        return Err(VideoError::Codec(format!(
-            "MAVLink CRC mismatch for msgid {msgid}: expected 0x{expected_crc:04X}, got 0x{computed:04X}"
-        )));
+        return Err(VideoError::MavlinkCrcMismatch {
+            msgid,
+            expected: expected_crc,
+            computed,
+        });
     }
 
     // Decode typed payload
@@ -532,6 +540,7 @@ mod serial {
     use super::{MavlinkMessage, MavlinkParser};
     use crate::VideoError;
     use std::ffi::{CString, c_char, c_void};
+    use std::sync::Arc;
 
     // termios constants (Linux aarch64 / x86_64)
     const TCGETS2: usize = 0x802C_542A;
@@ -624,16 +633,21 @@ mod serial {
         /// Uses `extern "C"` FFI to call `open`, `ioctl` (TCGETS2/TCSETS2).
         /// All pointers are to stack-local structs owned by this function.
         pub fn open(device: &str, baud: u32) -> Result<Self, VideoError> {
-            let path = CString::new(device)
-                .map_err(|_| VideoError::Source("serial device path contains NUL".into()))?;
+            let path = CString::new(device).map_err(|e| VideoError::Io {
+                op: "open",
+                path: Some(device.into()),
+                source: Arc::new(e.into()),
+            })?;
 
             // SAFETY: path is a valid NUL-terminated C string.
             // open() returns a file descriptor or -1 on error.
             let fd = unsafe { open(path.as_ptr(), O_RDWR | O_NOCTTY | O_NONBLOCK) };
             if fd < 0 {
-                return Err(VideoError::Source(format!(
-                    "cannot open serial device {device}"
-                )));
+                return Err(VideoError::Io {
+                    op: "open",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                });
             }
 
             // Get current termios2
@@ -642,11 +656,16 @@ mod serial {
             // ioctl(TCGETS2) populates it from the kernel.
             let rc = unsafe { ioctl(fd, TCGETS2, &mut tio as *mut Termios2) };
             if rc < 0 {
+                let err = VideoError::Io {
+                    op: "TCGETS2",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 // SAFETY: fd is a valid open file descriptor.
                 unsafe {
                     close(fd);
                 }
-                return Err(VideoError::Source("TCGETS2 failed".into()));
+                return Err(err);
             }
 
             // Raw mode
@@ -669,11 +688,16 @@ mod serial {
             // SAFETY: tio is a valid Termios2 pointer, fd is open.
             let rc = unsafe { ioctl(fd, TCSETS2, &tio as *const Termios2) };
             if rc < 0 {
+                let err = VideoError::Io {
+                    op: "TCSETS2",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 // SAFETY: fd is a valid open file descriptor.
                 unsafe {
                     close(fd);
                 }
-                return Err(VideoError::Source("TCSETS2 failed".into()));
+                return Err(err);
             }
 
             Ok(Self {

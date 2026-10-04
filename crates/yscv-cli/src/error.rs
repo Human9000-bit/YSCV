@@ -20,4 +20,12 @@ pub enum AppError {
     Io(#[from] std::io::Error),
     #[error(transparent)]
     Json(#[from] serde_json::Error),
+    #[error("diagnostics: requested device index {index} was not found in discovery list")]
+    DeviceNotFound { index: u32 },
+    #[error("missing diagnostics report path for validation mode")]
+    MissingReportPath,
+    #[error("diagnostics report validation failed")]
+    DiagnosticsValidationFailed,
+    #[error("benchmark regression detected")]
+    BenchmarkRegression,
 }

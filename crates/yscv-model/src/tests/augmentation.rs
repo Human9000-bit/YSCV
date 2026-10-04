@@ -12,24 +12,30 @@ fn augmentation_pipeline_rejects_invalid_probability() {
         probability: 1.5,
     }])
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationProbability {
-            operation: "horizontal_flip",
-            value: 1.5
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidAugmentationProbability {
+                operation: "horizontal_flip",
+                value
+            } if value == 1.5
+        ),
+        "{err:?}"
     );
 
     let rotate_err = ImageAugmentationPipeline::new(vec![ImageAugmentationOp::RandomRotate90 {
         probability: -0.1,
     }])
     .unwrap_err();
-    assert_eq!(
-        rotate_err,
-        ModelError::InvalidAugmentationProbability {
-            operation: "random_rotate90",
-            value: -0.1
-        }
+    assert!(
+        matches!(
+            rotate_err,
+            ModelError::InvalidAugmentationProbability {
+                operation: "random_rotate90",
+                value
+            } if value == -0.1
+        ),
+        "{rotate_err:?}"
     );
 }
 
@@ -39,12 +45,17 @@ fn augmentation_pipeline_rejects_invalid_contrast_jitter() {
         max_scale_delta: -0.1,
     }])
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationArgument {
-            operation: "contrast_jitter",
-            message: "max_scale_delta must be finite and >= 0, got -0.1".to_string()
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidArgument {
+                op: "contrast_jitter",
+                param: "max_scale_delta",
+                value,
+                expected: "finite value >= 0",
+            } if value == -0.1
+        ),
+        "{err:?}"
     );
 }
 
@@ -54,12 +65,17 @@ fn augmentation_pipeline_rejects_invalid_gamma_jitter() {
         max_gamma_delta: -0.1,
     }])
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationArgument {
-            operation: "gamma_jitter",
-            message: "max_gamma_delta must be finite and >= 0, got -0.1".to_string()
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidArgument {
+                op: "gamma_jitter",
+                param: "max_gamma_delta",
+                value,
+                expected: "finite value >= 0",
+            } if value == -0.1
+        ),
+        "{err:?}"
     );
 }
 
@@ -70,12 +86,17 @@ fn augmentation_pipeline_rejects_invalid_gaussian_noise_arguments() {
         std_dev: -0.1,
     }])
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationArgument {
-            operation: "gaussian_noise",
-            message: "std_dev must be finite and >= 0, got -0.1".to_string()
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidArgument {
+                op: "gaussian_noise",
+                param: "std_dev",
+                value,
+                expected: "finite value >= 0",
+            } if value == -0.1
+        ),
+        "{err:?}"
     );
 }
 
@@ -88,12 +109,17 @@ fn augmentation_pipeline_rejects_invalid_cutout_arguments() {
         fill_value: 0.0,
     }])
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationArgument {
-            operation: "cutout",
-            message: "max_height_fraction must be finite in (0, 1], got 0".to_string()
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidArgument {
+                op: "cutout",
+                param: "max_height_fraction",
+                value,
+                expected: "finite value in (0, 1]",
+            } if value == 0.0
+        ),
+        "{err:?}"
     );
 }
 
@@ -105,12 +131,17 @@ fn augmentation_pipeline_rejects_invalid_random_resized_crop_arguments() {
         max_scale: 0.2,
     }])
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationArgument {
-            operation: "random_resized_crop",
-            message: "min_scale must be <= max_scale, got min_scale=0.8, max_scale=0.2".to_string()
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidRange {
+                op: "random_resized_crop",
+                param: "scale",
+                min,
+                max,
+            } if min == 0.8 && max == 0.2
+        ),
+        "{err:?}"
     );
 }
 
@@ -122,9 +153,9 @@ fn augmentation_pipeline_requires_rank4_nhwc() {
     .unwrap();
     let input = Tensor::from_vec(vec![2, 2, 3], vec![0.0; 12]).unwrap();
     let err = pipeline.apply_nhwc(&input, 7).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationInputShape { got: vec![2, 2, 3] }
+    assert!(
+        matches!(err, ModelError::InvalidAugmentationInputShape { ref got } if *got == [2, 2, 3]),
+        "{err:?}"
     );
 }
 

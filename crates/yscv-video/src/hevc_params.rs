@@ -277,15 +277,23 @@ pub fn parse_hevc_sps(data: &[u8]) -> Result<HevcSps, VideoError> {
     let bit_depth_luma_minus8 = reader.read_ue()?;
     let bit_depth_chroma_minus8 = reader.read_ue()?;
     let log2_max_pic_order_cnt_lsb_minus4 = reader.read_ue()?;
-    if bit_depth_luma_minus8 > 8 || bit_depth_chroma_minus8 > 8 {
-        return Err(VideoError::Codec(format!(
-            "HEVC SPS bit_depth_minus8 out of range: luma {bit_depth_luma_minus8} chroma {bit_depth_chroma_minus8}"
-        )));
+    if bit_depth_luma_minus8 > 8 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC SPS bit_depth_luma_minus8",
+            value: bit_depth_luma_minus8.into(),
+        });
+    }
+    if bit_depth_chroma_minus8 > 8 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC SPS bit_depth_chroma_minus8",
+            value: bit_depth_chroma_minus8.into(),
+        });
     }
     if log2_max_pic_order_cnt_lsb_minus4 > 12 {
-        return Err(VideoError::Codec(format!(
-            "HEVC SPS log2_max_pic_order_cnt_lsb_minus4 out of range: {log2_max_pic_order_cnt_lsb_minus4}"
-        )));
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC SPS log2_max_pic_order_cnt_lsb_minus4",
+            value: log2_max_pic_order_cnt_lsb_minus4.into(),
+        });
     }
     let bit_depth_luma = bit_depth_luma_minus8 as u8 + 8;
     let bit_depth_chroma = bit_depth_chroma_minus8 as u8 + 8;
@@ -383,10 +391,17 @@ pub fn parse_hevc_pps(data: &[u8]) -> Result<HevcPps, VideoError> {
     let cabac_init_present = reader.read_bit()? != 0;
     let num_ref_idx_l0_default_minus1 = reader.read_ue()?;
     let num_ref_idx_l1_default_minus1 = reader.read_ue()?;
-    if num_ref_idx_l0_default_minus1 > 14 || num_ref_idx_l1_default_minus1 > 14 {
-        return Err(VideoError::Codec(format!(
-            "HEVC PPS num_ref_idx_default_active_minus1 out of range: l0 {num_ref_idx_l0_default_minus1} l1 {num_ref_idx_l1_default_minus1}"
-        )));
+    if num_ref_idx_l0_default_minus1 > 14 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC PPS num_ref_idx_l0_default_active_minus1",
+            value: num_ref_idx_l0_default_minus1.into(),
+        });
+    }
+    if num_ref_idx_l1_default_minus1 > 14 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC PPS num_ref_idx_l1_default_active_minus1",
+            value: num_ref_idx_l1_default_minus1.into(),
+        });
     }
     let num_ref_idx_l0_default = num_ref_idx_l0_default_minus1 as u8 + 1;
     let num_ref_idx_l1_default = num_ref_idx_l1_default_minus1 as u8 + 1;

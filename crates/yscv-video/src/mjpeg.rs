@@ -133,9 +133,9 @@ impl<'a> BitReader<'a> {
     #[inline]
     fn next_byte(&mut self) -> Result<u8, VideoError> {
         if self.pos >= self.data.len() {
-            return Err(VideoError::Codec(
-                "MJPEG: unexpected end of scan data".into(),
-            ));
+            return Err(VideoError::Truncated {
+                what: "MJPEG scan data",
+            });
         }
         let b = self.data[self.pos];
         self.pos += 1;
@@ -178,14 +178,14 @@ impl<'a> BitReader<'a> {
 
             if ht.max_code[bits] >= 0 && code <= ht.max_code[bits] {
                 let idx = ht.val_ptr[bits] + (code - ht.min_code[bits]) as usize;
-                return ht.values.get(idx).copied().ok_or_else(|| {
-                    VideoError::Codec("MJPEG: Huffman symbol index out of range".into())
+                return ht.values.get(idx).copied().ok_or(VideoError::Malformed {
+                    what: "MJPEG Huffman code (symbol index out of range)",
                 });
             }
         }
-        Err(VideoError::Codec(
-            "MJPEG: invalid Huffman code (exceeded 16 bits)".into(),
-        ))
+        Err(VideoError::Malformed {
+            what: "MJPEG Huffman code (longer than 16 bits)",
+        })
     }
 
     /// Read a signed coefficient value of `n` bits (JPEG coefficient coding).
@@ -356,13 +356,18 @@ fn idct_8x8(block: &mut [i32; 64]) {
 /// Skip over an APP or unknown marker segment.
 fn skip_marker(data: &[u8], pos: &mut usize) -> Result<(), VideoError> {
     if *pos + 2 > data.len() {
-        return Err(VideoError::Codec("MJPEG: truncated marker length".into()));
+        return Err(VideoError::Truncated {
+            what: "MJPEG marker length",
+        });
     }
     let len = u16::from_be_bytes([data[*pos], data[*pos + 1]]) as usize;
     if *pos + len > data.len() {
-        return Err(VideoError::Codec(
-            "MJPEG: marker segment exceeds data".into(),
-        ));
+        return Err(VideoError::OutOfBounds {
+            what: "MJPEG marker segment",
+            offset: *pos,
+            len,
+            available: data.len(),
+        });
     }
     *pos += len;
     Ok(())
@@ -370,11 +375,18 @@ fn skip_marker(data: &[u8], pos: &mut usize) -> Result<(), VideoError> {
 
 fn parse_dqt(data: &[u8], pos: &mut usize, qt: &mut [QuantTable; 4]) -> Result<(), VideoError> {
     if *pos + 2 > data.len() {
-        return Err(VideoError::Codec("MJPEG: truncated DQT".into()));
+        return Err(VideoError::Truncated {
+            what: "MJPEG DQT segment",
+        });
     }
     let seg_len = u16::from_be_bytes([data[*pos], data[*pos + 1]]) as usize;
     if *pos + seg_len > data.len() {
-        return Err(VideoError::Codec("MJPEG: DQT exceeds data".into()));
+        return Err(VideoError::OutOfBounds {
+            what: "MJPEG DQT segment",
+            offset: *pos,
+            len: seg_len,
+            available: data.len(),
+        });
     }
     let end = *pos + seg_len;
     *pos += 2; // skip length
@@ -385,15 +397,18 @@ fn parse_dqt(data: &[u8], pos: &mut usize, qt: &mut [QuantTable; 4]) -> Result<(
         let precision = (info >> 4) & 0x0F; // 0 = 8-bit, 1 = 16-bit
         let table_id = (info & 0x0F) as usize;
         if table_id >= 4 {
-            return Err(VideoError::Codec(format!(
-                "MJPEG: invalid DQT table id {table_id}"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "MJPEG DQT table id",
+                value: table_id as i64,
+            });
         }
 
         if precision == 0 {
             // 8-bit values
             if *pos + 64 > end {
-                return Err(VideoError::Codec("MJPEG: truncated 8-bit DQT".into()));
+                return Err(VideoError::Truncated {
+                    what: "MJPEG 8-bit DQT table",
+                });
             }
             for i in 0..64 {
                 qt[table_id].table[ZIGZAG[i]] = data[*pos] as u16;
@@ -402,7 +417,9 @@ fn parse_dqt(data: &[u8], pos: &mut usize, qt: &mut [QuantTable; 4]) -> Result<(
         } else {
             // 16-bit values
             if *pos + 128 > end {
-                return Err(VideoError::Codec("MJPEG: truncated 16-bit DQT".into()));
+                return Err(VideoError::Truncated {
+                    what: "MJPEG 16-bit DQT table",
+                });
             }
             for i in 0..64 {
                 qt[table_id].table[ZIGZAG[i]] = u16::from_be_bytes([data[*pos], data[*pos + 1]]);
@@ -415,20 +432,28 @@ fn parse_dqt(data: &[u8], pos: &mut usize, qt: &mut [QuantTable; 4]) -> Result<(
 
 fn parse_sof0(data: &[u8], pos: &mut usize) -> Result<FrameHeader, VideoError> {
     if *pos + 2 > data.len() {
-        return Err(VideoError::Codec("MJPEG: truncated SOF0".into()));
+        return Err(VideoError::Truncated {
+            what: "MJPEG SOF0 segment",
+        });
     }
     let seg_len = u16::from_be_bytes([data[*pos], data[*pos + 1]]) as usize;
     if *pos + seg_len > data.len() {
-        return Err(VideoError::Codec("MJPEG: SOF0 exceeds data".into()));
+        return Err(VideoError::OutOfBounds {
+            what: "MJPEG SOF0 segment",
+            offset: *pos,
+            len: seg_len,
+            available: data.len(),
+        });
     }
     *pos += 2;
 
     let precision = data[*pos];
     *pos += 1;
     if precision != 8 {
-        return Err(VideoError::Codec(format!(
-            "MJPEG: only 8-bit precision supported, got {precision}"
-        )));
+        return Err(VideoError::FieldOutOfRange {
+            field: "MJPEG SOF0 sample precision (only 8 supported)",
+            value: precision.into(),
+        });
     }
 
     let height = u16::from_be_bytes([data[*pos], data[*pos + 1]]) as u32;
@@ -440,9 +465,10 @@ fn parse_sof0(data: &[u8], pos: &mut usize) -> Result<FrameHeader, VideoError> {
     *pos += 1;
 
     if num_components != 1 && num_components != 3 {
-        return Err(VideoError::Codec(format!(
-            "MJPEG: unsupported component count {num_components}"
-        )));
+        return Err(VideoError::FieldOutOfRange {
+            field: "MJPEG SOF0 component count (1 or 3 supported)",
+            value: num_components as i64,
+        });
     }
 
     let mut components = Vec::with_capacity(num_components);
@@ -489,11 +515,18 @@ fn parse_dht(
     huff: &mut [[HuffTable; 2]; 2],
 ) -> Result<(), VideoError> {
     if *pos + 2 > data.len() {
-        return Err(VideoError::Codec("MJPEG: truncated DHT".into()));
+        return Err(VideoError::Truncated {
+            what: "MJPEG DHT segment",
+        });
     }
     let seg_len = u16::from_be_bytes([data[*pos], data[*pos + 1]]) as usize;
     if *pos + seg_len > data.len() {
-        return Err(VideoError::Codec("MJPEG: DHT exceeds data".into()));
+        return Err(VideoError::OutOfBounds {
+            what: "MJPEG DHT segment",
+            offset: *pos,
+            len: seg_len,
+            available: data.len(),
+        });
     }
     let end = *pos + seg_len;
     *pos += 2;
@@ -503,14 +536,23 @@ fn parse_dht(
         *pos += 1;
         let table_class = ((info >> 4) & 0x0F) as usize; // 0=DC, 1=AC
         let table_id = (info & 0x0F) as usize;
-        if table_class >= 2 || table_id >= 2 {
-            return Err(VideoError::Codec(format!(
-                "MJPEG: invalid DHT class={table_class} id={table_id}"
-            )));
+        if table_class >= 2 {
+            return Err(VideoError::FieldOutOfRange {
+                field: "MJPEG DHT table class",
+                value: table_class as i64,
+            });
+        }
+        if table_id >= 2 {
+            return Err(VideoError::FieldOutOfRange {
+                field: "MJPEG DHT table id",
+                value: table_id as i64,
+            });
         }
 
         if *pos + 16 > end {
-            return Err(VideoError::Codec("MJPEG: truncated DHT counts".into()));
+            return Err(VideoError::Truncated {
+                what: "MJPEG DHT counts",
+            });
         }
         let mut counts = [0u8; 16];
         counts.copy_from_slice(&data[*pos..*pos + 16]);
@@ -518,7 +560,9 @@ fn parse_dht(
 
         let total: usize = counts.iter().map(|&c| c as usize).sum();
         if *pos + total > end {
-            return Err(VideoError::Codec("MJPEG: truncated DHT symbols".into()));
+            return Err(VideoError::Truncated {
+                what: "MJPEG DHT symbols",
+            });
         }
         let symbols = &data[*pos..*pos + total];
         *pos += total;
@@ -530,7 +574,9 @@ fn parse_dht(
 
 fn parse_dri(data: &[u8], pos: &mut usize) -> Result<u16, VideoError> {
     if *pos + 4 > data.len() {
-        return Err(VideoError::Codec("MJPEG: truncated DRI".into()));
+        return Err(VideoError::Truncated {
+            what: "MJPEG DRI segment",
+        });
     }
     // length is always 4
     *pos += 2;
@@ -546,11 +592,18 @@ fn parse_sos(
     components: &mut [ComponentInfo],
 ) -> Result<(), VideoError> {
     if *pos + 2 > data.len() {
-        return Err(VideoError::Codec("MJPEG: truncated SOS".into()));
+        return Err(VideoError::Truncated {
+            what: "MJPEG SOS segment",
+        });
     }
     let seg_len = u16::from_be_bytes([data[*pos], data[*pos + 1]]) as usize;
     if *pos + seg_len > data.len() {
-        return Err(VideoError::Codec("MJPEG: SOS exceeds data".into()));
+        return Err(VideoError::OutOfBounds {
+            what: "MJPEG SOS segment",
+            offset: *pos,
+            len: seg_len,
+            available: data.len(),
+        });
     }
     *pos += 2;
 
@@ -682,12 +735,14 @@ fn decode_block(
 /// Supports baseline JPEG (SOF0) with YCbCr 4:2:0, 4:2:2, 4:4:4 and grayscale.
 pub fn decode_mjpeg_to_rgb8(data: &[u8], output: &mut Vec<u8>) -> Result<(u32, u32), VideoError> {
     if data.len() < 4 {
-        return Err(VideoError::Codec("MJPEG: data too short".into()));
+        return Err(VideoError::Truncated { what: "MJPEG data" });
     }
 
     // Verify SOI marker
     if data[0] != 0xFF || data[1] != MARKER_SOI {
-        return Err(VideoError::Codec("MJPEG: missing SOI marker".into()));
+        return Err(VideoError::Missing {
+            what: "MJPEG SOI marker",
+        });
     }
 
     let mut pos = 2usize;
@@ -708,7 +763,9 @@ pub fn decode_mjpeg_to_rgb8(data: &[u8], output: &mut Vec<u8>) -> Result<(u32, u
     // Parse markers until SOS
     loop {
         if pos + 1 >= data.len() {
-            return Err(VideoError::Codec("MJPEG: unexpected end of data".into()));
+            return Err(VideoError::Truncated {
+                what: "MJPEG marker stream",
+            });
         }
         if data[pos] != 0xFF {
             pos += 1;
@@ -721,7 +778,9 @@ pub fn decode_mjpeg_to_rgb8(data: &[u8], output: &mut Vec<u8>) -> Result<(u32, u
         match marker {
             0x00 | 0xFF => continue, // padding or stuffing
             MARKER_EOI => {
-                return Err(VideoError::Codec("MJPEG: EOI before SOS".into()));
+                return Err(VideoError::Missing {
+                    what: "MJPEG SOS before EOI",
+                });
             }
             MARKER_DQT => parse_dqt(data, &mut pos, &mut qt)?,
             MARKER_SOF0 => {
@@ -732,9 +791,9 @@ pub fn decode_mjpeg_to_rgb8(data: &[u8], output: &mut Vec<u8>) -> Result<(u32, u
                 restart_interval = parse_dri(data, &mut pos)?;
             }
             MARKER_SOS => {
-                let fh = frame_header
-                    .as_mut()
-                    .ok_or_else(|| VideoError::Codec("MJPEG: SOS before SOF0".into()))?;
+                let fh = frame_header.as_mut().ok_or(VideoError::Missing {
+                    what: "MJPEG SOF0 before SOS",
+                })?;
                 parse_sos(data, &mut pos, &mut fh.components)?;
                 break;
             }
@@ -745,12 +804,18 @@ pub fn decode_mjpeg_to_rgb8(data: &[u8], output: &mut Vec<u8>) -> Result<(u32, u
         }
     }
 
-    let fh = frame_header.ok_or_else(|| VideoError::Codec("MJPEG: no SOF0 found".into()))?;
+    let fh = frame_header.ok_or(VideoError::Missing {
+        what: "MJPEG SOF0 segment",
+    })?;
     let width = fh.width as usize;
     let height = fh.height as usize;
 
     if width == 0 || height == 0 {
-        return Err(VideoError::Codec("MJPEG: zero dimensions".into()));
+        return Err(VideoError::InvalidDimensions {
+            what: "MJPEG frame",
+            width,
+            height,
+        });
     }
 
     // Find scan data extent

@@ -49,7 +49,7 @@ use super::h264_yuv::{
 
 #[inline]
 fn bitstream_err() -> VideoError {
-    VideoError::Codec("bitstream exhausted".into())
+    VideoError::Truncated { what: "bitstream" }
 }
 
 /// Reads a motion-vector difference (two se(v) values, clause 7.3.5.1).
@@ -5073,7 +5073,9 @@ impl H264Decoder {
             }
             NalUnitType::Idr => {
                 if nal.data.len() < 2 {
-                    return Err(VideoError::Codec("IDR NAL unit too short".into()));
+                    return Err(VideoError::Truncated {
+                        what: "H.264 IDR NAL unit",
+                    });
                 }
                 self.decode_slice(nal, true)
             }
@@ -5149,33 +5151,40 @@ impl H264Decoder {
         let sps = self
             .sps
             .as_ref()
-            .ok_or_else(|| VideoError::Codec("slice received before SPS".into()))?
+            .ok_or(VideoError::Missing {
+                what: "H.264 SPS before slice",
+            })?
             .clone();
         let pps = self
             .pps
             .as_ref()
-            .ok_or_else(|| VideoError::Codec("slice received before PPS".into()))?
+            .ok_or(VideoError::Missing {
+                what: "H.264 PPS before slice",
+            })?
             .clone();
 
         // The planes are allocated at the coded size, so that is what has to
         // be bounded; the cropped size can be small however large it is.
         let (coded_w, coded_h) = (sps.width(), sps.height());
         if coded_w > 16384 || coded_h > 16384 {
-            return Err(VideoError::Codec(format!(
-                "SPS frame dimensions too large: {coded_w}x{coded_h} (max 16384x16384)"
-            )));
+            return Err(VideoError::InvalidDimensions {
+                what: "H.264 coded frame (max 16384x16384)",
+                width: coded_w,
+                height: coded_h,
+            });
         }
         let w = sps.cropped_width();
         let h = sps.cropped_height();
 
         let mb_w = sps.pic_width_in_mbs as usize;
         let mb_h = sps.pic_height_in_map_units as usize;
-        let full_w = mb_w
-            .checked_mul(16)
-            .ok_or_else(|| VideoError::Codec("macroblock width overflow".into()))?;
-        let full_h = mb_h
-            .checked_mul(16)
-            .ok_or_else(|| VideoError::Codec("macroblock height overflow".into()))?;
+        let mb_overflow = || VideoError::InvalidDimensions {
+            what: "H.264 macroblock grid",
+            width: mb_w,
+            height: mb_h,
+        };
+        let full_w = mb_w.checked_mul(16).ok_or_else(mb_overflow)?;
+        let full_h = mb_h.checked_mul(16).ok_or_else(mb_overflow)?;
 
         // Remove emulation prevention bytes and parse slice header
         let rbsp = remove_emulation_prevention(&nal.data[1..]);
@@ -5425,7 +5434,9 @@ impl H264Decoder {
         let deblock_on = slice_header.disable_deblocking_filter_idc != 1;
         let mut decoded_upto = total_mbs;
         let Some(chase) = chase else {
-            return Err(VideoError::Codec("h264 deblock worker unavailable".into()));
+            return Err(VideoError::Unavailable {
+                what: "H.264 deblock worker",
+            });
         };
         // Slice-local decode state: running QP restarts at the slice QP, the
         // prediction-availability boundary moves to this slice's first MB.
@@ -6081,7 +6092,9 @@ impl H264Decoder {
             );
         }
         let Some(filtered) = chase.finish_frame(is_ref_nal) else {
-            return Err(VideoError::Codec("h264 deblock worker unavailable".into()));
+            return Err(VideoError::Unavailable {
+                what: "H.264 deblock worker",
+            });
         };
         let unfiltered = super::h264_chase::PlaneSet {
             y: std::mem::replace(&mut y_plane, filtered.y),
@@ -6143,9 +6156,11 @@ impl H264Decoder {
                 }
                 cropped
             } else {
-                return Err(VideoError::Codec(
-                    "cropped dimensions exceed full frame size".into(),
-                ));
+                return Err(VideoError::InvalidDimensions {
+                    what: "H.264 cropped frame (exceeds coded size)",
+                    width: w,
+                    height: h,
+                });
             }
         };
 
@@ -6412,19 +6427,35 @@ mod tests {
             for &v in ue {
                 push_exp_golomb(&mut bits, v);
             }
-            parse_sps(&bits_to_bytes(&bits))
-                .err()
-                .map(|e| e.to_string())
+            parse_sps(&bits_to_bytes(&bits)).err()
+        };
+        let out_of_range = |err: Option<VideoError>, name: &str, v: i64| {
+            assert!(
+                matches!(
+                    err,
+                    Some(VideoError::FieldOutOfRange { field, value }) if field == name && value == v
+                ),
+                "{err:?}"
+            );
         };
         // sps_id, log2_max_frame_num_minus4
-        let err = sps_error(66, &[0, 13]).unwrap_or_default();
-        assert!(err.contains("log2_max_frame_num_minus4"), "{err}");
+        out_of_range(
+            sps_error(66, &[0, 13]),
+            "H.264 SPS log2_max_frame_num_minus4",
+            13,
+        );
         // ..., pic_order_cnt_type, log2_max_pic_order_cnt_lsb_minus4
-        let err = sps_error(66, &[0, 0, 0, 13]).unwrap_or_default();
-        assert!(err.contains("log2_max_pic_order_cnt_lsb_minus4"), "{err}");
+        out_of_range(
+            sps_error(66, &[0, 0, 0, 13]),
+            "H.264 SPS log2_max_pic_order_cnt_lsb_minus4",
+            13,
+        );
         // High profile: sps_id, chroma_format_idc, bit_depth_luma_minus8
-        let err = sps_error(100, &[0, 1, 7, 0]).unwrap_or_default();
-        assert!(err.contains("bit_depth_minus8"), "{err}");
+        out_of_range(
+            sps_error(100, &[0, 1, 7, 0]),
+            "H.264 SPS bit_depth_luma_minus8",
+            7,
+        );
     }
 
     #[test]

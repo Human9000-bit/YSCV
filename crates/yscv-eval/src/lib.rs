@@ -43,7 +43,7 @@ pub use detection::{
     LabeledBox, detection_frames_as_view, evaluate_detections, evaluate_detections_coco,
     evaluate_detections_from_dataset,
 };
-pub use error::EvalError;
+pub use error::{DatasetFormatError, EvalError};
 pub use metrics::{
     auc, dice_score, mean_iou, per_class_iou, psnr, roc_curve, ssim, top_k_accuracy,
 };

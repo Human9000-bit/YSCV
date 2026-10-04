@@ -28,8 +28,24 @@ pub enum TensorError {
     },
     #[error("dtype mismatch: expected {expected:?}, got {got:?}")]
     DTypeMismatch { expected: DType, got: DType },
-    #[error("unsupported operation: {msg}")]
-    UnsupportedOperation { msg: String },
+    #[error("{op} requires a rank-{expected} tensor, got rank {got}")]
+    InvalidRank {
+        op: &'static str,
+        expected: usize,
+        got: usize,
+    },
+    #[error("matrix is singular")]
+    SingularMatrix,
+    #[error("matrix is not positive definite")]
+    NotPositiveDefinite,
+    #[error("unsupported einsum equation: {equation}")]
+    UnsupportedEinsum { equation: String },
+    #[error("einsum equation has {inputs} inputs but {tensors} tensors provided")]
+    EinsumOperandCount { inputs: usize, tensors: usize },
+    #[error("{op}: {arg} must be > 0")]
+    ZeroArgument { op: &'static str, arg: &'static str },
+    #[error("randint requires high > low, got low={low}, high={high}")]
+    EmptyRandintRange { low: i64, high: i64 },
 }
 
 /// Element data type for tensor storage.

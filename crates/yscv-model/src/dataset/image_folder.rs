@@ -1,6 +1,7 @@
-use image::ImageReader;
+use image::{ImageError, ImageReader};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use yscv_imgproc::resize_nearest;
 use yscv_tensor::Tensor;
 
@@ -34,14 +35,12 @@ impl SupervisedImageFolderConfig {
             return Err(ModelError::InvalidDatasetAdapterShape {
                 field: "output_height",
                 shape: vec![output_height],
-                message: "output_height must be > 0".to_string(),
             });
         }
         if output_width == 0 {
             return Err(ModelError::InvalidDatasetAdapterShape {
                 field: "output_width",
                 shape: vec![output_width],
-                message: "output_width must be > 0".to_string(),
             });
         }
         Ok(Self {
@@ -145,13 +144,13 @@ pub fn load_supervised_image_folder_dataset_with_classes<P: AsRef<Path>>(
                 class_count,
                 config.target_mode(),
             )?;
-            sample_count = sample_count.checked_add(1).ok_or_else(|| {
-                ModelError::InvalidDatasetAdapterShape {
-                    field: "sample_count",
-                    shape: vec![sample_count],
-                    message: "sample count overflow".to_string(),
-                }
-            })?;
+            sample_count =
+                sample_count
+                    .checked_add(1)
+                    .ok_or_else(|| ModelError::DatasetSizeOverflow {
+                        field: "sample_count",
+                        shape: vec![sample_count],
+                    })?;
         }
     }
 
@@ -182,13 +181,8 @@ fn class_name_from_path(class_dir: &Path) -> Result<String, ModelError> {
     class_dir
         .file_name()
         .map(|name| name.to_string_lossy().into_owned())
-        .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
-            field: "class_name",
-            shape: Vec::new(),
-            message: format!(
-                "failed to infer class name from directory path {}",
-                class_dir.display()
-            ),
+        .ok_or_else(|| ModelError::ClassNameFromPath {
+            path: class_dir.to_path_buf(),
         })
 }
 
@@ -205,19 +199,17 @@ fn append_image_folder_target(
         }
         ImageFolderTargetMode::OneHot => {
             if class_count == 0 || class_id >= class_count {
-                return Err(ModelError::InvalidDatasetAdapterShape {
-                    field: "target_shape",
-                    shape: vec![class_count],
-                    message: "invalid one-hot class configuration".to_string(),
+                return Err(ModelError::InvalidClassId {
+                    class_id,
+                    class_count,
                 });
             }
             let next_len = target_values
                 .len()
                 .checked_add(class_count)
-                .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
+                .ok_or_else(|| ModelError::DatasetSizeOverflow {
                     field: "target_values",
                     shape: vec![target_values.len(), class_count],
-                    message: "target vector length overflow".to_string(),
                 })?;
             target_values.resize(next_len, 0.0);
             let target_start = next_len - class_count;
@@ -228,23 +220,21 @@ fn append_image_folder_target(
 }
 
 fn read_sorted_class_directories(root: &Path) -> Result<Vec<PathBuf>, ModelError> {
-    let entries = fs::read_dir(root).map_err(|error| ModelError::DatasetLoadIo {
-        path: root.display().to_string(),
-        message: error.to_string(),
+    let entries = fs::read_dir(root).map_err(|source| ModelError::Io {
+        path: root.to_path_buf(),
+        source: Arc::new(source),
     })?;
 
     let mut class_dirs = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|error| ModelError::DatasetLoadIo {
-            path: root.display().to_string(),
-            message: error.to_string(),
+        let entry = entry.map_err(|source| ModelError::Io {
+            path: root.to_path_buf(),
+            source: Arc::new(source),
         })?;
-        let file_type = entry
-            .file_type()
-            .map_err(|error| ModelError::DatasetLoadIo {
-                path: entry.path().display().to_string(),
-                message: error.to_string(),
-            })?;
+        let file_type = entry.file_type().map_err(|source| ModelError::Io {
+            path: entry.path(),
+            source: Arc::new(source),
+        })?;
         if file_type.is_dir() {
             class_dirs.push(entry.path());
         }
@@ -268,23 +258,21 @@ fn read_sorted_supported_image_files(
     class_dir: &Path,
     allowed_extensions: &[String],
 ) -> Result<Vec<PathBuf>, ModelError> {
-    let entries = fs::read_dir(class_dir).map_err(|error| ModelError::DatasetLoadIo {
-        path: class_dir.display().to_string(),
-        message: error.to_string(),
+    let entries = fs::read_dir(class_dir).map_err(|source| ModelError::Io {
+        path: class_dir.to_path_buf(),
+        source: Arc::new(source),
     })?;
 
     let mut image_files = Vec::new();
     for entry in entries {
-        let entry = entry.map_err(|error| ModelError::DatasetLoadIo {
-            path: class_dir.display().to_string(),
-            message: error.to_string(),
+        let entry = entry.map_err(|source| ModelError::Io {
+            path: class_dir.to_path_buf(),
+            source: Arc::new(source),
         })?;
-        let file_type = entry
-            .file_type()
-            .map_err(|error| ModelError::DatasetLoadIo {
-                path: entry.path().display().to_string(),
-                message: error.to_string(),
-            })?;
+        let file_type = entry.file_type().map_err(|source| ModelError::Io {
+            path: entry.path(),
+            source: Arc::new(source),
+        })?;
         if file_type.is_file() && has_supported_image_extension(&entry.path(), allowed_extensions) {
             image_files.push(entry.path());
         }
@@ -324,7 +312,7 @@ fn normalize_image_extensions(extensions: Vec<String>) -> Result<Vec<String>, Mo
     if extensions.is_empty() {
         return Err(ModelError::InvalidImageFolderExtension {
             extension: "<list>".to_string(),
-            message: "extension list must be non-empty".to_string(),
+            reason: "extension list must be non-empty",
         });
     }
 
@@ -334,13 +322,13 @@ fn normalize_image_extensions(extensions: Vec<String>) -> Result<Vec<String>, Mo
         if trimmed.is_empty() {
             return Err(ModelError::InvalidImageFolderExtension {
                 extension,
-                message: "extension must be non-empty".to_string(),
+                reason: "extension must be non-empty",
             });
         }
         if trimmed.starts_with('.') {
             return Err(ModelError::InvalidImageFolderExtension {
                 extension: trimmed.to_string(),
-                message: "extension must not start with '.'".to_string(),
+                reason: "extension must not start with '.'",
             });
         }
         if !trimmed
@@ -349,7 +337,7 @@ fn normalize_image_extensions(extensions: Vec<String>) -> Result<Vec<String>, Mo
         {
             return Err(ModelError::InvalidImageFolderExtension {
                 extension: trimmed.to_string(),
-                message: "extension must contain only ASCII letters, digits, or '_'".to_string(),
+                reason: "extension must contain only ASCII letters, digits, or '_'",
             });
         }
         let lowered = trimmed.to_ascii_lowercase();
@@ -366,16 +354,12 @@ pub(super) fn load_image_as_normalized_rgb_tensor(
     output_height: usize,
     output_width: usize,
 ) -> Result<Tensor, ModelError> {
-    let path_string = path.display().to_string();
     let decoded = ImageReader::open(path)
-        .map_err(|error| ModelError::DatasetImageDecode {
-            path: path_string.clone(),
-            message: error.to_string(),
-        })?
-        .decode()
-        .map_err(|error| ModelError::DatasetImageDecode {
-            path: path_string.clone(),
-            message: error.to_string(),
+        .map_err(ImageError::IoError)
+        .and_then(ImageReader::decode)
+        .map_err(|source| ModelError::DatasetImageDecode {
+            path: path.to_path_buf(),
+            source: Arc::new(source),
         })?;
     let rgb = decoded.to_rgb8();
     let (width, height) = rgb.dimensions();

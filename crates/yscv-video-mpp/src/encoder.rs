@@ -62,18 +62,18 @@ impl MppH264Encoder {
     /// if `librockchip_mpp.so` is missing on this host.
     pub fn new(cfg: MppEncoderConfig) -> MppResult<Self> {
         if cfg.width == 0 || cfg.height == 0 {
-            return Err(MppError::InvalidConfig("width/height must be > 0".into()));
+            return Err(MppError::InvalidConfig("width/height must be > 0"));
         }
         if !cfg.width.is_multiple_of(16) || !cfg.height.is_multiple_of(16) {
             return Err(MppError::InvalidConfig(
-                "width/height must be multiples of 16 for H.264 macroblock alignment".into(),
+                "width/height must be multiples of 16 for H.264 macroblock alignment",
             ));
         }
         if cfg.bitrate_kbps == 0 {
-            return Err(MppError::InvalidConfig("bitrate_kbps must be > 0".into()));
+            return Err(MppError::InvalidConfig("bitrate_kbps must be > 0"));
         }
         if cfg.fps == 0 {
-            return Err(MppError::InvalidConfig("fps must be > 0".into()));
+            return Err(MppError::InvalidConfig("fps must be > 0"));
         }
 
         let lib = ffi::load_library()?;

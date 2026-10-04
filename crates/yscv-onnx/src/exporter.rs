@@ -149,9 +149,7 @@ pub fn export_onnx_model(
     };
 
     let mut buf = Vec::new();
-    model_proto.encode(&mut buf).map_err(|e| OnnxError::Io {
-        message: e.to_string(),
-    })?;
+    model_proto.encode(&mut buf)?;
     Ok(buf)
 }
 
@@ -164,7 +162,8 @@ pub fn export_onnx_model_to_file(
 ) -> Result<(), OnnxError> {
     let bytes = export_onnx_model(graph, producer_name, model_name)?;
     std::fs::write(path, bytes).map_err(|e| OnnxError::Io {
-        message: format!("{}: {e}", path.display()),
+        path: path.to_path_buf(),
+        source: std::sync::Arc::new(e),
     })
 }
 

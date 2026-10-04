@@ -42,15 +42,15 @@ pub fn conv2d_nchwc_with_activation_prepacked(
 ) -> Result<Tensor, KernelError> {
     let in_shape = input.shape();
     if in_shape.len() != 5 {
-        return Err(KernelError::LayoutConversion(format!(
-            "conv2d_nchwc: expected 5-D NCHWc input, got {in_shape:?}"
-        )));
+        return Err(KernelError::UnexpectedShape {
+            op: "conv2d_nchwc",
+            expected: "[N,C/b,H,W,b]",
+            got: in_shape.to_vec(),
+        });
     }
     let block = in_shape[4];
     if block == 0 || block > u8::MAX as usize {
-        return Err(KernelError::LayoutConversion(format!(
-            "conv2d_nchwc: invalid block size {block}"
-        )));
+        return Err(KernelError::InvalidNchwcBlock { block });
     }
 
     // NCHWc -> NHWC, stripping padded channels.
@@ -853,37 +853,46 @@ fn conv2d_nchwc_pointwise_with_activation_impl(
     let _ = prepacked_b;
     let in_shape = input.shape();
     if in_shape.len() != 5 {
-        return Err(KernelError::LayoutConversion(format!(
-            "conv2d_nchwc_pointwise: expected 5-D NCHWc input, got {in_shape:?}"
-        )));
+        return Err(KernelError::UnexpectedShape {
+            op: "conv2d_nchwc_pointwise",
+            expected: "[N,C/b,H,W,b]",
+            got: in_shape.to_vec(),
+        });
     }
     let block = in_shape[4];
     if block == 0 || block > u8::MAX as usize {
-        return Err(KernelError::LayoutConversion(format!(
-            "conv2d_nchwc_pointwise: invalid block size {block}"
-        )));
+        return Err(KernelError::InvalidNchwcBlock { block });
     }
     let out_channels = match kernel.shape() {
         [1, 1, _, oc] => *oc,
         s => {
-            return Err(KernelError::LayoutConversion(format!(
-                "conv2d_nchwc_pointwise: expected 1×1 NHWC kernel [1,1,Ci,Co], got {s:?}"
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "conv2d_nchwc_pointwise",
+                expected: "kernel [1,1,Ci,Co]",
+                got: s.to_vec(),
+            });
         }
     };
-    let [n_batch, ci_blocks, h, w, _] = *<&[usize; 5]>::try_from(in_shape)
-        .map_err(|_| KernelError::LayoutConversion("pointwise nchwc: rank mismatch".into()))?;
+    let [n_batch, ci_blocks, h, w, _] =
+        *<&[usize; 5]>::try_from(in_shape).map_err(|_| KernelError::UnexpectedShape {
+            op: "conv2d_nchwc_pointwise",
+            expected: "[N,C/b,H,W,b]",
+            got: in_shape.to_vec(),
+        })?;
     if actual_in_channels > ci_blocks * block {
-        return Err(KernelError::LayoutConversion(format!(
-            "pointwise nchwc: actual_in_channels {actual_in_channels} > capacity {}",
-            ci_blocks * block
-        )));
+        return Err(KernelError::InvalidNchwcChannels {
+            channels: actual_in_channels,
+            capacity: ci_blocks * block,
+        });
     }
     let kernel_in_channels = kernel.shape()[2];
     if kernel_in_channels != actual_in_channels {
-        return Err(KernelError::LayoutConversion(format!(
-            "pointwise nchwc: kernel Cin {kernel_in_channels} != actual_in_channels {actual_in_channels}"
-        )));
+        return Err(KernelError::NchwcChannelMismatch {
+            op: "conv2d_nchwc_pointwise",
+            what: "kernel",
+            got: kernel_in_channels,
+            expected: actual_in_channels,
+        });
     }
     if let Some(b) = bias {
         let blen: usize = b.shape().iter().product();
@@ -899,11 +908,11 @@ fn conv2d_nchwc_pointwise_with_activation_impl(
     if let Some(skip) = residual {
         let expected = [n_batch, co_blocks, h, w, block];
         if skip.shape() != expected {
-            return Err(KernelError::LayoutConversion(format!(
-                "pointwise nchwc residual: expected {:?}, got {:?}",
-                expected,
-                skip.shape()
-            )));
+            return Err(KernelError::NchwcShapeMismatch {
+                op: "conv2d_nchwc_pointwise residual",
+                expected: expected.to_vec(),
+                got: skip.shape().to_vec(),
+            });
         }
     }
     let out_len = n_batch * co_blocks * h * w * block;
@@ -979,8 +988,7 @@ fn conv2d_nchwc_pointwise_with_activation_impl(
                 }
             },
         );
-        let out_tensor = Tensor::from_aligned(vec![n_batch, co_blocks, h, w, block], output)
-            .map_err(KernelError::from)?;
+        let out_tensor = Tensor::from_aligned(vec![n_batch, co_blocks, h, w, block], output)?;
         return Ok(out_tensor.with_layout(yscv_tensor::Layout::NCHWc { block: block as u8 }));
     }
 
@@ -1003,8 +1011,7 @@ fn conv2d_nchwc_pointwise_with_activation_impl(
             activation,
             prepacked_b,
         );
-        let out_tensor = Tensor::from_aligned(vec![n_batch, co_blocks, h, w, block], output)
-            .map_err(KernelError::from)?;
+        let out_tensor = Tensor::from_aligned(vec![n_batch, co_blocks, h, w, block], output)?;
         return Ok(out_tensor.with_layout(yscv_tensor::Layout::NCHWc { block: block as u8 }));
     }
 
@@ -1145,8 +1152,7 @@ fn conv2d_nchwc_pointwise_with_activation_impl(
         );
     }
 
-    let out_tensor = Tensor::from_aligned(vec![n_batch, co_blocks, h, w, block], output)
-        .map_err(KernelError::from)?;
+    let out_tensor = Tensor::from_aligned(vec![n_batch, co_blocks, h, w, block], output)?;
     Ok(out_tensor.with_layout(yscv_tensor::Layout::NCHWc { block: block as u8 }))
 }
 

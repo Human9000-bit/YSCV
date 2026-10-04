@@ -147,13 +147,13 @@ pub fn dump_runner_profile(path: &str) -> Result<(), OnnxError> {
     let merged = {
         let registry = profile_registry()
             .lock()
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: format!("runner profile registry poisoned: {e}"),
+            .map_err(|_| OnnxError::LockPoisoned {
+                lock: "runner profile registry",
             })?;
         let mut merged: FxHashMap<String, RunnerNodeStat> = FxHashMap::default();
         for thread_store in registry.iter() {
-            let store = thread_store.lock().map_err(|e| OnnxError::DecodeFailed {
-                message: format!("runner profile per-thread mutex poisoned: {e}"),
+            let store = thread_store.lock().map_err(|_| OnnxError::LockPoisoned {
+                lock: "runner profile per-thread",
             })?;
             for (name, stat) in &store.per_node {
                 merged
@@ -220,8 +220,9 @@ pub fn dump_runner_profile(path: &str) -> Result<(), OnnxError> {
         out.push('}');
     }
     out.push_str("]}\n");
-    std::fs::write(path, out).map_err(|e| OnnxError::DecodeFailed {
-        message: format!("write runner profile to {path}: {e}"),
+    std::fs::write(path, out).map_err(|e| OnnxError::Io {
+        path: path.into(),
+        source: std::sync::Arc::new(e),
     })?;
     Ok(())
 }
@@ -616,10 +617,9 @@ pub fn profile_onnx_model_cpu(
 /// because the schema is tiny (strings + numbers + shape arrays) and the
 /// crate already compiles cleanly without a JSON dep.
 fn write_profile_json(path: &str, nodes: &[&NodeTiming], total_ms: f64) -> Result<(), OnnxError> {
-    std::fs::write(path, profile_json_string(nodes, total_ms)).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: format!("write profile JSON to {path}: {e}"),
-        }
+    std::fs::write(path, profile_json_string(nodes, total_ms)).map_err(|e| OnnxError::Io {
+        path: path.into(),
+        source: std::sync::Arc::new(e),
     })
 }
 

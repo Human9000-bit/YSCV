@@ -18,7 +18,7 @@ use std::ffi::c_void;
 use std::sync::Arc;
 use thiserror::Error;
 
-#[derive(Debug, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum RgaError {
     #[error("librga.so not found — install Rockchip RGA runtime")]
     LibraryNotFound,
@@ -26,8 +26,14 @@ pub enum RgaError {
     SymbolMissing(&'static str),
     #[error("RGA `{op}` failed with status {status}")]
     CallFailed { op: &'static str, status: i32 },
-    #[error("RGA invalid parameter: {0}")]
-    InvalidParameter(String),
+    #[error("RGA {surface} surface {width}x{height} (stride {stride}): {reason}")]
+    InvalidSurface {
+        surface: &'static str,
+        reason: &'static str,
+        width: u32,
+        height: u32,
+        stride: u32,
+    },
 }
 
 pub type RgaResult<T> = Result<T, RgaError>;
@@ -285,12 +291,15 @@ impl RgaBlender {
     }
 }
 
-fn validate_surface(s: &RgaSurface, label: &str) -> RgaResult<()> {
+fn validate_surface(s: &RgaSurface, label: &'static str) -> RgaResult<()> {
     if s.width == 0 || s.height == 0 {
-        return Err(RgaError::InvalidParameter(format!(
-            "{label}: width/height must be > 0 (got {}×{})",
-            s.width, s.height
-        )));
+        return Err(RgaError::InvalidSurface {
+            surface: label,
+            reason: "width and height must be > 0",
+            width: s.width,
+            height: s.height,
+            stride: s.stride,
+        });
     }
     if s.width > i32::MAX as u32
         || s.height > i32::MAX as u32
@@ -299,20 +308,31 @@ fn validate_surface(s: &RgaSurface, label: &str) -> RgaResult<()> {
             .checked_mul(s.height)
             .is_none_or(|size| size > i32::MAX as u32)
     {
-        return Err(RgaError::InvalidParameter(format!(
-            "{label}: dimensions/stride exceed the RGA i32 ABI"
-        )));
+        return Err(RgaError::InvalidSurface {
+            surface: label,
+            reason: "dimensions or stride exceed the RGA i32 ABI",
+            width: s.width,
+            height: s.height,
+            stride: s.stride,
+        });
     }
     if s.stride < s.width {
-        return Err(RgaError::InvalidParameter(format!(
-            "{label}: stride {} < width {}",
-            s.stride, s.width
-        )));
+        return Err(RgaError::InvalidSurface {
+            surface: label,
+            reason: "stride is smaller than width",
+            width: s.width,
+            height: s.height,
+            stride: s.stride,
+        });
     }
     if s.fd < 0 && s.addr.is_null() {
-        return Err(RgaError::InvalidParameter(format!(
-            "{label}: must provide either fd >= 0 or non-null addr"
-        )));
+        return Err(RgaError::InvalidSurface {
+            surface: label,
+            reason: "needs either fd >= 0 or a non-null addr",
+            width: s.width,
+            height: s.height,
+            stride: s.stride,
+        });
     }
     Ok(())
 }
@@ -362,7 +382,12 @@ mod tests {
         };
         assert!(matches!(
             validate_surface(&s, "test"),
-            Err(RgaError::InvalidParameter(_))
+            Err(RgaError::InvalidSurface {
+                surface: "test",
+                width: 0,
+                height: 480,
+                ..
+            })
         ));
     }
 
@@ -378,7 +403,10 @@ mod tests {
         };
         assert!(matches!(
             validate_surface(&s, "test"),
-            Err(RgaError::InvalidParameter(_))
+            Err(RgaError::InvalidSurface {
+                reason: "needs either fd >= 0 or a non-null addr",
+                ..
+            })
         ));
     }
 
@@ -394,7 +422,11 @@ mod tests {
         };
         assert!(matches!(
             validate_surface(&s, "test"),
-            Err(RgaError::InvalidParameter(_))
+            Err(RgaError::InvalidSurface {
+                width: 640,
+                stride: 100,
+                ..
+            })
         ));
     }
 

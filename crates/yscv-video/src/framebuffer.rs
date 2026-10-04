@@ -8,6 +8,7 @@
 mod linux_impl {
     use crate::VideoError;
     use std::ffi::{CString, c_char};
+    use std::sync::Arc;
 
     // -----------------------------------------------------------------------
     // C FFI — minimal declarations, zero deps
@@ -148,34 +149,49 @@ mod linux_impl {
     impl LinuxFramebuffer {
         /// Open a framebuffer device (e.g., `/dev/fb0`).
         pub fn open(device: &str) -> Result<Self, VideoError> {
-            let path = CString::new(device)
-                .map_err(|_| VideoError::Codec("framebuffer path contains NUL".into()))?;
+            let path = CString::new(device).map_err(|e| VideoError::Io {
+                op: "open",
+                path: Some(device.into()),
+                source: Arc::new(e.into()),
+            })?;
 
             let fd = unsafe { open(path.as_ptr(), O_RDWR) };
             if fd < 0 {
-                return Err(VideoError::Codec(format!(
-                    "failed to open framebuffer device: {device}"
-                )));
+                return Err(VideoError::Io {
+                    op: "open",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                });
             }
 
             // Query variable screen info
             let mut vinfo = FbVarScreenInfo::default();
             let ret = unsafe { ioctl(fd, FBIOGET_VSCREENINFO, &mut vinfo as *mut FbVarScreenInfo) };
             if ret < 0 {
+                let err = VideoError::Io {
+                    op: "FBIOGET_VSCREENINFO",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 unsafe {
                     close(fd);
                 }
-                return Err(VideoError::Codec("FBIOGET_VSCREENINFO ioctl failed".into()));
+                return Err(err);
             }
 
             // Query fixed screen info
             let mut finfo = FbFixScreenInfo::default();
             let ret = unsafe { ioctl(fd, FBIOGET_FSCREENINFO, &mut finfo as *mut FbFixScreenInfo) };
             if ret < 0 {
+                let err = VideoError::Io {
+                    op: "FBIOGET_FSCREENINFO",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 unsafe {
                     close(fd);
                 }
-                return Err(VideoError::Codec("FBIOGET_FSCREENINFO ioctl failed".into()));
+                return Err(err);
             }
 
             let bpp = vinfo.bits_per_pixel as u8;
@@ -183,9 +199,10 @@ mod linux_impl {
                 unsafe {
                     close(fd);
                 }
-                return Err(VideoError::Codec(format!(
-                    "unsupported framebuffer bpp: {bpp} (expected 16, 24, or 32)"
-                )));
+                return Err(VideoError::FieldOutOfRange {
+                    field: "framebuffer bits_per_pixel (expected 16, 24 or 32)",
+                    value: bpp.into(),
+                });
             }
 
             let mmap_len = finfo.smem_len as usize;
@@ -200,10 +217,15 @@ mod linux_impl {
                 )
             };
             if ptr == MAP_FAILED {
+                let err = VideoError::Io {
+                    op: "mmap",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 unsafe {
                     close(fd);
                 }
-                return Err(VideoError::Codec("mmap of framebuffer failed".into()));
+                return Err(err);
             }
 
             Ok(Self {
@@ -228,7 +250,11 @@ mod linux_impl {
         pub fn unblank(&self) -> Result<(), VideoError> {
             let ret = unsafe { ioctl(self.fd, FBIOBLANK, FB_BLANK_UNBLANK) };
             if ret < 0 {
-                return Err(VideoError::Codec("FBIOBLANK (unblank) failed".into()));
+                return Err(VideoError::Io {
+                    op: "FBIOBLANK",
+                    path: None,
+                    source: Arc::new(std::io::Error::last_os_error()),
+                });
             }
             Ok(())
         }

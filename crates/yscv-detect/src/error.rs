@@ -2,7 +2,7 @@ use thiserror::Error;
 use yscv_tensor::TensorError;
 use yscv_video::VideoError;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum DetectError {
     #[error("invalid map shape: expected rank {expected_rank}, got {got:?}")]
     InvalidMapShape {

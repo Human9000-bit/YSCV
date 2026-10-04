@@ -1,4 +1,4 @@
-use crate::{SafeTensorDType, SafeTensorFile, load_state_dict};
+use crate::{ModelError, SafeTensorDType, SafeTensorFile, load_state_dict};
 
 /// Build a synthetic safetensors file in memory.
 ///
@@ -106,8 +106,18 @@ fn test_load_f16_tensor() {
 
 #[test]
 fn test_empty_file_error() {
-    let result = SafeTensorFile::from_bytes(&[]);
-    assert!(result.is_err());
+    let err = SafeTensorFile::from_bytes(&[]).err().unwrap();
+    assert!(
+        matches!(
+            err,
+            ModelError::Truncated {
+                needed: 8,
+                len: 0,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -115,8 +125,18 @@ fn test_truncated_header_error() {
     // Header says 1000 bytes but file is too short
     let header_len: u64 = 1000;
     let bytes = header_len.to_le_bytes().to_vec();
-    let result = SafeTensorFile::from_bytes(&bytes);
-    assert!(result.is_err());
+    let err = SafeTensorFile::from_bytes(&bytes).err().unwrap();
+    assert!(
+        matches!(
+            err,
+            ModelError::Truncated {
+                needed: 1008,
+                len: 8,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -125,8 +145,11 @@ fn test_unknown_tensor_name() {
     let bytes = build_safetensors(&[("a", "F32", &[1], &raw)]);
     let file = SafeTensorFile::from_bytes(&bytes).unwrap();
 
-    let result = file.load_tensor("nonexistent");
-    assert!(result.is_err());
+    let err = file.load_tensor("nonexistent").unwrap_err();
+    assert!(
+        matches!(err, ModelError::WeightNotFound { ref name } if name == "nonexistent"),
+        "{err:?}"
+    );
 
     assert!(file.tensor_info("nonexistent").is_none());
 }

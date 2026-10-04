@@ -46,12 +46,15 @@ fn conv2d_nhwc_rejects_invalid_rank() {
     let input = Tensor::from_vec(vec![3, 3, 1], vec![0.0; 9]).unwrap();
     let kernel = Tensor::from_vec(vec![2, 2, 1, 1], vec![0.0; 4]).unwrap();
     let err = conv2d_nhwc(&input, &kernel, None, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::InvalidConvRank {
-            input_rank: 3,
-            kernel_rank: 4
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidConvRank {
+                input_rank: 3,
+                kernel_rank: 4
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -60,14 +63,17 @@ fn conv2d_nhwc_rejects_invalid_parameters() {
     let input = Tensor::from_vec(vec![1, 3, 3, 1], vec![0.0; 9]).unwrap();
     let kernel = Tensor::from_vec(vec![2, 2, 1, 1], vec![0.0; 4]).unwrap();
     let err = conv2d_nhwc(&input, &kernel, None, 0, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::InvalidConvParameters {
-            kernel_h: 2,
-            kernel_w: 2,
-            stride_h: 0,
-            stride_w: 1,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidConvParameters {
+                kernel_h: 2,
+                kernel_w: 2,
+                stride_h: 0,
+                stride_w: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -76,12 +82,15 @@ fn conv2d_nhwc_rejects_channel_mismatch() {
     let input = Tensor::from_vec(vec![1, 3, 3, 2], vec![0.0; 18]).unwrap();
     let kernel = Tensor::from_vec(vec![2, 2, 1, 1], vec![0.0; 4]).unwrap();
     let err = conv2d_nhwc(&input, &kernel, None, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::ConvChannelMismatch {
-            input_channels: 2,
-            kernel_in_channels: 1,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::ConvChannelMismatch {
+                input_channels: 2,
+                kernel_in_channels: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -90,14 +99,17 @@ fn conv2d_nhwc_rejects_kernel_larger_than_input() {
     let input = Tensor::from_vec(vec![1, 3, 3, 1], vec![0.0; 9]).unwrap();
     let kernel = Tensor::from_vec(vec![4, 3, 1, 1], vec![0.0; 12]).unwrap();
     let err = conv2d_nhwc(&input, &kernel, None, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::ConvKernelLargerThanInput {
-            input_h: 3,
-            input_w: 3,
-            kernel_h: 4,
-            kernel_w: 3,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::ConvKernelLargerThanInput {
+                input_h: 3,
+                input_w: 3,
+                kernel_h: 4,
+                kernel_w: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -107,12 +119,13 @@ fn conv2d_nhwc_rejects_bias_shape_mismatch() {
     let kernel = Tensor::from_vec(vec![1, 1, 1, 2], vec![1.0, 1.0]).unwrap();
     let bias = Tensor::from_vec(vec![1], vec![0.0]).unwrap();
     let err = conv2d_nhwc(&input, &kernel, Some(&bias), 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::ConvBiasShapeMismatch {
-            bias_shape: vec![1],
-            out_channels: 2,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::ConvBiasShapeMismatch { ref bias_shape, out_channels: 2 }
+                if bias_shape == &[1]
+        ),
+        "{err:?}"
     );
 }
 
@@ -174,12 +187,15 @@ fn depthwise_conv2d_nhwc_rejects_invalid_rank() {
     let input = Tensor::from_vec(vec![3, 3, 1], vec![0.0; 9]).unwrap();
     let kernel = Tensor::from_vec(vec![2, 2, 1, 1], vec![0.0; 4]).unwrap();
     let err = depthwise_conv2d_nhwc(&input, &kernel, None, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::InvalidDepthwiseConvRank {
-            input_rank: 3,
-            kernel_rank: 4,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidDepthwiseConvRank {
+                input_rank: 3,
+                kernel_rank: 4
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -188,14 +204,17 @@ fn depthwise_conv2d_nhwc_rejects_invalid_parameters() {
     let input = Tensor::from_vec(vec![1, 3, 3, 1], vec![0.0; 9]).unwrap();
     let kernel = Tensor::from_vec(vec![2, 2, 1, 1], vec![0.0; 4]).unwrap();
     let err = depthwise_conv2d_nhwc(&input, &kernel, None, 1, 0).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::InvalidDepthwiseConvParameters {
-            kernel_h: 2,
-            kernel_w: 2,
-            stride_h: 1,
-            stride_w: 0,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidDepthwiseConvParameters {
+                kernel_h: 2,
+                kernel_w: 2,
+                stride_h: 1,
+                stride_w: 0
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -204,12 +223,15 @@ fn depthwise_conv2d_nhwc_rejects_channel_mismatch() {
     let input = Tensor::from_vec(vec![1, 3, 3, 2], vec![0.0; 18]).unwrap();
     let kernel = Tensor::from_vec(vec![2, 2, 1, 1], vec![0.0; 4]).unwrap();
     let err = depthwise_conv2d_nhwc(&input, &kernel, None, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::DepthwiseConvChannelMismatch {
-            input_channels: 2,
-            kernel_channels: 1,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::DepthwiseConvChannelMismatch {
+                input_channels: 2,
+                kernel_channels: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -218,14 +240,17 @@ fn depthwise_conv2d_nhwc_rejects_kernel_larger_than_input() {
     let input = Tensor::from_vec(vec![1, 3, 3, 1], vec![0.0; 9]).unwrap();
     let kernel = Tensor::from_vec(vec![4, 3, 1, 1], vec![0.0; 12]).unwrap();
     let err = depthwise_conv2d_nhwc(&input, &kernel, None, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::DepthwiseConvKernelLargerThanInput {
-            input_h: 3,
-            input_w: 3,
-            kernel_h: 4,
-            kernel_w: 3,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::DepthwiseConvKernelLargerThanInput {
+                input_h: 3,
+                input_w: 3,
+                kernel_h: 4,
+                kernel_w: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -235,12 +260,13 @@ fn depthwise_conv2d_nhwc_rejects_bias_shape_mismatch() {
     let kernel = Tensor::from_vec(vec![1, 1, 1, 2], vec![1.0, 1.0]).unwrap();
     let bias = Tensor::from_vec(vec![1], vec![0.0]).unwrap();
     let err = depthwise_conv2d_nhwc(&input, &kernel, Some(&bias), 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::DepthwiseConvBiasShapeMismatch {
-            bias_shape: vec![1],
-            out_channels: 2,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::DepthwiseConvBiasShapeMismatch { ref bias_shape, out_channels: 2 }
+                if bias_shape == &[1]
+        ),
+        "{err:?}"
     );
 }
 
@@ -386,11 +412,13 @@ fn separable_conv2d_nhwc_rejects_non_pointwise_kernel_shape() {
     )
     .unwrap_err();
 
-    assert_eq!(
-        err,
-        KernelError::InvalidSeparablePointwiseKernelShape {
-            pointwise_shape: vec![2, 1, 1, 1],
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidSeparablePointwiseKernelShape { ref pointwise_shape }
+                if pointwise_shape == &[2, 1, 1, 1]
+        ),
+        "{err:?}"
     );
 }
 

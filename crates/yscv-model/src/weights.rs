@@ -1,5 +1,6 @@
 use rustc_hash::FxHashMap;
 use std::path::Path;
+use std::sync::Arc;
 
 use yscv_tensor::Tensor;
 
@@ -42,10 +43,10 @@ pub fn save_weights(path: &Path, tensors: &FxHashMap<String, Tensor>) -> Result<
         );
     }
 
-    let header_json =
-        serde_json::to_string(&meta_map).map_err(|e| ModelError::CheckpointSerialization {
-            message: e.to_string(),
-        })?;
+    let header_json = serde_json::to_string(&meta_map).map_err(|source| ModelError::Json {
+        what: "weight file header",
+        source: Arc::new(source),
+    })?;
     let header_bytes = header_json.as_bytes();
     let header_len = header_bytes.len() as u64;
 
@@ -54,9 +55,9 @@ pub fn save_weights(path: &Path, tensors: &FxHashMap<String, Tensor>) -> Result<
     file_data.extend_from_slice(header_bytes);
     file_data.extend_from_slice(&raw_data);
 
-    std::fs::write(path, &file_data).map_err(|e| ModelError::DatasetLoadIo {
-        path: path.display().to_string(),
-        message: e.to_string(),
+    std::fs::write(path, &file_data).map_err(|source| ModelError::Io {
+        path: path.to_path_buf(),
+        source: Arc::new(source),
     })
 }
 
@@ -65,45 +66,25 @@ pub fn save_weights(path: &Path, tensors: &FxHashMap<String, Tensor>) -> Result<
 /// Reads the entire file into memory. For very large models (>RAM),
 /// consider using memory-mapped I/O or streaming instead.
 pub fn load_weights(path: &Path) -> Result<FxHashMap<String, Tensor>, ModelError> {
-    let file_data = std::fs::read(path).map_err(|e| ModelError::DatasetLoadIo {
-        path: path.display().to_string(),
-        message: e.to_string(),
+    let file_data = std::fs::read(path).map_err(|source| ModelError::Io {
+        path: path.to_path_buf(),
+        source: Arc::new(source),
     })?;
-
-    if file_data.len() < 8 {
-        return Err(ModelError::CheckpointSerialization {
-            message: "weight file too small".into(),
-        });
-    }
-
-    let header_len = u64::from_le_bytes(file_data[..8].try_into().expect("8-byte slice")) as usize;
-    if file_data.len() < 8 + header_len {
-        return Err(ModelError::CheckpointSerialization {
-            message: "weight file header truncated".into(),
-        });
-    }
-
-    let header_str = std::str::from_utf8(&file_data[8..8 + header_len]).map_err(|e| {
-        ModelError::CheckpointSerialization {
-            message: e.to_string(),
-        }
-    })?;
-    let meta_map: FxHashMap<String, TensorMeta> =
-        serde_json::from_str(header_str).map_err(|e| ModelError::CheckpointSerialization {
-            message: e.to_string(),
-        })?;
-
-    let data_start = 8 + header_len;
+    let (data_start, meta_map) = parse_weights_header(&file_data)?;
     let raw = &file_data[data_start..];
 
     let mut tensors = FxHashMap::default();
     for (name, meta) in &meta_map {
-        if meta.offset + meta.length > raw.len() {
-            return Err(ModelError::CheckpointSerialization {
-                message: format!("tensor '{name}' data out of bounds"),
+        let end = meta.offset.saturating_add(meta.length);
+        if end > raw.len() {
+            return Err(ModelError::TensorDataOutOfBounds {
+                name: name.clone(),
+                start: meta.offset,
+                end,
+                len: raw.len(),
             });
         }
-        let bytes = &raw[meta.offset..meta.offset + meta.length];
+        let bytes = &raw[meta.offset..end];
         let f32_data = bytes_to_f32_vec(bytes);
         let t = Tensor::from_vec(meta.shape.clone(), f32_data)?;
         tensors.insert(name.clone(), t);
@@ -114,26 +95,39 @@ pub fn load_weights(path: &Path) -> Result<FxHashMap<String, Tensor>, ModelError
 
 /// Lists tensor names and shapes from a weight file without loading data.
 pub fn inspect_weights(path: &Path) -> Result<FxHashMap<String, Vec<usize>>, ModelError> {
-    let file_data = std::fs::read(path).map_err(|e| ModelError::DatasetLoadIo {
-        path: path.display().to_string(),
-        message: e.to_string(),
+    let file_data = std::fs::read(path).map_err(|source| ModelError::Io {
+        path: path.to_path_buf(),
+        source: Arc::new(source),
     })?;
-    if file_data.len() < 8 {
-        return Err(ModelError::CheckpointSerialization {
-            message: "weight file too small".into(),
-        });
-    }
-    let header_len = u64::from_le_bytes(file_data[..8].try_into().expect("8-byte slice")) as usize;
-    let header_str = std::str::from_utf8(&file_data[8..8 + header_len]).map_err(|e| {
-        ModelError::CheckpointSerialization {
-            message: e.to_string(),
-        }
-    })?;
-    let meta_map: FxHashMap<String, TensorMeta> =
-        serde_json::from_str(header_str).map_err(|e| ModelError::CheckpointSerialization {
-            message: e.to_string(),
-        })?;
+    let (_, meta_map) = parse_weights_header(&file_data)?;
     Ok(meta_map.into_iter().map(|(k, v)| (k, v.shape)).collect())
+}
+
+/// Parses the length-prefixed JSON header; returns where the raw data starts.
+fn parse_weights_header(
+    file_data: &[u8],
+) -> Result<(usize, FxHashMap<String, TensorMeta>), ModelError> {
+    let Some((len_bytes, rest)) = file_data.split_first_chunk::<8>() else {
+        return Err(ModelError::Truncated {
+            what: "weight file",
+            needed: 8,
+            len: file_data.len(),
+        });
+    };
+    let header_len = u64::from_le_bytes(*len_bytes) as usize;
+    let Some(header) = rest.get(..header_len) else {
+        return Err(ModelError::Truncated {
+            what: "weight file header",
+            needed: 8usize.saturating_add(header_len),
+            len: file_data.len(),
+        });
+    };
+    let meta_map =
+        serde_json::from_str(std::str::from_utf8(header)?).map_err(|source| ModelError::Json {
+            what: "weight file header",
+            source: Arc::new(source),
+        })?;
+    Ok((8 + header_len, meta_map))
 }
 
 fn f32_slice_to_bytes(data: &[f32]) -> Vec<u8> {

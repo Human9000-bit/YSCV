@@ -8,12 +8,8 @@ pub(super) fn exec_cmp(node: &OnnxNode, env: &mut TensorEnv, mode: u8) -> Result
         1 => a.gt_tensor(b),
         2 => a.lt_tensor(b),
         3 => {
-            let gt = a.gt_tensor(b).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
-            let eq = a.eq_tensor(b).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+            let gt = a.gt_tensor(b)?;
+            let eq = a.eq_tensor(b)?;
             let gd = gt.data();
             let ed = eq.data();
             let d: Vec<f32> = gd
@@ -24,12 +20,8 @@ pub(super) fn exec_cmp(node: &OnnxNode, env: &mut TensorEnv, mode: u8) -> Result
             Tensor::from_vec(a.shape().to_vec(), d)
         }
         4 => {
-            let lt = a.lt_tensor(b).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
-            let eq = a.eq_tensor(b).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+            let lt = a.lt_tensor(b)?;
+            let eq = a.eq_tensor(b)?;
             let ld = lt.data();
             let ed = eq.data();
             let d: Vec<f32> = ld
@@ -41,9 +33,7 @@ pub(super) fn exec_cmp(node: &OnnxNode, env: &mut TensorEnv, mode: u8) -> Result
         }
         _ => unreachable!(),
     };
-    let out = out.map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = out?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -52,9 +42,7 @@ pub(super) fn exec_where(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
     let cond = get_tensor(env, &node.name, &node.inputs[0])?;
     let x = get_tensor(env, &node.name, &node.inputs[1])?;
     let y = get_tensor(env, &node.name, &node.inputs[2])?;
-    let out = Tensor::where_select(cond, x, y).map_err(|e| OnnxError::DecodeFailed {
-        message: format!("Where: {e}"),
-    })?;
+    let out = Tensor::where_select(cond, x, y)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -82,8 +70,10 @@ pub(super) fn exec_trilu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
 
     let shape = input.shape().to_vec();
     if shape.len() < 2 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("Trilu requires rank ≥ 2 input, got {:?}", shape),
+        return Err(OnnxError::InvalidRank {
+            op: "Trilu",
+            expected: 2,
+            shape,
         });
     }
     let rows = shape[shape.len() - 2];
@@ -109,9 +99,7 @@ pub(super) fn exec_trilu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
         }
     }
 
-    let result = Tensor::from_vec(shape, out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let result = Tensor::from_vec(shape, out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -125,13 +113,9 @@ pub(super) fn exec_min_max(
     for inp in &node.inputs[1..] {
         let other = get_tensor(env, &node.name, inp)?;
         result = if is_max {
-            result.maximum(other).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?
+            result.maximum(other)?
         } else {
-            result.minimum(other).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?
+            result.minimum(other)?
         };
     }
     env.insert(node.outputs[0].clone(), result);
@@ -145,10 +129,7 @@ pub(super) fn exec_not(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
         .iter()
         .map(|&v| if v == 0.0 { 1.0 } else { 0.0 })
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -163,8 +144,10 @@ pub(super) fn exec_logical_bin(
     let a_d = a.data();
     let b_d = b.data();
     if a_d.len() != b_d.len() {
-        return Err(OnnxError::ShapeMismatch {
-            detail: format!("logical op: left={}, right={}", a_d.len(), b_d.len()),
+        return Err(OnnxError::IncompatibleShapes {
+            op: "logical op",
+            left: a.shape().to_vec(),
+            right: b.shape().to_vec(),
         });
     }
     let data: Vec<f32> = a_d
@@ -181,9 +164,7 @@ pub(super) fn exec_logical_bin(
             if r { 1.0 } else { 0.0 }
         })
         .collect();
-    let out = Tensor::from_vec(a.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(a.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }

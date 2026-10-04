@@ -297,31 +297,33 @@ impl ImageAugmentationOp {
             }
             Self::BrightnessJitter { max_delta } => {
                 if !max_delta.is_finite() || *max_delta < 0.0 {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "brightness_jitter",
-                        message: format!("max_delta must be finite and >= 0, got {max_delta}"),
+                    return Err(ModelError::InvalidArgument {
+                        op: "brightness_jitter",
+                        param: "max_delta",
+                        value: *max_delta,
+                        expected: "finite value >= 0",
                     });
                 }
                 Ok(())
             }
             Self::ContrastJitter { max_scale_delta } => {
                 if !max_scale_delta.is_finite() || *max_scale_delta < 0.0 {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "contrast_jitter",
-                        message: format!(
-                            "max_scale_delta must be finite and >= 0, got {max_scale_delta}"
-                        ),
+                    return Err(ModelError::InvalidArgument {
+                        op: "contrast_jitter",
+                        param: "max_scale_delta",
+                        value: *max_scale_delta,
+                        expected: "finite value >= 0",
                     });
                 }
                 Ok(())
             }
             Self::GammaJitter { max_gamma_delta } => {
                 if !max_gamma_delta.is_finite() || *max_gamma_delta < 0.0 {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "gamma_jitter",
-                        message: format!(
-                            "max_gamma_delta must be finite and >= 0, got {max_gamma_delta}"
-                        ),
+                    return Err(ModelError::InvalidArgument {
+                        op: "gamma_jitter",
+                        param: "max_gamma_delta",
+                        value: *max_gamma_delta,
+                        expected: "finite value >= 0",
                     });
                 }
                 Ok(())
@@ -332,9 +334,11 @@ impl ImageAugmentationOp {
             } => {
                 validate_probability("gaussian_noise", *probability)?;
                 if !std_dev.is_finite() || *std_dev < 0.0 {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "gaussian_noise",
-                        message: format!("std_dev must be finite and >= 0, got {std_dev}"),
+                    return Err(ModelError::InvalidArgument {
+                        op: "gaussian_noise",
+                        param: "std_dev",
+                        value: *std_dev,
+                        expected: "finite value >= 0",
                     });
                 }
                 Ok(())
@@ -349,11 +353,11 @@ impl ImageAugmentationOp {
                 validate_fraction("random_resized_crop", "min_scale", *min_scale)?;
                 validate_fraction("random_resized_crop", "max_scale", *max_scale)?;
                 if min_scale > max_scale {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "random_resized_crop",
-                        message: format!(
-                            "min_scale must be <= max_scale, got min_scale={min_scale}, max_scale={max_scale}"
-                        ),
+                    return Err(ModelError::InvalidRange {
+                        op: "random_resized_crop",
+                        param: "scale",
+                        min: *min_scale,
+                        max: *max_scale,
                     });
                 }
                 Ok(())
@@ -368,43 +372,48 @@ impl ImageAugmentationOp {
                 validate_fraction("cutout", "max_height_fraction", *max_height_fraction)?;
                 validate_fraction("cutout", "max_width_fraction", *max_width_fraction)?;
                 if !fill_value.is_finite() {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "cutout",
-                        message: format!("fill_value must be finite, got {fill_value}"),
+                    return Err(ModelError::InvalidArgument {
+                        op: "cutout",
+                        param: "fill_value",
+                        value: *fill_value,
+                        expected: "finite value",
                     });
                 }
                 Ok(())
             }
             Self::ChannelNormalize { mean, std } => {
-                if mean.is_empty() || std.is_empty() {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "channel_normalize",
-                        message: "mean/std must be non-empty".to_string(),
+                if mean.len() != std.len() {
+                    return Err(ModelError::LengthMismatch {
+                        what: "channel_normalize std (vs mean)",
+                        expected: mean.len(),
+                        got: std.len(),
                     });
                 }
-                if mean.len() != std.len() {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "channel_normalize",
-                        message: format!(
-                            "mean/std length mismatch: mean_len={}, std_len={}",
-                            mean.len(),
-                            std.len()
-                        ),
+                if mean.is_empty() {
+                    return Err(ModelError::InvalidArgument {
+                        op: "channel_normalize",
+                        param: "mean/std length",
+                        value: 0.0,
+                        expected: "> 0",
                     });
                 }
                 for (channel, mean_value) in mean.iter().enumerate() {
                     if !mean_value.is_finite() {
-                        return Err(ModelError::InvalidAugmentationArgument {
-                            operation: "channel_normalize",
-                            message: format!("mean[{channel}] must be finite"),
+                        return Err(ModelError::InvalidChannelStat {
+                            param: "mean",
+                            channel,
+                            value: *mean_value,
+                            expected: "finite value",
                         });
                     }
                 }
                 for (channel, std_value) in std.iter().enumerate() {
                     if !std_value.is_finite() || *std_value <= 0.0 {
-                        return Err(ModelError::InvalidAugmentationArgument {
-                            operation: "channel_normalize",
-                            message: format!("std[{channel}] must be finite and > 0"),
+                        return Err(ModelError::InvalidChannelStat {
+                            param: "std",
+                            channel,
+                            value: *std_value,
+                            expected: "finite value > 0",
                         });
                     }
                 }
@@ -412,21 +421,25 @@ impl ImageAugmentationOp {
             }
             Self::Custom(_) => Ok(()),
             Self::RandomCrop { height, width } => {
-                if *height == 0 || *width == 0 {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "random_crop",
-                        message: format!(
-                            "height and width must be > 0, got height={height}, width={width}"
-                        ),
-                    });
+                for (param, size) in [("height", *height), ("width", *width)] {
+                    if size == 0 {
+                        return Err(ModelError::InvalidArgument {
+                            op: "random_crop",
+                            param,
+                            value: 0.0,
+                            expected: "> 0",
+                        });
+                    }
                 }
                 Ok(())
             }
             Self::GaussianBlur { kernel_size } => {
                 if *kernel_size == 0 || *kernel_size % 2 == 0 {
-                    return Err(ModelError::InvalidAugmentationArgument {
-                        operation: "gaussian_blur",
-                        message: format!("kernel_size must be odd and >= 1, got {kernel_size}"),
+                    return Err(ModelError::InvalidArgument {
+                        op: "gaussian_blur",
+                        param: "kernel_size",
+                        value: *kernel_size as f32,
+                        expected: "odd value >= 1",
                     });
                 }
                 Ok(())
@@ -504,13 +517,10 @@ impl ImageAugmentationPipeline {
             } else if let Some(ref expected) = out_sample_shape
                 && sample.shape() != expected.as_slice()
             {
-                return Err(ModelError::InvalidAugmentationArgument {
-                    operation: "pipeline",
-                    message: format!(
-                        "augmentation produced inconsistent sample shapes: first={:?}, sample[{sample_idx}]={:?}",
-                        expected,
-                        sample.shape()
-                    ),
+                return Err(ModelError::InconsistentSampleShapes {
+                    first: expected.clone(),
+                    index: sample_idx,
+                    got: sample.shape().to_vec(),
                 });
             }
             out.extend_from_slice(sample.data());
@@ -649,9 +659,10 @@ fn apply_brightness_delta(input: &Tensor, delta: f32) -> Result<Tensor, ModelErr
 
 fn apply_random_rotate90(input: Tensor, rng: &mut LcgRng) -> Result<Tensor, ModelError> {
     if input.rank() != 3 {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation: "random_rotate90",
-            message: format!("expected rank-3 HWC sample, got shape {:?}", input.shape()),
+        return Err(ModelError::InvalidRank {
+            op: "random_rotate90",
+            expected: 3,
+            shape: input.shape().to_vec(),
         });
     }
 
@@ -669,7 +680,7 @@ fn apply_random_rotate90(input: Tensor, rng: &mut LcgRng) -> Result<Tensor, Mode
 
     let mut rotated = input;
     for _ in 0..rotation_count {
-        rotated = rotate90_cw(&rotated).map_err(ModelError::from)?;
+        rotated = rotate90_cw(&rotated)?;
     }
     Ok(rotated)
 }
@@ -718,9 +729,10 @@ fn apply_cutout(
     rng: &mut LcgRng,
 ) -> Result<Tensor, ModelError> {
     if input.rank() != 3 {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation: "cutout",
-            message: format!("expected rank-3 HWC sample, got shape {:?}", input.shape()),
+        return Err(ModelError::InvalidRank {
+            op: "cutout",
+            expected: 3,
+            shape: input.shape().to_vec(),
         });
     }
     let height = input.shape()[0];
@@ -761,9 +773,10 @@ fn apply_random_resized_crop(
     rng: &mut LcgRng,
 ) -> Result<Tensor, ModelError> {
     if input.rank() != 3 {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation: "random_resized_crop",
-            message: format!("expected rank-3 HWC sample, got shape {:?}", input.shape()),
+        return Err(ModelError::InvalidRank {
+            op: "random_resized_crop",
+            expected: 3,
+            shape: input.shape().to_vec(),
         });
     }
     let height = input.shape()[0];
@@ -807,9 +820,10 @@ fn apply_random_crop(
     rng: &mut LcgRng,
 ) -> Result<Tensor, ModelError> {
     if input.rank() != 3 {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation: "random_crop",
-            message: format!("expected rank-3 HWC sample, got shape {:?}", input.shape()),
+        return Err(ModelError::InvalidRank {
+            op: "random_crop",
+            expected: 3,
+            shape: input.shape().to_vec(),
         });
     }
     let height = input.shape()[0];
@@ -817,11 +831,11 @@ fn apply_random_crop(
     let channels = input.shape()[2];
 
     if crop_height > height || crop_width > width {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation: "random_crop",
-            message: format!(
-                "crop size ({crop_height}x{crop_width}) exceeds input size ({height}x{width})"
-            ),
+        return Err(ModelError::CropExceedsInput {
+            crop_height,
+            crop_width,
+            height,
+            width,
         });
     }
 
@@ -843,9 +857,10 @@ fn apply_random_crop(
 
 fn apply_gaussian_blur(input: &Tensor, kernel_size: usize) -> Result<Tensor, ModelError> {
     if input.rank() != 3 {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation: "gaussian_blur",
-            message: format!("expected rank-3 HWC sample, got shape {:?}", input.shape()),
+        return Err(ModelError::InvalidRank {
+            op: "gaussian_blur",
+            expected: 3,
+            shape: input.shape().to_vec(),
         });
     }
     let height = input.shape()[0];
@@ -921,9 +936,11 @@ fn validate_fraction(
     value: f32,
 ) -> Result<(), ModelError> {
     if !value.is_finite() || value <= 0.0 || value > 1.0 {
-        return Err(ModelError::InvalidAugmentationArgument {
-            operation,
-            message: format!("{parameter} must be finite in (0, 1], got {value}"),
+        return Err(ModelError::InvalidArgument {
+            op: operation,
+            param: parameter,
+            value,
+            expected: "finite value in (0, 1]",
         });
     }
     Ok(())

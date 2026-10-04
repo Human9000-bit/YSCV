@@ -113,6 +113,14 @@ Rockchip models, `0x08` protobuf tag for ONNX). With the optional
 loadable, it also runs a full `RknnBackend::load` — catching
 corrupted-but-magic-matching files before real-time threads start.
 
+Every failure is a typed `ConfigError` variant carrying the task name
+and model path: `ModelNotFound`, `ModelRead` (wraps the `io::Error`),
+`ModelTruncated { len }`, `BadRknnMagic { magic }`,
+`BadOnnxMagic { first_byte }`, and with `rknn-validate`
+`RknnRejected` (wraps the SDK's `KernelError`). `validate_self` reports
+`ZeroField { field }` for a zero width / height / fps / bitrate and
+`DuplicateTask { task }` for a repeated task name.
+
 A typical startup will fail at `validate_accelerators()` if you specify
 `accelerator = { kind = "rknn", ... }` on a host without `librknnrt.so` —
 that's by design. **No silent CPU fallback.**

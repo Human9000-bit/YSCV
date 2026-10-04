@@ -440,9 +440,9 @@ impl ModelZoo {
     ) -> Result<(), ModelError> {
         let path = self.weight_path(arch);
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| ModelError::DatasetLoadIo {
-                path: parent.display().to_string(),
-                message: e.to_string(),
+            std::fs::create_dir_all(parent).map_err(|source| ModelError::Io {
+                path: parent.to_path_buf(),
+                source: std::sync::Arc::new(source),
             })?;
         }
         let tensors = collect_model_tensors(model, graph)?;

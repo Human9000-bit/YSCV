@@ -9,16 +9,11 @@ pub(super) fn exec_constant(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
     } else if let Some(OnnxAttribute::Int(v)) = node.attributes.get(&Attr::ValueInt) {
         env.insert(node.outputs[0].clone(), Tensor::scalar(*v as f32));
     } else if let Some(OnnxAttribute::Floats(v)) = node.attributes.get(&Attr::ValueFloats) {
-        let t =
-            Tensor::from_vec(vec![v.len()], v.clone()).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let t = Tensor::from_vec(vec![v.len()], v.clone())?;
         env.insert(node.outputs[0].clone(), t);
     } else if let Some(OnnxAttribute::Ints(v)) = node.attributes.get(&Attr::ValueInts) {
         let data: Vec<f32> = v.iter().map(|&i| i as f32).collect();
-        let t = Tensor::from_vec(vec![data.len()], data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let t = Tensor::from_vec(vec![data.len()], data)?;
         env.insert(node.outputs[0].clone(), t);
     } else {
         env.insert(node.outputs[0].clone(), Tensor::scalar(0.0));
@@ -71,11 +66,7 @@ pub(super) fn exec_quantize_linear(node: &OnnxNode, env: &mut TensorEnv) -> Resu
         } else {
             yscv_kernels::quantize_linear_f32_to_f32_i8_dispatch(input.data(), s, zp, &mut data);
         }
-        let out = Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let out = Tensor::from_vec(input.shape().to_vec(), data)?;
         env.insert(node.outputs[0].clone(), out);
         if input_nhwc {
             env.mark_nhwc(&node.outputs[0]);
@@ -138,11 +129,11 @@ pub(super) fn exec_dequantize_linear(
             };
             let chan = in_shape[axis];
             if scale_data.len() != chan {
-                return Err(OnnxError::DecodeFailed {
-                    message: format!(
-                        "DequantizeLinear: scale len={} but axis-{axis} dim={chan}",
-                        scale_data.len()
-                    ),
+                return Err(OnnxError::ScaleLenMismatch {
+                    node: node.name.clone(),
+                    len: scale_data.len(),
+                    axis,
+                    shape: in_shape.to_vec(),
                 });
             }
             let zp_storage: Vec<f32>;
@@ -168,9 +159,7 @@ pub(super) fn exec_dequantize_linear(
             }
             out
         };
-        let out = Tensor::from_vec(in_shape, data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let out = Tensor::from_vec(in_shape, data)?;
         env.insert(node.outputs[0].clone(), out);
         if input_nhwc {
             env.mark_nhwc(&node.outputs[0]);
@@ -200,11 +189,11 @@ pub(super) fn exec_dequantize_linear(
         };
         let chan = in_shape[axis];
         if scale_data.len() != chan {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "DequantizeLinear: scale len={} but axis-{axis} dim={chan}",
-                    scale_data.len()
-                ),
+            return Err(OnnxError::ScaleLenMismatch {
+                node: node.name.clone(),
+                len: scale_data.len(),
+                axis,
+                shape: in_shape.to_vec(),
             });
         }
         let zp_storage: Vec<f32>;
@@ -231,9 +220,7 @@ pub(super) fn exec_dequantize_linear(
         }
         out
     };
-    let out = Tensor::from_vec(in_shape.to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(in_shape.to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -271,10 +258,7 @@ pub(super) fn exec_dynamic_quantize_linear(
         .map(|&v| (v / scale + zero_point).round().clamp(qmin, qmax))
         .collect();
 
-    let y =
-        Tensor::from_vec(input.shape().to_vec(), quant).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let y = Tensor::from_vec(input.shape().to_vec(), quant)?;
     let y_scale = Tensor::scalar(scale);
     let y_zp = Tensor::scalar(zero_point);
 
@@ -293,8 +277,10 @@ pub(super) fn exec_resize(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
     let input = get_tensor(env, &node.name, &node.inputs[0])?;
     let shape = input.shape();
     if shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: "Resize expects 4D input".into(),
+        return Err(OnnxError::InvalidRank {
+            op: "Resize",
+            expected: 4,
+            shape: shape.to_vec(),
         });
     }
 
@@ -336,10 +322,7 @@ pub(super) fn exec_resize(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
                 }
             }
         }
-        let out_t =
-            Tensor::from_vec(vec![n, oh, ow, c], out).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let out_t = Tensor::from_vec(vec![n, oh, ow, c], out)?;
         env.insert(node.outputs[0].clone(), out_t);
         env.mark_nhwc(&node.outputs[0]);
     } else {
@@ -356,10 +339,7 @@ pub(super) fn exec_resize(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
                 }
             }
         }
-        let out_t =
-            Tensor::from_vec(vec![n, c, oh, ow], out).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let out_t = Tensor::from_vec(vec![n, c, oh, ow], out)?;
         env.insert(node.outputs[0].clone(), out_t);
     }
     Ok(())
@@ -384,9 +364,7 @@ pub(super) fn exec_onehot(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
 
     let mut out_shape = indices.shape().to_vec();
     out_shape.push(depth);
-    let result = Tensor::from_vec(out_shape, out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let result = Tensor::from_vec(out_shape, out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -414,10 +392,7 @@ pub(super) fn exec_range(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
     let out = Tensor::from_vec(
         vec![len.max(1)],
         if vals.is_empty() { vec![0.0] } else { vals },
-    )
-    .map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    )?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -446,9 +421,7 @@ pub(super) fn exec_nonzero(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
         flat.extend(std::iter::repeat_n(0.0f32, n - row.len()));
     }
 
-    let out = Tensor::from_vec(vec![rank, n], flat).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(vec![rank, n], flat)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -495,9 +468,7 @@ pub(super) fn exec_compress(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
         }
         let mut out_shape = shape.to_vec();
         out_shape[ax] = selected.len();
-        let t = Tensor::from_vec(out_shape, result).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let t = Tensor::from_vec(out_shape, result)?;
         env.insert(node.outputs[0].clone(), t);
     } else {
         let flat = input.data();
@@ -508,9 +479,7 @@ pub(super) fn exec_compress(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
             .map(|(&v, _)| v)
             .collect();
         let len = result.len();
-        let t = Tensor::from_vec(vec![len], result).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let t = Tensor::from_vec(vec![len], result)?;
         env.insert(node.outputs[0].clone(), t);
     }
     Ok(())
@@ -544,9 +513,7 @@ pub(super) fn exec_cumsum(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
         }
     }
 
-    let result = Tensor::from_vec(shape.to_vec(), out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let result = Tensor::from_vec(shape.to_vec(), out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -561,8 +528,10 @@ pub(super) fn exec_grid_sample(node: &OnnxNode, env: &mut TensorEnv) -> Result<(
     let shape = input.shape();
     let grid_shape = grid.shape();
     if shape.len() != 4 || grid_shape.len() != 4 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: "GridSample requires rank-4 NCHW input and NHWC grid".into(),
+        return Err(OnnxError::InvalidRank {
+            op: "GridSample",
+            expected: 4,
+            shape: if shape.len() != 4 { shape } else { grid_shape }.to_vec(),
         });
     }
     let (n, c, h_in, w_in) = (shape[0], shape[1], shape[2], shape[3]);
@@ -653,10 +622,7 @@ pub(super) fn exec_grid_sample(node: &OnnxNode, env: &mut TensorEnv) -> Result<(
         }
     }
 
-    let t =
-        Tensor::from_vec(vec![n, c, h_out, w_out], out).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let t = Tensor::from_vec(vec![n, c, h_out, w_out], out)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -672,8 +638,10 @@ pub(super) fn exec_roi_align(node: &OnnxNode, env: &mut TensorEnv) -> Result<(),
     let mode = get_attr_string(node, Attr::Mode).unwrap_or_else(|| "avg".to_string());
     let shape = input.shape();
     if shape.len() != 4 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: "RoiAlign requires rank-4 NCHW".into(),
+        return Err(OnnxError::InvalidRank {
+            op: "RoiAlign",
+            expected: 4,
+            shape: shape.to_vec(),
         });
     }
     let (_n, c, h_in, w_in) = (shape[0], shape[1], shape[2], shape[3]);
@@ -751,11 +719,7 @@ pub(super) fn exec_roi_align(node: &OnnxNode, env: &mut TensorEnv) -> Result<(),
         }
     }
 
-    let t = Tensor::from_vec(vec![num_rois, c, output_height, output_width], out).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let t = Tensor::from_vec(vec![num_rois, c, output_height, output_width], out)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -773,10 +737,7 @@ pub(super) fn exec_variadic_mean(node: &OnnxNode, env: &mut TensorEnv) -> Result
     for v in &mut acc {
         *v /= n;
     }
-    let out =
-        Tensor::from_vec(first.shape().to_vec(), acc).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(first.shape().to_vec(), acc)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -790,10 +751,7 @@ pub(super) fn exec_variadic_sum(node: &OnnxNode, env: &mut TensorEnv) -> Result<
             .zip(t.data().iter())
             .for_each(|(a, &b)| *a += b);
     }
-    let out =
-        Tensor::from_vec(first.shape().to_vec(), acc).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(first.shape().to_vec(), acc)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -900,9 +858,7 @@ pub(super) fn exec_nms(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
         .flat_map(|r| r.iter().map(|&v| v as f32))
         .collect();
     let shape = if n > 0 { vec![n, 3] } else { vec![0, 3] };
-    let out = Tensor::from_vec(shape, data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(shape, data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }

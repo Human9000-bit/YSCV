@@ -40,10 +40,10 @@ impl Rgb8Frame {
         let expected = width
             .checked_mul(height)
             .and_then(|pixels| pixels.checked_mul(3))
-            .ok_or_else(|| {
-                VideoError::Source(format!(
-                    "raw frame dimensions overflow for width={width}, height={height}"
-                ))
+            .ok_or(VideoError::InvalidDimensions {
+                what: "raw RGB8 frame (byte count overflows usize)",
+                width,
+                height,
             })?;
         if data.len() != expected {
             return Err(VideoError::RawFrameSizeMismatch {

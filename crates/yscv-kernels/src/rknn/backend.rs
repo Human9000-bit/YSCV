@@ -36,7 +36,13 @@ fn query_io_attrs(
     ctx: RknnContext,
 ) -> Result<(Vec<RknnTensorAttr>, Vec<RknnTensorAttr>), KernelError> {
     let mut io_num = RknnInOutNum::default();
-    query_raw(funcs, ctx, RKNN_QUERY_IN_OUT_NUM, "IN_OUT_NUM", &mut io_num)?;
+    query_raw(
+        funcs,
+        ctx,
+        RKNN_QUERY_IN_OUT_NUM,
+        "rknn_query(IN_OUT_NUM)",
+        &mut io_num,
+    )?;
 
     let input_attrs = (0..io_num.n_input)
         .map(|i| {
@@ -48,7 +54,7 @@ fn query_io_attrs(
                 funcs,
                 ctx,
                 RKNN_QUERY_INPUT_ATTR,
-                "INPUT_ATTR",
+                "rknn_query(INPUT_ATTR)",
                 &mut attr as *mut RknnTensorAttr,
             )?;
             Ok(attr)
@@ -65,7 +71,7 @@ fn query_io_attrs(
                 funcs,
                 ctx,
                 RKNN_QUERY_OUTPUT_ATTR,
-                "OUTPUT_ATTR",
+                "rknn_query(OUTPUT_ATTR)",
                 &mut attr as *mut RknnTensorAttr,
             )?;
             Ok(attr)
@@ -114,8 +120,9 @@ impl RknnBackend {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_init failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_init",
+                status: ret,
             });
         }
 
@@ -152,12 +159,10 @@ impl RknnBackend {
     /// Returns dequantized f32 output tensors.
     pub fn run(&self, inputs: &[&[u8]]) -> Result<Vec<Tensor>, KernelError> {
         if inputs.len() != self.input_attrs.len() {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "expected {} inputs, got {}",
-                    self.input_attrs.len(),
-                    inputs.len()
-                ),
+            return Err(KernelError::RknnCountMismatch {
+                what: "inputs",
+                expected: self.input_attrs.len(),
+                got: inputs.len(),
             });
         }
 
@@ -179,16 +184,18 @@ impl RknnBackend {
             (self.funcs.inputs_set)(self.ctx, rknn_inputs.len() as u32, rknn_inputs.as_ptr())
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_inputs_set failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_inputs_set",
+                status: ret,
             });
         }
 
         // SAFETY: ctx is valid, null extend → synchronous run with defaults.
         let ret = unsafe { (self.funcs.run)(self.ctx, std::ptr::null_mut()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_run failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_run",
+                status: ret,
             });
         }
 
@@ -218,8 +225,9 @@ impl RknnBackend {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_outputs_get failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_outputs_get",
+                status: ret,
             });
         }
 
@@ -228,8 +236,8 @@ impl RknnBackend {
             .zip(self.output_attrs.iter())
             .map(|(out, attr)| {
                 if out.buf.is_null() {
-                    return Err(KernelError::Rknn {
-                        message: format!("null buffer for output index {}", out.index),
+                    return Err(KernelError::RknnNullPointer {
+                        func: "rknn_outputs_get",
                     });
                 }
                 let n_floats = out.size as usize / std::mem::size_of::<f32>();
@@ -243,9 +251,7 @@ impl RknnBackend {
                 } else {
                     vec![n_floats]
                 };
-                Tensor::from_vec(tensor_shape, floats.to_vec()).map_err(|e| KernelError::Rknn {
-                    message: format!("failed to build output tensor: {e}"),
-                })
+                Ok(Tensor::from_vec(tensor_shape, floats.to_vec())?)
             })
             .collect::<Result<Vec<_>, _>>();
 
@@ -273,9 +279,12 @@ impl RknnBackend {
 
     /// Duplicate this context for multi-stream inference on separate cores.
     pub fn dup_context(&self) -> Result<RknnBackend, KernelError> {
-        let dup_fn = self.funcs.dup_context.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_dup_context not available in this runtime".into(),
-        })?;
+        let dup_fn = self
+            .funcs
+            .dup_context
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_dup_context",
+            })?;
 
         let mut new_ctx: RknnContext = 0;
         // SAFETY: self.ctx is valid from a successful load; dup_fn is a
@@ -287,8 +296,9 @@ impl RknnBackend {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_dup_context failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_dup_context",
+                status: ret,
             });
         }
 
@@ -305,17 +315,18 @@ impl RknnBackend {
 
     /// Pin inference to specific NPU core(s).
     pub fn set_core_mask(&self, mask: NpuCoreMask) -> Result<(), KernelError> {
-        let fn_ptr = self.funcs.set_core_mask.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_set_core_mask not available".into(),
-        })?;
+        let fn_ptr = self
+            .funcs
+            .set_core_mask
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_core_mask",
+            })?;
         // SAFETY: ctx is valid; mask is a documented enum value.
         let ret = unsafe { fn_ptr(self.ctx, mask.as_raw()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_set_core_mask failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_core_mask",
+                status: ret,
             });
         }
         Ok(())
@@ -326,17 +337,15 @@ impl RknnBackend {
         let fn_ptr = self
             .funcs
             .set_batch_core_num
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_set_batch_core_num not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_batch_core_num",
             })?;
         // SAFETY: ctx is valid; n is a positive count.
         let ret = unsafe { fn_ptr(self.ctx, n as i32) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_set_batch_core_num failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_batch_core_num",
+                status: ret,
             });
         }
         Ok(())
@@ -356,7 +365,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_SDK_VERSION,
-            "SDK_VERSION",
+            "rknn_query(SDK_VERSION)",
             &mut v as *mut RknnSdkVersionRaw,
         )?;
         let api = c_str_to_string(&v.api_version);
@@ -371,7 +380,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_MEM_SIZE,
-            "MEM_SIZE",
+            "rknn_query(MEM_SIZE)",
             &mut m as *mut RknnMemSizeRaw,
         )?;
         Ok(MemSize {
@@ -390,7 +399,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_CUSTOM_STRING,
-            "CUSTOM_STRING",
+            "rknn_query(CUSTOM_STRING)",
             &mut s as *mut RknnCustomStringRaw,
         )?;
         Ok(c_str_to_string(&s.string))
@@ -400,8 +409,9 @@ impl RknnBackend {
     /// Requires load with `RKNN_FLAG_COLLECT_PERF_MASK`.
     pub fn perf_run_us(&self) -> Result<i64, KernelError> {
         if !self.perf_collected {
-            return Err(KernelError::Rknn {
-                message: "perf collection not enabled — use load_with_perf()".into(),
+            return Err(KernelError::RknnInvalidCall {
+                op: "perf_run_us",
+                reason: "perf collection not enabled — use load_with_perf()",
             });
         }
         let mut p = RknnPerfRun::default();
@@ -409,7 +419,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_PERF_RUN,
-            "PERF_RUN",
+            "rknn_query(PERF_RUN)",
             &mut p as *mut RknnPerfRun,
         )?;
         Ok(p.run_duration)
@@ -419,8 +429,9 @@ impl RknnBackend {
     /// `load_with_perf()`.
     pub fn perf_detail(&self) -> Result<PerfDetail, KernelError> {
         if !self.perf_collected {
-            return Err(KernelError::Rknn {
-                message: "perf collection not enabled — use load_with_perf()".into(),
+            return Err(KernelError::RknnInvalidCall {
+                op: "perf_detail",
+                reason: "perf collection not enabled — use load_with_perf()",
             });
         }
         let mut p = RknnPerfDetailRaw {
@@ -431,7 +442,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_PERF_DETAIL,
-            "PERF_DETAIL",
+            "rknn_query(PERF_DETAIL)",
             &mut p as *mut RknnPerfDetailRaw,
         )?;
         if p.perf_data.is_null() || p.data_len == 0 {
@@ -454,19 +465,17 @@ impl RknnBackend {
     /// compiled dynamic shape range).
     pub fn set_input_shapes(&mut self, new_shapes: &[Vec<u32>]) -> Result<(), KernelError> {
         if new_shapes.len() != self.input_attrs.len() {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "expected {} shapes, got {}",
-                    self.input_attrs.len(),
-                    new_shapes.len()
-                ),
+            return Err(KernelError::RknnCountMismatch {
+                what: "shapes",
+                expected: self.input_attrs.len(),
+                got: new_shapes.len(),
             });
         }
         let fn_ptr = self
             .funcs
             .set_input_shapes
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_set_input_shapes not available (requires SDK ≥ 2.0)".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_input_shapes",
             })?;
 
         let mut attrs: Vec<RknnTensorAttr> = self
@@ -486,11 +495,9 @@ impl RknnBackend {
         // SAFETY: attrs slice is valid; length matches model I/O.
         let ret = unsafe { fn_ptr(self.ctx, attrs.len() as u32, attrs.as_mut_ptr()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_set_input_shapes failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_input_shapes",
+                status: ret,
             });
         }
 
@@ -506,15 +513,16 @@ impl RknnBackend {
         let fn_ptr = self
             .funcs
             .set_input_shape
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_set_input_shape not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_input_shape",
             })?;
-        let attr_src = self
-            .input_attrs
-            .get(index as usize)
-            .ok_or_else(|| KernelError::Rknn {
-                message: format!("input index {index} out of range"),
-            })?;
+        let attr_src = self.input_attrs.get(index as usize).ok_or({
+            KernelError::RknnIndexOutOfRange {
+                what: "input",
+                index: index as usize,
+                len: self.input_attrs.len(),
+            }
+        })?;
         let mut a = attr_src.clone();
         a.n_dims = shape.len() as u32;
         for (i, &d) in shape.iter().enumerate().take(RKNN_MAX_DIMS) {
@@ -523,11 +531,9 @@ impl RknnBackend {
         // SAFETY: ctx valid; a is a local writable struct.
         let ret = unsafe { fn_ptr(self.ctx, &mut a as *mut RknnTensorAttr) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_set_input_shape failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_input_shape",
+                status: ret,
             });
         }
         let (new_inputs, new_outputs) = query_io_attrs(&self.funcs, self.ctx)?;
@@ -549,7 +555,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_CURRENT_INPUT_ATTR,
-                    "CURRENT_INPUT_ATTR",
+                    "rknn_query(CURRENT_INPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -570,7 +576,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_CURRENT_OUTPUT_ATTR,
-                    "CURRENT_OUTPUT_ATTR",
+                    "rknn_query(CURRENT_OUTPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -591,7 +597,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_NATIVE_INPUT_ATTR,
-                    "NATIVE_INPUT_ATTR",
+                    "rknn_query(NATIVE_INPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -612,7 +618,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_NATIVE_OUTPUT_ATTR,
-                    "NATIVE_OUTPUT_ATTR",
+                    "rknn_query(NATIVE_OUTPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -635,7 +641,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_CURRENT_NATIVE_INPUT_ATTR,
-                    "CURRENT_NATIVE_INPUT_ATTR",
+                    "rknn_query(CURRENT_NATIVE_INPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -656,7 +662,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_CURRENT_NATIVE_OUTPUT_ATTR,
-                    "CURRENT_NATIVE_OUTPUT_ATTR",
+                    "rknn_query(CURRENT_NATIVE_OUTPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -677,7 +683,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_NATIVE_NHWC_INPUT_ATTR,
-                    "NATIVE_NHWC_INPUT_ATTR",
+                    "rknn_query(NATIVE_NHWC_INPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -698,7 +704,7 @@ impl RknnBackend {
                     &self.funcs,
                     self.ctx,
                     RKNN_QUERY_NATIVE_NHWC_OUTPUT_ATTR,
-                    "NATIVE_NHWC_OUTPUT_ATTR",
+                    "rknn_query(NATIVE_NHWC_OUTPUT_ATTR)",
                     &mut a as *mut RknnTensorAttr,
                 )?;
                 Ok(a)
@@ -713,7 +719,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_DEVICE_MEM_INFO,
-            "DEVICE_MEM_INFO",
+            "rknn_query(DEVICE_MEM_INFO)",
             &mut m as *mut RknnMemSizeRaw,
         )?;
         Ok(MemSize {
@@ -739,7 +745,7 @@ impl RknnBackend {
             &self.funcs,
             self.ctx,
             RKNN_QUERY_INPUT_DYNAMIC_RANGE,
-            "INPUT_DYNAMIC_RANGE",
+            "rknn_query(INPUT_DYNAMIC_RANGE)",
             &mut *r as *mut RknnInputRange,
         )?;
         let shapes = (0..r.shape_number as usize)
@@ -763,8 +769,8 @@ impl RknnBackend {
             // SAFETY: ctx valid; size is scalar.
             let ptr = unsafe { fn_ptr(self.ctx, size as u32) };
             if ptr.is_null() {
-                return Err(KernelError::Rknn {
-                    message: format!("rknn_create_mem({size}) returned null"),
+                return Err(KernelError::RknnNullPointer {
+                    func: "rknn_create_mem",
                 });
             }
             Ok(RknnMem {
@@ -774,22 +780,25 @@ impl RknnBackend {
                 external: false,
             })
         } else {
-            Err(KernelError::Rknn {
-                message: "neither rknn_create_mem nor rknn_create_mem2 are available".into(),
+            Err(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem",
             })
         }
     }
 
     /// Allocate with specific flags (cacheable, non-cacheable, SRAM hint).
     pub fn alloc_mem_ex(&self, size: usize, flags: MemAllocFlags) -> Result<RknnMem, KernelError> {
-        let fn_ptr = self.funcs.create_mem2.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_create_mem2 not available".into(),
-        })?;
+        let fn_ptr = self
+            .funcs
+            .create_mem2
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem2",
+            })?;
         // SAFETY: ctx is valid; size/flags are scalar parameters.
         let ptr = unsafe { fn_ptr(self.ctx, size as u64, flags.as_raw()) };
         if ptr.is_null() {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_create_mem2({size}, {flags:?}) returned null"),
+            return Err(KernelError::RknnNullPointer {
+                func: "rknn_create_mem2",
             });
         }
         Ok(RknnMem {
@@ -824,8 +833,8 @@ impl RknnBackend {
         let fn_ptr = self
             .funcs
             .create_mem_from_fd
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_create_mem_from_fd not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem_from_fd",
             })?;
         // SAFETY: virt is a valid mutable slice; fd is provided by caller
         // who is responsible for its lifetime (must outlive the RknnMem).
@@ -839,8 +848,8 @@ impl RknnBackend {
             )
         };
         if ptr.is_null() {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_create_mem_from_fd(fd={fd}) returned null"),
+            return Err(KernelError::RknnNullPointer {
+                func: "rknn_create_mem_from_fd",
             });
         }
         Ok(RknnMem {
@@ -862,15 +871,15 @@ impl RknnBackend {
         let fn_ptr = self
             .funcs
             .create_mem_from_phys
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_create_mem_from_phys not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem_from_phys",
             })?;
         // SAFETY: virt is a valid mutable slice; phys must refer to the
         // same memory region the virt mapping covers.
         let ptr = unsafe { fn_ptr(self.ctx, phys, virt.as_mut_ptr().cast(), virt.len() as u32) };
         if ptr.is_null() {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_create_mem_from_phys(phys={phys:x}) returned null"),
+            return Err(KernelError::RknnNullPointer {
+                func: "rknn_create_mem_from_phys",
             });
         }
         Ok(RknnMem {
@@ -901,21 +910,20 @@ impl RknnBackend {
         let fn_ptr = self
             .funcs
             .create_mem_from_mb_blk
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_create_mem_from_mb_blk not available in this RKNN runtime".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem_from_mb_blk",
             })?;
         if blk.is_null() {
-            return Err(KernelError::Rknn {
-                message: "wrap_mb_blk: null MB_BLK handle".into(),
+            return Err(KernelError::RknnInvalidCall {
+                op: "wrap_mb_blk",
+                reason: "null MB_BLK handle",
             });
         }
         // SAFETY: caller guarantees `blk` is a valid MPP block handle.
         let ptr = unsafe { fn_ptr(self.ctx, blk, offset) };
         if ptr.is_null() {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_create_mem_from_mb_blk(blk={blk:p}, offset={offset}) returned null"
-                ),
+            return Err(KernelError::RknnNullPointer {
+                func: "rknn_create_mem_from_mb_blk",
             });
         }
         Ok(RknnMem {
@@ -928,15 +936,19 @@ impl RknnBackend {
 
     /// Bind a memory region to an I/O tensor by its tensor attribute.
     pub fn bind_io(&self, mem: &RknnMem, attr: &RknnTensorAttr) -> Result<(), KernelError> {
-        let fn_ptr = self.funcs.set_io_mem.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_set_io_mem not available".into(),
-        })?;
+        let fn_ptr = self
+            .funcs
+            .set_io_mem
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_io_mem",
+            })?;
         let mut attr_copy = attr.clone();
         // SAFETY: mem.ptr is valid (owned by RknnMem); attr_copy is local.
         let ret = unsafe { fn_ptr(self.ctx, mem.ptr, &mut attr_copy as *mut RknnTensorAttr) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_set_io_mem failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_io_mem",
+                status: ret,
             });
         }
         Ok(())
@@ -944,12 +956,13 @@ impl RknnBackend {
 
     /// Bind memory as input tensor `index`.
     pub fn bind_input(&self, mem: &RknnMem, index: u32) -> Result<(), KernelError> {
-        let attr = self
-            .input_attrs
-            .get(index as usize)
-            .ok_or_else(|| KernelError::Rknn {
-                message: format!("input index {index} out of range"),
-            })?;
+        let attr = self.input_attrs.get(index as usize).ok_or({
+            KernelError::RknnIndexOutOfRange {
+                what: "input",
+                index: index as usize,
+                len: self.input_attrs.len(),
+            }
+        })?;
         self.bind_io(mem, attr)
     }
 
@@ -959,20 +972,22 @@ impl RknnBackend {
             .input_attrs
             .iter()
             .find(|a| a.name_str() == name)
-            .ok_or_else(|| KernelError::Rknn {
-                message: format!("no input named `{name}`"),
+            .ok_or_else(|| KernelError::RknnUnknownTensor {
+                what: "input",
+                name: name.to_string(),
             })?;
         self.bind_io(mem, attr)
     }
 
     /// Bind memory as output tensor `index`.
     pub fn bind_output(&self, mem: &RknnMem, index: u32) -> Result<(), KernelError> {
-        let attr = self
-            .output_attrs
-            .get(index as usize)
-            .ok_or_else(|| KernelError::Rknn {
-                message: format!("output index {index} out of range"),
-            })?;
+        let attr = self.output_attrs.get(index as usize).ok_or({
+            KernelError::RknnIndexOutOfRange {
+                what: "output",
+                index: index as usize,
+                len: self.output_attrs.len(),
+            }
+        })?;
         self.bind_io(mem, attr)
     }
 
@@ -982,25 +997,27 @@ impl RknnBackend {
             .output_attrs
             .iter()
             .find(|a| a.name_str() == name)
-            .ok_or_else(|| KernelError::Rknn {
-                message: format!("no output named `{name}`"),
+            .ok_or_else(|| KernelError::RknnUnknownTensor {
+                what: "output",
+                name: name.to_string(),
             })?;
         self.bind_io(mem, attr)
     }
 
     /// Bind external weight memory (saves re-allocating weights per context).
     pub fn bind_weight_mem(&self, mem: &RknnMem) -> Result<(), KernelError> {
-        let fn_ptr = self.funcs.set_weight_mem.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_set_weight_mem not available".into(),
-        })?;
+        let fn_ptr = self
+            .funcs
+            .set_weight_mem
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_weight_mem",
+            })?;
         // SAFETY: mem.ptr valid; ctx valid.
         let ret = unsafe { fn_ptr(self.ctx, mem.ptr) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_set_weight_mem failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_weight_mem",
+                status: ret,
             });
         }
         Ok(())
@@ -1011,17 +1028,15 @@ impl RknnBackend {
         let fn_ptr = self
             .funcs
             .set_internal_mem
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_set_internal_mem not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_set_internal_mem",
             })?;
         // SAFETY: mem.ptr valid; ctx valid.
         let ret = unsafe { fn_ptr(self.ctx, mem.ptr) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_set_internal_mem failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_set_internal_mem",
+                status: ret,
             });
         }
         Ok(())
@@ -1032,8 +1047,9 @@ impl RknnBackend {
         // SAFETY: ctx valid; null extend → synchronous default run.
         let ret = unsafe { (self.funcs.run)(self.ctx, std::ptr::null_mut()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_run (bound) failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_run (bound)",
+                status: ret,
             });
         }
         Ok(())
@@ -1062,8 +1078,9 @@ impl RknnBackend {
         // SAFETY: ctx valid; ext is a local writable struct.
         let ret = unsafe { (self.funcs.run)(self.ctx, &mut ext as *mut RknnRunExtend) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_run (async) failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_run (async)",
+                status: ret,
             });
         }
         Ok(AsyncFrame {
@@ -1086,13 +1103,13 @@ impl RknnBackend {
     /// Block until a specific async inference completes (within the
     /// deadline recorded at submission), then return outputs.
     ///
-    /// Returns `KernelError::Rknn { message: "...TIMEOUT..." }` if the
-    /// SDK reports the wait exceeded its deadline — caller should treat
+    /// Returns `KernelError::RknnWait { status: RKNN_ERR_TIMEOUT, .. }` if
+    /// the SDK reports the wait exceeded its deadline — caller should treat
     /// that as "NPU hung" and trigger context recovery via
     /// [`ContextPool::recover_failed`] or [`RknnBackend::reset`].
     pub fn wait(&self, mut frame: AsyncFrame) -> Result<Vec<Tensor>, KernelError> {
-        let wait_fn = self.funcs.wait.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_wait not available".into(),
+        let wait_fn = self.funcs.wait.ok_or(KernelError::RknnSymbolMissing {
+            symbol: "rknn_wait",
         })?;
         // Compute remaining budget. If user set deadline_ms=2 but we're already
         // 1ms in, only wait 1ms more. Pass `-1` for infinite if no deadline set.
@@ -1114,13 +1131,10 @@ impl RknnBackend {
         // and the SDK's slot is consumed either way.
         frame.waited = true;
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_wait failed: {} ({ret}) — frame {} after {}ms",
-                    rknn_error_name(ret),
-                    frame.id,
-                    frame.elapsed().as_millis()
-                ),
+            return Err(KernelError::RknnWait {
+                status: ret,
+                frame_id: frame.id,
+                elapsed: frame.elapsed(),
             });
         }
         self.collect_outputs()
@@ -1158,8 +1172,9 @@ impl RknnBackend {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_init (reset) failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_init (reset)",
+                status: ret,
             });
         }
         self.ctx = new_ctx;
@@ -1175,8 +1190,8 @@ impl RknnBackend {
     /// Non-blocking check whether an async inference is complete.
     /// Returns `true` if done, `false` if still running.
     pub fn poll(&self, frame: &AsyncFrame) -> Result<bool, KernelError> {
-        let wait_fn = self.funcs.wait.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_wait not available".into(),
+        let wait_fn = self.funcs.wait.ok_or(KernelError::RknnSymbolMissing {
+            symbol: "rknn_wait",
         })?;
         let mut ext = RknnRunExtend {
             frame_id: frame.id,
@@ -1195,17 +1210,15 @@ impl RknnBackend {
 
     /// Sync a memory region's cache in the given direction.
     pub fn mem_sync(&self, mem: &RknnMem, mode: MemSyncMode) -> Result<(), KernelError> {
-        let fn_ptr = self.funcs.mem_sync.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_mem_sync not available".into(),
+        let fn_ptr = self.funcs.mem_sync.ok_or(KernelError::RknnSymbolMissing {
+            symbol: "rknn_mem_sync",
         })?;
         // SAFETY: mem.ptr valid; mode is a documented bitmask.
         let ret = unsafe { fn_ptr(self.ctx, mem.ptr, mode.as_raw()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_mem_sync({mode:?}) failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_mem_sync",
+                status: ret,
             });
         }
         Ok(())
@@ -1424,17 +1437,15 @@ impl RknnMem {
     }
 
     fn sync(&self, mode: MemSyncMode) -> Result<(), KernelError> {
-        let fn_ptr = self.funcs.mem_sync.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_mem_sync not available".into(),
+        let fn_ptr = self.funcs.mem_sync.ok_or(KernelError::RknnSymbolMissing {
+            symbol: "rknn_mem_sync",
         })?;
         // SAFETY: self.ptr is valid; mode is documented bitmask.
         let ret = unsafe { fn_ptr(self.ctx, self.ptr, mode.as_raw()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_mem_sync({mode:?}) failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_mem_sync",
+                status: ret,
             });
         }
         Ok(())
@@ -1479,8 +1490,9 @@ impl ContextPool {
     /// Create a pool with one context per given core mask.
     pub fn new(model_data: &[u8], cores: &[NpuCoreMask]) -> Result<Self, KernelError> {
         if cores.is_empty() {
-            return Err(KernelError::Rknn {
-                message: "ContextPool requires at least one core".into(),
+            return Err(KernelError::RknnInvalidCall {
+                op: "ContextPool::new",
+                reason: "requires at least one core",
             });
         }
         let stored_model = Arc::new(model_data.to_vec());
@@ -1490,8 +1502,9 @@ impl ContextPool {
         for &mask in &cores[1..] {
             let dup = contexts[0]
                 .read()
-                .map_err(|_| KernelError::Rknn {
-                    message: "ContextPool first context lock poisoned".into(),
+                .map_err(|_| KernelError::RknnLockPoisoned {
+                    lock: "ContextPool ctx",
+                    slot: Some(0),
                 })?
                 .dup_for_core(mask)?;
             contexts.push(std::sync::RwLock::new(dup));
@@ -1549,16 +1562,18 @@ impl ContextPool {
         inputs: &[(&str, &[u8])],
     ) -> Result<Vec<Tensor>, KernelError> {
         if idx >= self.contexts.len() {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "dispatch_on: index {idx} out of range (pool size {})",
-                    self.contexts.len()
-                ),
+            return Err(KernelError::RknnIndexOutOfRange {
+                what: "context",
+                index: idx,
+                len: self.contexts.len(),
             });
         }
-        let ctx = self.contexts[idx].read().map_err(|_| KernelError::Rknn {
-            message: format!("ContextPool ctx {idx} lock poisoned"),
-        })?;
+        let ctx = self.contexts[idx]
+            .read()
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "ContextPool ctx",
+                slot: Some(idx),
+            })?;
 
         // Reorder caller-supplied inputs to match the model's input
         // index order, which is what `RknnBackend::run(&[&[u8]])`
@@ -1572,8 +1587,8 @@ impl ContextPool {
                     .iter()
                     .find(|(n, _)| *n == name)
                     .map(|(_, data)| *data)
-                    .ok_or_else(|| KernelError::Rknn {
-                        message: format!("dispatch: missing input '{name}'"),
+                    .ok_or_else(|| KernelError::RknnMissingInput {
+                        name: name.to_string(),
                     })
             })
             .collect::<Result<_, _>>()?;
@@ -1596,23 +1611,25 @@ impl ContextPool {
 
     /// Recover a failed context: destroy + re-init from the stored model
     /// bytes, restore its core-mask binding. Caller invokes this after
-    /// observing `KernelError::Rknn { message: contains "TIMEOUT" }` or
-    /// after `fail_streak(idx)` exceeds threshold.
+    /// observing an `RKNN_ERR_TIMEOUT` status (`KernelError::RknnWait` /
+    /// `KernelError::RknnCall`) or after `fail_streak(idx)` exceeds threshold.
     ///
     /// Acquires the context's write lock — concurrent dispatches will
     /// block briefly until recovery completes.
     pub fn recover_failed(&self, idx: usize) -> Result<(), KernelError> {
         if idx >= self.contexts.len() {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "recover_failed: index {idx} out of range (pool size {})",
-                    self.contexts.len()
-                ),
+            return Err(KernelError::RknnIndexOutOfRange {
+                what: "context",
+                index: idx,
+                len: self.contexts.len(),
             });
         }
-        let mut ctx = self.contexts[idx].write().map_err(|_| KernelError::Rknn {
-            message: format!("ContextPool ctx {idx} lock poisoned"),
-        })?;
+        let mut ctx = self.contexts[idx]
+            .write()
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "ContextPool ctx",
+                slot: Some(idx),
+            })?;
         ctx.reset(&self.model_data)?;
         ctx.set_core_mask(self.cores[idx])?;
         self.fail_streak[idx].store(0, std::sync::atomic::Ordering::Relaxed);
@@ -1683,8 +1700,8 @@ impl RknnMatmul {
         let funcs = Arc::new(funcs);
         let lib = Arc::new(lib);
 
-        let create_fn = funcs.matmul_create.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_matmul_create not available".into(),
+        let create_fn = funcs.matmul_create.ok_or(KernelError::RknnSymbolMissing {
+            symbol: "rknn_matmul_create",
         })?;
 
         let mut info = RknnMatmulInfo {
@@ -1706,11 +1723,9 @@ impl RknnMatmul {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_create failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_create",
+                status: ret,
             });
         }
 
@@ -1734,20 +1749,21 @@ impl RknnMatmul {
         dtype: RknnMatmulType,
     ) -> Result<Self, KernelError> {
         if shapes.is_empty() {
-            return Err(KernelError::Rknn {
-                message: "RknnMatmul::new_dynamic: shapes must be non-empty".into(),
+            return Err(KernelError::RknnInvalidCall {
+                op: "RknnMatmul::new_dynamic",
+                reason: "shapes must be non-empty",
             });
         }
         let (lib, funcs) = load_rknn_library()?;
         let funcs = Arc::new(funcs);
         let lib = Arc::new(lib);
 
-        let create_fn = funcs
-            .matmul_create_dynamic_shape
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_create_dynamic_shape not available in this RKNN runtime"
-                    .into(),
-            })?;
+        let create_fn =
+            funcs
+                .matmul_create_dynamic_shape
+                .ok_or(KernelError::RknnSymbolMissing {
+                    symbol: "rknn_matmul_create_dynamic_shape",
+                })?;
 
         let first = shapes[0];
         let mut info = RknnMatmulInfo {
@@ -1772,11 +1788,9 @@ impl RknnMatmul {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_create_dynamic_shape failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_create_dynamic_shape",
+                status: ret,
             });
         }
 
@@ -1795,18 +1809,16 @@ impl RknnMatmul {
         let fn_ptr = self
             .funcs
             .matmul_set_dynamic_shape
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_set_dynamic_shape not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_set_dynamic_shape",
             })?;
         let mut s = shape;
         // SAFETY: ctx valid; s is a stack-allocated writable shape.
         let ret = unsafe { fn_ptr(self.ctx, &mut s as *mut RknnMatmulShape) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_set_dynamic_shape failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_set_dynamic_shape",
+                status: ret,
             });
         }
         Ok(())
@@ -1819,8 +1831,8 @@ impl RknnMatmul {
         let fn_ptr = self
             .funcs
             .matmul_get_quant_params
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_get_quant_params not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_get_quant_params",
             })?;
         let mut raw = RknnQuantParamsRaw {
             name: [0u8; RKNN_MAX_NAME_LEN],
@@ -1839,11 +1851,9 @@ impl RknnMatmul {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_get_quant_params failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_get_quant_params",
+                status: ret,
             });
         }
         let name_end = raw
@@ -1889,8 +1899,8 @@ impl RknnMatmul {
             // SAFETY: ctx is a valid matmul context (u64); size is a scalar.
             let ptr = unsafe { fn_ptr(self.ctx, size as u32) };
             if ptr.is_null() {
-                return Err(KernelError::Rknn {
-                    message: format!("rknn_create_mem({size}) returned null"),
+                return Err(KernelError::RknnNullPointer {
+                    func: "rknn_create_mem",
                 });
             }
             Ok(RknnMem {
@@ -1900,8 +1910,8 @@ impl RknnMatmul {
                 external: false,
             })
         } else {
-            Err(KernelError::Rknn {
-                message: "neither rknn_create_mem nor rknn_create_mem2 are available".into(),
+            Err(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem",
             })
         }
     }
@@ -1909,14 +1919,17 @@ impl RknnMatmul {
     /// Allocate with explicit alloc flags. Mirrors
     /// `RknnBackend::alloc_mem_ex` but scoped to this matmul ctx.
     pub fn alloc_mem_ex(&self, size: usize, flags: MemAllocFlags) -> Result<RknnMem, KernelError> {
-        let fn_ptr = self.funcs.create_mem2.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_create_mem2 not available".into(),
-        })?;
+        let fn_ptr = self
+            .funcs
+            .create_mem2
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_create_mem2",
+            })?;
         // SAFETY: ctx valid; size scalar; flags is a documented bitmask.
         let ptr = unsafe { fn_ptr(self.ctx, size as u64, flags.as_raw()) };
         if ptr.is_null() {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_create_mem2({size}, {flags:?}) returned null"),
+            return Err(KernelError::RknnNullPointer {
+                func: "rknn_create_mem2",
             });
         }
         Ok(RknnMem {
@@ -1960,17 +1973,15 @@ impl RknnMatmul {
         let fn_ptr = self
             .funcs
             .matmul_set_io_mem
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_set_io_mem not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_set_io_mem",
             })?;
         // SAFETY: ctx/mem/attr are valid.
         let ret = unsafe { fn_ptr(self.ctx, mem.ptr, &mut attr as *mut RknnMatmulTensorAttr) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_set_io_mem failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_set_io_mem",
+                status: ret,
             });
         }
         Ok(())
@@ -1990,8 +2001,8 @@ impl RknnMatmul {
         let fn_ptr = self
             .funcs
             .matmul_set_quant_params
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_set_quant_params not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_set_quant_params",
             })?;
         let mut name_buf = [0u8; RKNN_MAX_NAME_LEN];
         let bytes = name.as_bytes();
@@ -2008,11 +2019,9 @@ impl RknnMatmul {
         // SAFETY: ctx/params valid; scale/zp arrays outlive the call.
         let ret = unsafe { fn_ptr(self.ctx, &mut params as *mut RknnQuantParamsRaw) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_set_quant_params failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_set_quant_params",
+                status: ret,
             });
         }
         Ok(())
@@ -2023,17 +2032,15 @@ impl RknnMatmul {
         let fn_ptr = self
             .funcs
             .matmul_set_core_mask
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_set_core_mask not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_set_core_mask",
             })?;
         // SAFETY: ctx valid; mask documented enum.
         let ret = unsafe { fn_ptr(self.ctx, mask.as_raw()) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_set_core_mask failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_set_core_mask",
+                status: ret,
             });
         }
         Ok(())
@@ -2044,8 +2051,8 @@ impl RknnMatmul {
         let fn_ptr = self
             .funcs
             .matmul_set_dynamic_shape
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_matmul_set_dynamic_shape not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_set_dynamic_shape",
             })?;
         let mut shape = RknnMatmulShape {
             m,
@@ -2055,11 +2062,9 @@ impl RknnMatmul {
         // SAFETY: ctx valid; shape is local.
         let ret = unsafe { fn_ptr(self.ctx, &mut shape as *mut RknnMatmulShape) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_matmul_set_dynamic_shape failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_set_dynamic_shape",
+                status: ret,
             });
         }
         Ok(())
@@ -2067,14 +2072,18 @@ impl RknnMatmul {
 
     /// Execute the matmul.
     pub fn run(&self) -> Result<(), KernelError> {
-        let fn_ptr = self.funcs.matmul_run.ok_or_else(|| KernelError::Rknn {
-            message: "rknn_matmul_run not available".into(),
-        })?;
+        let fn_ptr = self
+            .funcs
+            .matmul_run
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_matmul_run",
+            })?;
         // SAFETY: ctx valid.
         let ret = unsafe { fn_ptr(self.ctx) };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_matmul_run failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_matmul_run",
+                status: ret,
             });
         }
         Ok(())
@@ -2091,8 +2100,8 @@ impl RknnMatmul {
         let (_lib, funcs) = load_rknn_library()?;
         let fn_ptr = funcs
             .matmul_b_layout_transform
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_B_normal_layout_to_native_layout not available".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_B_normal_layout_to_native_layout",
             })?;
         let mut info = RknnMatmulInfo {
             m: 0,
@@ -2112,11 +2121,9 @@ impl RknnMatmul {
             )
         };
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_B_normal_layout_to_native_layout failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_B_normal_layout_to_native_layout",
+                status: ret,
             });
         }
         Ok(())
@@ -2243,8 +2250,8 @@ impl RknnBackend {
         let reg_fn = self
             .funcs
             .register_custom_ops
-            .ok_or_else(|| KernelError::Rknn {
-                message: "rknn_register_custom_ops not available in this RKNN runtime".into(),
+            .ok_or(KernelError::RknnSymbolMissing {
+                symbol: "rknn_register_custom_ops",
             })?;
 
         // Reserve handler slots first (so failure rollback is straightforward).
@@ -2342,11 +2349,9 @@ impl RknnBackend {
             for s in slots {
                 super::custom_op::release_slot(s);
             }
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_register_custom_ops failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_register_custom_ops",
+                status: ret,
             });
         }
 

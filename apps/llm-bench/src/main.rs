@@ -369,16 +369,10 @@ fn run(args: Args) -> Result<(), CliError> {
     if use_kv_cache {
         let (_, n_heads, head_dim) = args.kv_shape.unwrap();
         for _ in 0..n_layers_for_kv {
-            let k = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new()).map_err(|e| {
-                yscv_onnx::OnnxError::DecodeFailed {
-                    message: format!("empty past key tensor: {e}"),
-                }
-            })?;
-            let v = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new()).map_err(|e| {
-                yscv_onnx::OnnxError::DecodeFailed {
-                    message: format!("empty past value tensor: {e}"),
-                }
-            })?;
+            let k = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new())
+                .map_err(yscv_onnx::OnnxError::from)?;
+            let v = Tensor::from_vec(vec![1, n_heads, 0, head_dim], Vec::new())
+                .map_err(yscv_onnx::OnnxError::from)?;
             past_kv.push((k, v));
         }
     }
@@ -407,29 +401,17 @@ fn run(args: Args) -> Result<(), CliError> {
      -> Result<Vec<f32>, yscv_onnx::OnnxError> {
         let cur_len = tokens_new.len();
         let ids_f32: Vec<f32> = tokens_new.iter().map(|&t| t as f32).collect();
-        let input = Tensor::from_vec(vec![1, cur_len], ids_f32).map_err(|e| {
-            yscv_onnx::OnnxError::DecodeFailed {
-                message: format!("input tensor: {e}"),
-            }
-        })?;
+        let input = Tensor::from_vec(vec![1, cur_len], ids_f32)?;
         let total_len = pos_off + cur_len;
         let mask = if args.with_attention_mask {
             let m = vec![1.0_f32; total_len];
-            Some(Tensor::from_vec(vec![1, total_len], m).map_err(|e| {
-                yscv_onnx::OnnxError::DecodeFailed {
-                    message: format!("attention_mask tensor: {e}"),
-                }
-            })?)
+            Some(Tensor::from_vec(vec![1, total_len], m)?)
         } else {
             None
         };
         let pos_ids = if args.with_position_ids {
             let p: Vec<f32> = (pos_off..pos_off + cur_len).map(|i| i as f32).collect();
-            Some(Tensor::from_vec(vec![1, cur_len], p).map_err(|e| {
-                yscv_onnx::OnnxError::DecodeFailed {
-                    message: format!("position_ids tensor: {e}"),
-                }
-            })?)
+            Some(Tensor::from_vec(vec![1, cur_len], p)?)
         } else {
             None
         };
@@ -456,8 +438,9 @@ fn run(args: Args) -> Result<(), CliError> {
         let mut out = runner.run(&feed)?;
         let logits =
             out.get(&args.output_name)
-                .ok_or_else(|| yscv_onnx::OnnxError::DecodeFailed {
-                    message: format!("output `{}` missing from model run", args.output_name),
+                .ok_or_else(|| yscv_onnx::OnnxError::MissingInput {
+                    node: "model_output".to_string(),
+                    input: args.output_name.clone(),
                 })?;
         let logits_vec = logits.data().to_vec();
         // Cycle present → past for next call. `HashMap::remove` moves the

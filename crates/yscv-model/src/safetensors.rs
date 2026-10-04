@@ -10,6 +10,7 @@
 use crate::ModelError;
 use rustc_hash::FxHashMap;
 use std::path::Path;
+use std::sync::Arc;
 use yscv_tensor::Tensor;
 
 // ── Public types ────────────────────────────────────────────────────
@@ -46,8 +47,8 @@ impl SafeTensorDType {
             "I64" => Ok(Self::I64),
             "U8" => Ok(Self::U8),
             "BOOL" => Ok(Self::Bool),
-            other => Err(ModelError::SafeTensorsParse {
-                message: format!("unsupported dtype: {other}"),
+            other => Err(ModelError::UnsupportedDType {
+                dtype: other.to_string(),
             }),
         }
     }
@@ -75,9 +76,9 @@ impl SafeTensorFile {
     /// Reads the entire file into memory. For very large models,
     /// the OS will return an error if insufficient memory is available.
     pub fn from_file(path: &Path) -> Result<Self, ModelError> {
-        let bytes = std::fs::read(path).map_err(|e| ModelError::SafeTensorsIo {
-            path: path.display().to_string(),
-            message: e.to_string(),
+        let bytes = std::fs::read(path).map_err(|source| ModelError::Io {
+            path: path.to_path_buf(),
+            source: Arc::new(source),
         })?;
         Self::from_bytes(&bytes)
     }
@@ -85,8 +86,10 @@ impl SafeTensorFile {
     /// Parse a SafeTensors file from an in-memory byte slice.
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, ModelError> {
         if bytes.len() < 8 {
-            return Err(ModelError::SafeTensorsParse {
-                message: "file too small: missing header length".into(),
+            return Err(ModelError::Truncated {
+                what: "safetensors file",
+                needed: 8,
+                len: bytes.len(),
             });
         }
 
@@ -94,32 +97,24 @@ impl SafeTensorFile {
             bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
         ]) as usize;
 
-        let header_end =
-            8usize
-                .checked_add(header_len)
-                .ok_or_else(|| ModelError::SafeTensorsParse {
-                    message: "header length overflow".into(),
-                })?;
+        // Saturates past any real buffer length, so an overflowing header
+        // length is reported as truncation.
+        let header_end = 8usize.saturating_add(header_len);
 
         if bytes.len() < header_end {
-            return Err(ModelError::SafeTensorsParse {
-                message: format!(
-                    "file too small for header: need {} bytes, have {}",
-                    header_end,
-                    bytes.len()
-                ),
+            return Err(ModelError::Truncated {
+                what: "safetensors header",
+                needed: header_end,
+                len: bytes.len(),
             });
         }
 
-        let header_str = std::str::from_utf8(&bytes[8..header_end]).map_err(|e| {
-            ModelError::SafeTensorsParse {
-                message: format!("header is not valid UTF-8: {e}"),
-            }
-        })?;
+        let header_str = std::str::from_utf8(&bytes[8..header_end])?;
 
         let header_map: serde_json::Map<String, serde_json::Value> =
-            serde_json::from_str(header_str).map_err(|e| ModelError::SafeTensorsParse {
-                message: format!("invalid JSON header: {e}"),
+            serde_json::from_str(header_str).map_err(|source| ModelError::Json {
+                what: "safetensors header",
+                source: Arc::new(source),
             })?;
 
         let mut tensors = FxHashMap::default();
@@ -129,21 +124,24 @@ impl SafeTensorFile {
             }
             let obj = value
                 .as_object()
-                .ok_or_else(|| ModelError::SafeTensorsParse {
-                    message: format!("tensor entry '{name}' is not a JSON object"),
+                .ok_or_else(|| ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "object",
                 })?;
 
             let dtype_str = obj.get("dtype").and_then(|v| v.as_str()).ok_or_else(|| {
-                ModelError::SafeTensorsParse {
-                    message: format!("tensor '{name}' missing 'dtype' string"),
+                ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "dtype",
                 }
             })?;
 
             let dtype = SafeTensorDType::from_str(dtype_str)?;
 
             let shape_arr = obj.get("shape").and_then(|v| v.as_array()).ok_or_else(|| {
-                ModelError::SafeTensorsParse {
-                    message: format!("tensor '{name}' missing 'shape' array"),
+                ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "shape",
                 }
             })?;
 
@@ -152,8 +150,9 @@ impl SafeTensorFile {
                 .map(|v| {
                     v.as_u64()
                         .map(|n| n as usize)
-                        .ok_or_else(|| ModelError::SafeTensorsParse {
-                            message: format!("tensor '{name}' shape contains non-integer"),
+                        .ok_or_else(|| ModelError::InvalidTensorHeader {
+                            tensor: name.clone(),
+                            field: "shape",
                         })
                 })
                 .collect::<Result<_, _>>()?;
@@ -161,25 +160,29 @@ impl SafeTensorFile {
             let offsets_arr = obj
                 .get("data_offsets")
                 .and_then(|v| v.as_array())
-                .ok_or_else(|| ModelError::SafeTensorsParse {
-                    message: format!("tensor '{name}' missing 'data_offsets' array"),
+                .ok_or_else(|| ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "data_offsets",
                 })?;
 
             if offsets_arr.len() != 2 {
-                return Err(ModelError::SafeTensorsParse {
-                    message: format!("tensor '{name}' data_offsets must have exactly 2 elements"),
+                return Err(ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "data_offsets",
                 });
             }
 
             let start = offsets_arr[0]
                 .as_u64()
-                .ok_or_else(|| ModelError::SafeTensorsParse {
-                    message: format!("tensor '{name}' data_offsets[0] is not an integer"),
+                .ok_or_else(|| ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "data_offsets",
                 })? as usize;
             let end = offsets_arr[1]
                 .as_u64()
-                .ok_or_else(|| ModelError::SafeTensorsParse {
-                    message: format!("tensor '{name}' data_offsets[1] is not an integer"),
+                .ok_or_else(|| ModelError::InvalidTensorHeader {
+                    tensor: name.clone(),
+                    field: "data_offsets",
                 })? as usize;
 
             tensors.insert(
@@ -215,17 +218,17 @@ impl SafeTensorFile {
         let info = self
             .tensors
             .get(name)
-            .ok_or_else(|| ModelError::SafeTensorsParse {
-                message: format!("tensor '{name}' not found"),
+            .ok_or_else(|| ModelError::WeightNotFound {
+                name: name.to_string(),
             })?;
 
         let (start, end) = info.data_offsets;
         if end > self.data.len() || start > end {
-            return Err(ModelError::SafeTensorsParse {
-                message: format!(
-                    "tensor '{name}' data_offsets [{start}, {end}) out of bounds (data len = {})",
-                    self.data.len()
-                ),
+            return Err(ModelError::TensorDataOutOfBounds {
+                name: name.to_string(),
+                start,
+                end,
+                len: self.data.len(),
             });
         }
 
@@ -235,11 +238,10 @@ impl SafeTensorFile {
         let expected_bytes = expected_elements * elem_size;
 
         if raw.len() != expected_bytes {
-            return Err(ModelError::SafeTensorsParse {
-                message: format!(
-                    "tensor '{name}' expected {expected_bytes} bytes, got {}",
-                    raw.len()
-                ),
+            return Err(ModelError::TensorByteLenMismatch {
+                name: name.to_string(),
+                expected: expected_bytes,
+                got: raw.len(),
             });
         }
 

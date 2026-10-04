@@ -45,21 +45,27 @@ fn avg_pool2d_nhwc_computes_expected_result() {
 fn pool2d_nhwc_rejects_invalid_rank() {
     let input = Tensor::from_vec(vec![4, 4, 1], vec![0.0; 16]).unwrap();
     let err = max_pool2d_nhwc(&input, 2, 2, 2, 2).unwrap_err();
-    assert_eq!(err, KernelError::InvalidPoolRank { got_rank: 3 });
+    assert!(
+        matches!(err, KernelError::InvalidPoolRank { got_rank: 3 }),
+        "{err:?}"
+    );
 }
 
 #[test]
 fn pool2d_nhwc_rejects_invalid_parameters() {
     let input = Tensor::from_vec(vec![1, 4, 4, 1], vec![0.0; 16]).unwrap();
     let err = avg_pool2d_nhwc(&input, 0, 2, 2, 2).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::InvalidPoolParameters {
-            kernel_h: 0,
-            kernel_w: 2,
-            stride_h: 2,
-            stride_w: 2,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::InvalidPoolParameters {
+                kernel_h: 0,
+                kernel_w: 2,
+                stride_h: 2,
+                stride_w: 2
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -67,14 +73,17 @@ fn pool2d_nhwc_rejects_invalid_parameters() {
 fn pool2d_nhwc_rejects_kernel_larger_than_input() {
     let input = Tensor::from_vec(vec![1, 3, 3, 1], vec![0.0; 9]).unwrap();
     let err = max_pool2d_nhwc(&input, 4, 3, 1, 1).unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::PoolKernelLargerThanInput {
-            input_h: 3,
-            input_w: 3,
-            kernel_h: 4,
-            kernel_w: 3,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::PoolKernelLargerThanInput {
+                input_h: 3,
+                input_w: 3,
+                kernel_h: 4,
+                kernel_w: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 

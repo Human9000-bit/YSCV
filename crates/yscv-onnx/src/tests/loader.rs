@@ -208,7 +208,10 @@ fn load_multi_node_graph() {
 #[test]
 fn decode_error_on_invalid_bytes() {
     let result = load_onnx_model(&[0xFF, 0x00, 0x01]);
-    assert!(result.is_err());
+    assert!(
+        matches!(result, Err(crate::OnnxError::Decode { .. })),
+        "{result:?}"
+    );
 }
 
 #[test]
@@ -222,7 +225,14 @@ fn shape_mismatch_error() {
     };
     let bytes = build_minimal_onnx_model(vec![], vec![init], vec!["x"], vec!["y"]);
     let result = load_onnx_model(&bytes);
-    assert!(result.is_err());
+    assert!(
+        matches!(
+            &result,
+            Err(crate::OnnxError::InitializerShapeMismatch { name, expected: 6, got: 2 })
+                if name == "bad"
+        ),
+        "{result:?}"
+    );
 }
 
 /// `x -> Relu -> Dropout -> Relu -> y`. Dropout is the identity at inference,

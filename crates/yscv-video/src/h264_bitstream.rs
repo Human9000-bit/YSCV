@@ -53,7 +53,7 @@ impl<'a> BitstreamReader<'a> {
     /// Reads a single bit (0 or 1).
     pub fn read_bit(&mut self) -> Result<u8, VideoError> {
         if self.byte_offset >= self.data.len() {
-            return Err(VideoError::Codec("bitstream exhausted".into()));
+            return Err(VideoError::Truncated { what: "bitstream" });
         }
         let bit = (self.data[self.byte_offset] >> (7 - self.bit_offset)) & 1;
         self.bit_offset += 1;
@@ -70,9 +70,10 @@ impl<'a> BitstreamReader<'a> {
             return Ok(0);
         }
         if n > 32 {
-            return Err(VideoError::Codec(format!(
-                "read_bits: requested {n} bits, max is 32"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "read_bits bit count (max 32)",
+                value: n.into(),
+            });
         }
         let mut value = 0u32;
         let mut remaining = n;
@@ -113,7 +114,7 @@ impl<'a> BitstreamReader<'a> {
         let mut leading_zeros = 0u32;
         loop {
             if self.byte_offset >= self.data.len() {
-                return Err(VideoError::Codec("bitstream exhausted".into()));
+                return Err(VideoError::Truncated { what: "bitstream" });
             }
             let byte = self.data[self.byte_offset];
             let remaining_bits = 8 - self.bit_offset;
@@ -138,13 +139,17 @@ impl<'a> BitstreamReader<'a> {
             self.bit_offset = 0;
             self.byte_offset += 1;
             if leading_zeros > 31 {
-                return Err(VideoError::Codec("exp-golomb overflow".into()));
+                return Err(VideoError::Malformed {
+                    what: "exp-Golomb code (more than 31 leading zeros)",
+                });
             }
         }
         // A run that starts mid-byte can pass the check above at 31 and then
         // add up to seven more zeros in the byte holding the terminating 1.
         if leading_zeros > 31 {
-            return Err(VideoError::Codec("exp-golomb overflow".into()));
+            return Err(VideoError::Malformed {
+                what: "exp-Golomb code (more than 31 leading zeros)",
+            });
         }
         if leading_zeros == 0 {
             return Ok(0);
@@ -166,7 +171,7 @@ impl<'a> BitstreamReader<'a> {
         let new_byte = total_bit / 8;
         let new_bit = (total_bit % 8) as u8;
         if new_byte > self.data.len() || (new_byte == self.data.len() && new_bit > 0) {
-            return Err(VideoError::Codec("bitstream exhausted in skip".into()));
+            return Err(VideoError::Truncated { what: "bitstream" });
         }
         self.byte_offset = new_byte;
         self.bit_offset = new_bit;

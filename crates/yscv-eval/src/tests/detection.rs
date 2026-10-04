@@ -78,7 +78,10 @@ fn detection_rejects_invalid_config() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, EvalError::InvalidIouThreshold { value: 1.2 });
+    assert!(
+        matches!(err, EvalError::InvalidIouThreshold { value } if value == 1.2),
+        "{err:?}"
+    );
 
     let err = evaluate_detections(
         &empty,

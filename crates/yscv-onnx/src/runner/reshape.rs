@@ -8,11 +8,7 @@ pub(super) fn exec_flatten(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
 
     let outer: usize = shape[..axis].iter().product();
     let inner: usize = shape[axis..].iter().product();
-    let out = input
-        .reshape(vec![outer, inner])
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = input.reshape(vec![outer, inner])?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -29,11 +25,7 @@ pub(super) fn exec_reshape_known(
     if input.len() != expected_len {
         return exec_reshape(node, env);
     }
-    let out = input
-        .reshape(shape.to_vec())
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = input.reshape(shape.to_vec())?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -79,11 +71,7 @@ pub(super) fn exec_reshape(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
     // subsequent writes — so there is nothing to gain from taking the tensor
     // out of the env first.
     let input = get_tensor(env, &node.name, &node.inputs[0])?;
-    let out = input
-        .reshape(new_shape)
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = input.reshape(new_shape)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -120,11 +108,7 @@ pub(super) fn exec_transpose(node: &OnnxNode, env: &mut TensorEnv) -> Result<(),
         }
 
         // Non-identity composed perm: apply a single permute on the physical data.
-        let out = input
-            .permute(composed.as_ref())
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let out = input.permute(composed.as_ref())?;
         env.insert(node.outputs[0].clone(), out);
         // If the composed perm is NCHW→NHWC, mark output as NHWC.
         if composed == [0, 2, 3, 1] {
@@ -134,9 +118,7 @@ pub(super) fn exec_transpose(node: &OnnxNode, env: &mut TensorEnv) -> Result<(),
     }
 
     let input_rank = input.rank();
-    let out = input.permute(&axes).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = input.permute(&axes)?;
     env.insert(node.outputs[0].clone(), out);
     if input_rank == 4 && axes.as_slice() == [0, 2, 3, 1] {
         env.mark_nhwc(&node.outputs[0]);
@@ -188,9 +170,7 @@ pub(super) fn exec_concat(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
         .map(|name| get_tensor(env, &node.name, name))
         .collect::<Result<Vec<_>, _>>()?;
 
-    let out = Tensor::cat(&refs, actual_axis).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::cat(&refs, actual_axis)?;
     env.insert(node.outputs[0].clone(), out);
     if is_nhwc_output {
         env.mark_nhwc(&node.outputs[0]);
@@ -224,9 +204,7 @@ pub(super) fn exec_unsqueeze(node: &OnnxNode, env: &mut TensorEnv) -> Result<(),
     for &ax in &sorted_axes {
         shape.insert(ax, 1);
     }
-    let out = input.reshape(shape).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = input.reshape(shape)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -263,9 +241,7 @@ pub(super) fn exec_squeeze(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
     if shape.is_empty() {
         shape.push(1);
     }
-    let out = input.reshape(shape).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = input.reshape(shape)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -289,11 +265,7 @@ pub(super) fn exec_shape(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
         phys_shape.iter().map(|&d| d as f32).collect()
     };
 
-    let out = Tensor::from_vec(vec![shape_data.len()], shape_data).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let out = Tensor::from_vec(vec![shape_data.len()], shape_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -380,10 +352,7 @@ pub(super) fn exec_split(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
         offset_along_axis += sz;
 
         if out_idx < node.outputs.len() {
-            let t =
-                Tensor::from_aligned(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+            let t = Tensor::from_aligned(out_shape, out_data)?;
             env.insert(node.outputs[out_idx].clone(), t);
             if input_is_nhwc {
                 env.mark_nhwc(&node.outputs[out_idx]);
@@ -478,9 +447,7 @@ pub(super) fn exec_slice(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onn
         out_data.push(data[in_idx]);
     }
 
-    let out = Tensor::from_vec(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(out_shape, out_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -534,9 +501,7 @@ pub(super) fn exec_expand(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
         out_data.push(data[src_idx]);
     }
 
-    let out = Tensor::from_vec(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(out_shape, out_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -570,9 +535,7 @@ pub(super) fn exec_tile(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
         out_data.push(data[src_idx]);
     }
 
-    let out = Tensor::from_vec(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(out_shape, out_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -642,9 +605,7 @@ pub(super) fn exec_pad(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
         out_data[out_flat] = val;
     }
 
-    let out = Tensor::from_vec(new_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(new_shape, out_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -654,20 +615,25 @@ pub(super) fn exec_depth_to_space(node: &OnnxNode, env: &mut TensorEnv) -> Resul
     let blocksize =
         get_attr_int(node, Attr::BlockSize).ok_or_else(|| OnnxError::MissingAttribute {
             node: node.name.clone(),
-            attr: "blocksize".into(),
+            attr: "blocksize",
         })? as usize;
     let mode = get_attr_string(node, Attr::Mode).unwrap_or_default();
     let shape = input.shape();
     if shape.len() != 4 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: "DepthToSpace requires rank-4 NCHW".into(),
+        return Err(OnnxError::InvalidRank {
+            op: "DepthToSpace",
+            expected: 4,
+            shape: shape.to_vec(),
         });
     }
     let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
     let bs2 = blocksize * blocksize;
     if c % bs2 != 0 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: "C must be divisible by blocksize^2".into(),
+        return Err(OnnxError::NotDivisible {
+            op: "DepthToSpace",
+            what: "channels",
+            dims: vec![c],
+            divisor: bs2,
         });
     }
     let new_c = c / bs2;
@@ -719,11 +685,7 @@ pub(super) fn exec_depth_to_space(node: &OnnxNode, env: &mut TensorEnv) -> Resul
         }
     }
 
-    let t = Tensor::from_vec(vec![n, new_c, new_h, new_w], out).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let t = Tensor::from_vec(vec![n, new_c, new_h, new_w], out)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -733,18 +695,23 @@ pub(super) fn exec_space_to_depth(node: &OnnxNode, env: &mut TensorEnv) -> Resul
     let blocksize =
         get_attr_int(node, Attr::BlockSize).ok_or_else(|| OnnxError::MissingAttribute {
             node: node.name.clone(),
-            attr: "blocksize".into(),
+            attr: "blocksize",
         })? as usize;
     let shape = input.shape();
     if shape.len() != 4 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: "SpaceToDepth requires rank-4 NCHW".into(),
+        return Err(OnnxError::InvalidRank {
+            op: "SpaceToDepth",
+            expected: 4,
+            shape: shape.to_vec(),
         });
     }
     let (n, c, h, w) = (shape[0], shape[1], shape[2], shape[3]);
     if h % blocksize != 0 || w % blocksize != 0 {
-        return Err(OnnxError::ShapeMismatch {
-            detail: "H and W must be divisible by blocksize".into(),
+        return Err(OnnxError::NotDivisible {
+            op: "SpaceToDepth",
+            what: "height/width",
+            dims: vec![h, w],
+            divisor: blocksize,
         });
     }
     let new_c = c * blocksize * blocksize;
@@ -775,11 +742,7 @@ pub(super) fn exec_space_to_depth(node: &OnnxNode, env: &mut TensorEnv) -> Resul
         }
     }
 
-    let t = Tensor::from_vec(vec![n, new_c, new_h, new_w], out).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let t = Tensor::from_vec(vec![n, new_c, new_h, new_w], out)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -791,9 +754,7 @@ pub(super) fn exec_constant_of_shape(
     let shape_t = get_tensor(env, &node.name, &node.inputs[0])?;
     let shape: Vec<usize> = shape_t.data().iter().map(|&v| v as usize).collect();
     let value = get_attr_float(node, Attr::Value).unwrap_or(0.0);
-    let out = Tensor::filled(shape, value).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::filled(shape, value)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }

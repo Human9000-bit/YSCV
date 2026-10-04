@@ -92,7 +92,8 @@ In addition to these named functions, the H.264 path uses scalar code that the R
 - **27MB RSS** for 41MB H.264 file (< file size)
 - **129MB RSS** for HEVC 1080p (DPB + recon buffers)
 - No unbounded growth — DPB bounded by SPS, all buffers reused across frames
-- MKV: 512MB file size limit (in-memory EBML traversal)
+- MKV: 512MB file size limit (in-memory EBML traversal); a larger file returns
+  `VideoError::FileTooLarge`; use the streaming `Mp4VideoReader` for large files
 
 ## Containers
 

@@ -1,4 +1,5 @@
 use std::env;
+use std::num::{ParseFloatError, ParseIntError};
 use std::path::PathBuf;
 
 use thiserror::Error;
@@ -79,9 +80,9 @@ impl DetectTarget {
         match raw {
             "people" => Ok(Self::People),
             "face" | "faces" => Ok(Self::Faces),
-            _ => Err(CliError::Message(format!(
-                "invalid --detect-target `{raw}`; expected one of: people, face"
-            ))),
+            _ => Err(CliError::InvalidDetectTarget {
+                value: raw.to_string(),
+            }),
         }
     }
 
@@ -197,12 +198,54 @@ impl Default for CliConfig {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, PartialEq, Error)]
 pub enum CliError {
     #[error("help requested")]
     HelpRequested,
-    #[error("{0}")]
-    Message(String),
+    #[error("unknown argument: {arg}; run with --help for usage")]
+    UnknownArgument { arg: String },
+    #[error("missing value for {flag}; run with --help for usage")]
+    MissingValue { flag: &'static str },
+    #[error("failed to parse {flag} value `{raw}` as unsigned integer: {source}")]
+    ParseInt {
+        flag: &'static str,
+        raw: String,
+        #[source]
+        source: ParseIntError,
+    },
+    #[error("failed to parse {flag} value `{raw}` as number: {source}")]
+    ParseFloat {
+        flag: &'static str,
+        raw: String,
+        #[source]
+        source: ParseFloatError,
+    },
+    #[error("invalid --detect-target `{value}`; expected one of: people, face")]
+    InvalidDetectTarget { value: String },
+    #[error("{flag} must not be empty")]
+    Empty { flag: &'static str },
+    #[error("{flag} must be greater than 0")]
+    NotPositive { flag: &'static str },
+    #[error("{flag} must be finite and in [{min}, {max}]")]
+    OutOfRange {
+        flag: &'static str,
+        min: f32,
+        max: f32,
+    },
+    #[error("{flag} must be finite and >= 0")]
+    Negative { flag: &'static str },
+    #[error("{what} cannot be used together with {other}")]
+    Conflict {
+        what: &'static str,
+        other: &'static str,
+    },
+    #[error("{what} requires {requires}")]
+    Requires {
+        what: &'static str,
+        requires: &'static str,
+    },
+    #[error("{} must be provided together", .flags.join(", "))]
+    Incomplete { flags: &'static [&'static str] },
 }
 
 impl CliConfig {
@@ -264,9 +307,10 @@ impl CliConfig {
                 }
                 "--device" => {
                     if has_device_name {
-                        return Err(CliError::Message(
-                            "`--device` cannot be used together with `--device-name`".to_string(),
-                        ));
+                        return Err(CliError::Conflict {
+                            what: "--device",
+                            other: "--device-name",
+                        });
                     }
                     let raw = next_value(&args, &mut index, "--device")?;
                     config.device_index = parse_u32("--device", raw)?;
@@ -274,9 +318,10 @@ impl CliConfig {
                 }
                 "--device-name" => {
                     if has_device_index {
-                        return Err(CliError::Message(
-                            "`--device-name` cannot be used together with `--device`".to_string(),
-                        ));
+                        return Err(CliError::Conflict {
+                            what: "--device-name",
+                            other: "--device",
+                        });
                     }
                     let raw = next_value(&args, &mut index, "--device-name")?;
                     config.device_name_query = Some(parse_non_empty("--device-name", raw)?);
@@ -436,9 +481,9 @@ impl CliConfig {
                 }
                 "--help" | "-h" => return Err(CliError::HelpRequested),
                 unknown => {
-                    return Err(CliError::Message(format!(
-                        "unknown argument: {unknown}; run with --help for usage"
-                    )));
+                    return Err(CliError::UnknownArgument {
+                        arg: unknown.to_string(),
+                    });
                 }
             }
             index += 1;
@@ -468,36 +513,36 @@ impl CliConfig {
             -1.0,
             1.0,
         )?;
-        if let Some(max_frames) = config.max_frames
-            && max_frames == 0
-        {
-            return Err(CliError::Message(
-                "`--max-frames` must be greater than 0".to_string(),
-            ));
+        if let Some(max_frames) = config.max_frames {
+            validate_positive_usize("--max-frames", max_frames)?;
         }
         if config.benchmark_baseline_path.is_some() {
             config.benchmark = true;
         }
         if config.device_name_query.is_some() && !config.camera && !config.list_cameras {
-            return Err(CliError::Message(
-                "`--device-name` requires `--camera` or `--list-cameras`".to_string(),
-            ));
+            return Err(CliError::Requires {
+                what: "--device-name",
+                requires: "--camera or --list-cameras",
+            });
         }
         validate_in_unit_interval("--eval-iou", config.eval_iou_threshold)?;
         validate_in_unit_interval("--eval-score", config.eval_score_threshold)?;
         if config.eval_detection_coco_gt_path.is_some()
             != config.eval_detection_coco_pred_path.is_some()
         {
-            return Err(CliError::Message(
-                "`--eval-detection-coco-gt` and `--eval-detection-coco-pred` must be provided together".to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &["--eval-detection-coco-gt", "--eval-detection-coco-pred"],
+            });
         }
         if config.eval_detection_openimages_gt_path.is_some()
             != config.eval_detection_openimages_pred_path.is_some()
         {
-            return Err(CliError::Message(
-                "`--eval-detection-openimages-gt` and `--eval-detection-openimages-pred` must be provided together".to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-openimages-gt",
+                    "--eval-detection-openimages-pred",
+                ],
+            });
         }
         let yolo_eval_flags = [
             config.eval_detection_yolo_manifest_path.is_some(),
@@ -507,9 +552,13 @@ impl CliConfig {
         if yolo_eval_flags.iter().any(|present| *present)
             && !yolo_eval_flags.iter().all(|present| *present)
         {
-            return Err(CliError::Message(
-                "`--eval-detection-yolo-manifest`, `--eval-detection-yolo-gt-dir`, and `--eval-detection-yolo-pred-dir` must be provided together".to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-yolo-manifest",
+                    "--eval-detection-yolo-gt-dir",
+                    "--eval-detection-yolo-pred-dir",
+                ],
+            });
         }
         let voc_eval_flags = [
             config.eval_detection_voc_manifest_path.is_some(),
@@ -519,9 +568,13 @@ impl CliConfig {
         if voc_eval_flags.iter().any(|present| *present)
             && !voc_eval_flags.iter().all(|present| *present)
         {
-            return Err(CliError::Message(
-                "`--eval-detection-voc-manifest`, `--eval-detection-voc-gt-dir`, and `--eval-detection-voc-pred-dir` must be provided together".to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-voc-manifest",
+                    "--eval-detection-voc-gt-dir",
+                    "--eval-detection-voc-pred-dir",
+                ],
+            });
         }
         let kitti_eval_flags = [
             config.eval_detection_kitti_manifest_path.is_some(),
@@ -531,24 +584,30 @@ impl CliConfig {
         if kitti_eval_flags.iter().any(|present| *present)
             && !kitti_eval_flags.iter().all(|present| *present)
         {
-            return Err(CliError::Message(
-                "`--eval-detection-kitti-manifest`, `--eval-detection-kitti-gt-dir`, and `--eval-detection-kitti-pred-dir` must be provided together".to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-kitti-manifest",
+                    "--eval-detection-kitti-gt-dir",
+                    "--eval-detection-kitti-pred-dir",
+                ],
+            });
         }
         if config.eval_detection_widerface_gt_path.is_some()
             != config.eval_detection_widerface_pred_path.is_some()
         {
-            return Err(CliError::Message(
-                "`--eval-detection-widerface-gt` and `--eval-detection-widerface-pred` must be provided together".to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-widerface-gt",
+                    "--eval-detection-widerface-pred",
+                ],
+            });
         }
         if config.eval_tracking_mot_gt_path.is_some()
             != config.eval_tracking_mot_pred_path.is_some()
         {
-            return Err(CliError::Message(
-                "`--eval-tracking-mot-gt` and `--eval-tracking-mot-pred` must be provided together"
-                    .to_string(),
-            ));
+            return Err(CliError::Incomplete {
+                flags: &["--eval-tracking-mot-gt", "--eval-tracking-mot-pred"],
+            });
         }
         validate_positive_usize(
             "--validate-diagnostics-min-frames",
@@ -569,44 +628,52 @@ impl CliConfig {
             || config.eval_tracking_mot_gt_path.is_some();
         let diagnostics_validation_mode = config.validate_diagnostics_report_path.is_some();
         if eval_mode && (config.camera || config.list_cameras) {
-            return Err(CliError::Message(
-                "evaluation dataset mode cannot be combined with camera/listing mode".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "camera/listing mode",
+            });
         }
         if eval_mode && config.diagnose_camera {
-            return Err(CliError::Message(
-                "evaluation dataset mode cannot be combined with `--diagnose-camera`".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "--diagnose-camera",
+            });
         }
         if eval_mode && config.benchmark {
-            return Err(CliError::Message(
-                "evaluation dataset mode cannot be combined with benchmark mode".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "benchmark mode",
+            });
         }
         if config.event_log_path.is_some() && config.list_cameras {
-            return Err(CliError::Message(
-                "`--event-log` cannot be used together with `--list-cameras`".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "--event-log",
+                other: "--list-cameras",
+            });
         }
         if eval_mode && config.event_log_path.is_some() {
-            return Err(CliError::Message(
-                "evaluation dataset mode cannot be combined with `--event-log`".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "--event-log",
+            });
         }
         if config.diagnose_camera && config.list_cameras {
-            return Err(CliError::Message(
-                "`--diagnose-camera` cannot be used together with `--list-cameras`".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "--diagnose-camera",
+                other: "--list-cameras",
+            });
         }
         if config.diagnose_camera && config.benchmark {
-            return Err(CliError::Message(
-                "`--diagnose-camera` cannot be used together with `--benchmark`".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "--diagnose-camera",
+                other: "--benchmark",
+            });
         }
         if config.diagnose_report_path.is_some() && !config.diagnose_camera {
-            return Err(CliError::Message(
-                "`--diagnose-report` requires `--diagnose-camera`".to_string(),
-            ));
+            return Err(CliError::Requires {
+                what: "--diagnose-report",
+                requires: "--diagnose-camera",
+            });
         }
         if diagnostics_validation_mode
             && (config.camera
@@ -616,9 +683,10 @@ impl CliConfig {
                 || config.benchmark
                 || config.event_log_path.is_some())
         {
-            return Err(CliError::Message(
-                "diagnostics report validation mode cannot be combined with camera/diagnostics/eval/benchmark/event-log modes".to_string(),
-            ));
+            return Err(CliError::Conflict {
+                what: "diagnostics report validation mode",
+                other: "camera/diagnostics/eval/benchmark/event-log modes",
+            });
         }
         if !diagnostics_validation_mode
             && (config.validate_diagnostics_min_frames
@@ -630,10 +698,10 @@ impl CliConfig {
                 || config.validate_diagnostics_max_dropped_frames
                     != CliConfig::default().validate_diagnostics_max_dropped_frames)
         {
-            return Err(CliError::Message(
-                "diagnostics validation thresholds require `--validate-diagnostics-report`"
-                    .to_string(),
-            ));
+            return Err(CliError::Requires {
+                what: "diagnostics validation thresholds",
+                requires: "--validate-diagnostics-report",
+            });
         }
 
         Ok(config)
@@ -719,55 +787,42 @@ pub fn print_usage() {
     println!("  cargo run -p yscv-cli --bin yscv-cli --features native-camera -- --camera");
 }
 
-fn next_value(args: &[String], index: &mut usize, flag: &str) -> Result<String, CliError> {
+fn next_value(args: &[String], index: &mut usize, flag: &'static str) -> Result<String, CliError> {
     *index += 1;
-    if let Some(value) = args.get(*index) {
-        Ok(value.clone())
-    } else {
-        Err(CliError::Message(format!(
-            "missing value for {flag}; run with --help for usage"
-        )))
-    }
+    args.get(*index)
+        .cloned()
+        .ok_or(CliError::MissingValue { flag })
 }
 
-fn parse_u32(flag: &str, raw: String) -> Result<u32, CliError> {
-    raw.parse::<u32>().map_err(|_| {
-        CliError::Message(format!(
-            "failed to parse {flag} value `{raw}` as unsigned integer"
-        ))
-    })
+fn parse_u32(flag: &'static str, raw: String) -> Result<u32, CliError> {
+    raw.parse::<u32>()
+        .map_err(|source| CliError::ParseInt { flag, raw, source })
 }
 
-fn parse_usize(flag: &str, raw: String) -> Result<usize, CliError> {
-    raw.parse::<usize>().map_err(|_| {
-        CliError::Message(format!(
-            "failed to parse {flag} value `{raw}` as unsigned integer"
-        ))
-    })
+fn parse_usize(flag: &'static str, raw: String) -> Result<usize, CliError> {
+    raw.parse::<usize>()
+        .map_err(|source| CliError::ParseInt { flag, raw, source })
 }
 
-fn parse_f32(flag: &str, raw: String) -> Result<f32, CliError> {
+fn parse_f32(flag: &'static str, raw: String) -> Result<f32, CliError> {
     raw.parse::<f32>()
-        .map_err(|_| CliError::Message(format!("failed to parse {flag} value `{raw}` as number")))
+        .map_err(|source| CliError::ParseFloat { flag, raw, source })
 }
 
-fn parse_f64(flag: &str, raw: String) -> Result<f64, CliError> {
+fn parse_f64(flag: &'static str, raw: String) -> Result<f64, CliError> {
     raw.parse::<f64>()
-        .map_err(|_| CliError::Message(format!("failed to parse {flag} value `{raw}` as number")))
+        .map_err(|source| CliError::ParseFloat { flag, raw, source })
 }
 
-fn parse_u64(flag: &str, raw: String) -> Result<u64, CliError> {
-    raw.parse::<u64>().map_err(|_| {
-        CliError::Message(format!(
-            "failed to parse {flag} value `{raw}` as unsigned integer"
-        ))
-    })
+fn parse_u64(flag: &'static str, raw: String) -> Result<u64, CliError> {
+    raw.parse::<u64>()
+        .map_err(|source| CliError::ParseInt { flag, raw, source })
 }
 
-fn parse_non_empty(flag: &str, raw: String) -> Result<String, CliError> {
+fn parse_non_empty(flag: &'static str, raw: String) -> Result<String, CliError> {
     let normalized = raw.trim();
     if normalized.is_empty() {
-        return Err(CliError::Message(format!("{flag} must not be empty")));
+        return Err(CliError::Empty { flag });
     }
     Ok(normalized.to_string())
 }
@@ -776,41 +831,39 @@ fn parse_path(raw: String) -> PathBuf {
     PathBuf::from(raw)
 }
 
-fn validate_positive(flag: &str, value: u32) -> Result<(), CliError> {
+fn validate_positive(flag: &'static str, value: u32) -> Result<(), CliError> {
     if value == 0 {
-        return Err(CliError::Message(format!("{flag} must be greater than 0")));
+        return Err(CliError::NotPositive { flag });
     }
     Ok(())
 }
 
-fn validate_positive_usize(flag: &str, value: usize) -> Result<(), CliError> {
+fn validate_positive_usize(flag: &'static str, value: usize) -> Result<(), CliError> {
     if value == 0 {
-        return Err(CliError::Message(format!("{flag} must be greater than 0")));
+        return Err(CliError::NotPositive { flag });
     }
     Ok(())
 }
 
-fn validate_in_unit_interval(flag: &str, value: f32) -> Result<(), CliError> {
-    if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(CliError::Message(format!(
-            "{flag} must be finite and in [0, 1]"
-        )));
-    }
-    Ok(())
+fn validate_in_unit_interval(flag: &'static str, value: f32) -> Result<(), CliError> {
+    validate_in_closed_range(flag, value, 0.0, 1.0)
 }
 
-fn validate_in_closed_range(flag: &str, value: f32, min: f32, max: f32) -> Result<(), CliError> {
+fn validate_in_closed_range(
+    flag: &'static str,
+    value: f32,
+    min: f32,
+    max: f32,
+) -> Result<(), CliError> {
     if !value.is_finite() || !(min..=max).contains(&value) {
-        return Err(CliError::Message(format!(
-            "{flag} must be finite and in [{min}, {max}]"
-        )));
+        return Err(CliError::OutOfRange { flag, min, max });
     }
     Ok(())
 }
 
-fn validate_non_negative_finite(flag: &str, value: f64) -> Result<(), CliError> {
+fn validate_non_negative_finite(flag: &'static str, value: f64) -> Result<(), CliError> {
     if !value.is_finite() || value < 0.0 {
-        return Err(CliError::Message(format!("{flag} must be finite and >= 0")));
+        return Err(CliError::Negative { flag });
     }
     Ok(())
 }
@@ -866,7 +919,9 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--diagnose-frames must be greater than 0".to_string())
+            CliError::NotPositive {
+                flag: "--diagnose-frames"
+            }
         );
     }
 
@@ -892,9 +947,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--device-name` cannot be used together with `--device`".to_string()
-            )
+            CliError::Conflict {
+                what: "--device-name",
+                other: "--device"
+            }
         );
     }
 
@@ -904,9 +960,10 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--device-name` requires `--camera` or `--list-cameras`".to_string()
-            )
+            CliError::Requires {
+                what: "--device-name",
+                requires: "--camera or --list-cameras"
+            }
         );
     }
 
@@ -943,9 +1000,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--event-log` cannot be used together with `--list-cameras`".to_string()
-            )
+            CliError::Conflict {
+                what: "--event-log",
+                other: "--list-cameras"
+            }
         );
     }
 
@@ -1085,9 +1143,9 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-detection-coco-gt` and `--eval-detection-coco-pred` must be provided together".to_string()
-            )
+            CliError::Incomplete {
+                flags: &["--eval-detection-coco-gt", "--eval-detection-coco-pred"]
+            }
         );
     }
 
@@ -1100,9 +1158,12 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-detection-openimages-gt` and `--eval-detection-openimages-pred` must be provided together".to_string()
-            )
+            CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-openimages-gt",
+                    "--eval-detection-openimages-pred"
+                ]
+            }
         );
     }
 
@@ -1115,9 +1176,13 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-detection-yolo-manifest`, `--eval-detection-yolo-gt-dir`, and `--eval-detection-yolo-pred-dir` must be provided together".to_string()
-            )
+            CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-yolo-manifest",
+                    "--eval-detection-yolo-gt-dir",
+                    "--eval-detection-yolo-pred-dir"
+                ]
+            }
         );
     }
 
@@ -1130,9 +1195,13 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-detection-voc-manifest`, `--eval-detection-voc-gt-dir`, and `--eval-detection-voc-pred-dir` must be provided together".to_string()
-            )
+            CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-voc-manifest",
+                    "--eval-detection-voc-gt-dir",
+                    "--eval-detection-voc-pred-dir"
+                ]
+            }
         );
     }
 
@@ -1145,9 +1214,13 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-detection-kitti-manifest`, `--eval-detection-kitti-gt-dir`, and `--eval-detection-kitti-pred-dir` must be provided together".to_string()
-            )
+            CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-kitti-manifest",
+                    "--eval-detection-kitti-gt-dir",
+                    "--eval-detection-kitti-pred-dir"
+                ]
+            }
         );
     }
 
@@ -1160,9 +1233,12 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-detection-widerface-gt` and `--eval-detection-widerface-pred` must be provided together".to_string()
-            )
+            CliError::Incomplete {
+                flags: &[
+                    "--eval-detection-widerface-gt",
+                    "--eval-detection-widerface-pred"
+                ]
+            }
         );
     }
 
@@ -1175,10 +1251,9 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--eval-tracking-mot-gt` and `--eval-tracking-mot-pred` must be provided together"
-                    .to_string()
-            )
+            CliError::Incomplete {
+                flags: &["--eval-tracking-mot-gt", "--eval-tracking-mot-pred"]
+            }
         );
     }
 
@@ -1214,9 +1289,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "evaluation dataset mode cannot be combined with camera/listing mode".to_string()
-            )
+            CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "camera/listing mode"
+            }
         );
     }
 
@@ -1230,9 +1306,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "diagnostics report validation mode cannot be combined with camera/diagnostics/eval/benchmark/event-log modes".to_string()
-            )
+            CliError::Conflict {
+                what: "diagnostics report validation mode",
+                other: "camera/diagnostics/eval/benchmark/event-log modes"
+            }
         );
     }
 
@@ -1246,9 +1323,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "evaluation dataset mode cannot be combined with `--diagnose-camera`".to_string()
-            )
+            CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "--diagnose-camera"
+            }
         );
     }
 
@@ -1263,9 +1341,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "evaluation dataset mode cannot be combined with `--event-log`".to_string()
-            )
+            CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "--event-log"
+            }
         );
     }
 
@@ -1279,9 +1358,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "evaluation dataset mode cannot be combined with benchmark mode".to_string()
-            )
+            CliError::Conflict {
+                what: "evaluation dataset mode",
+                other: "benchmark mode"
+            }
         );
     }
 
@@ -1294,9 +1374,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--diagnose-camera` cannot be used together with `--list-cameras`".to_string()
-            )
+            CliError::Conflict {
+                what: "--diagnose-camera",
+                other: "--list-cameras"
+            }
         );
     }
 
@@ -1309,9 +1390,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "`--diagnose-camera` cannot be used together with `--benchmark`".to_string()
-            )
+            CliError::Conflict {
+                what: "--diagnose-camera",
+                other: "--benchmark"
+            }
         );
     }
 
@@ -1324,10 +1406,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "diagnostics validation thresholds require `--validate-diagnostics-report`"
-                    .to_string()
-            )
+            CliError::Requires {
+                what: "diagnostics validation thresholds",
+                requires: "--validate-diagnostics-report"
+            }
         );
     }
 
@@ -1340,7 +1422,10 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("`--diagnose-report` requires `--diagnose-camera`".to_string())
+            CliError::Requires {
+                what: "--diagnose-report",
+                requires: "--diagnose-camera"
+            }
         );
     }
 
@@ -1350,7 +1435,11 @@ mod tests {
             CliConfig::parse_from(vec!["--eval-iou".to_string(), "2.0".to_string()]).unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--eval-iou must be finite and in [0, 1]".to_string())
+            CliError::OutOfRange {
+                flag: "--eval-iou",
+                min: 0.0,
+                max: 1.0
+            }
         );
     }
 
@@ -1401,17 +1490,16 @@ mod tests {
         let err = CliConfig::parse_from(vec!["--what".to_string()]).unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("unknown argument: --what; run with --help for usage".to_string())
+            CliError::UnknownArgument {
+                arg: "--what".to_string()
+            }
         );
     }
 
     #[test]
     fn parse_rejects_non_positive_resolution() {
         let err = CliConfig::parse_from(vec!["--width".to_string(), "0".to_string()]).unwrap_err();
-        assert_eq!(
-            err,
-            CliError::Message("--width must be greater than 0".to_string())
-        );
+        assert_eq!(err, CliError::NotPositive { flag: "--width" });
     }
 
     #[test]
@@ -1458,7 +1546,11 @@ mod tests {
             CliConfig::parse_from(vec!["--track-iou".to_string(), "1.5".to_string()]).unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--track-iou must be finite and in [0, 1]".to_string())
+            CliError::OutOfRange {
+                flag: "--track-iou",
+                min: 0.0,
+                max: 1.0
+            }
         );
     }
 
@@ -1471,7 +1563,11 @@ mod tests {
         .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--recognition-threshold must be finite and in [-1, 1]".to_string())
+            CliError::OutOfRange {
+                flag: "--recognition-threshold",
+                min: -1.0,
+                max: 1.0
+            }
         );
     }
 
@@ -1481,9 +1577,9 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message(
-                "invalid --detect-target `animals`; expected one of: people, face".to_string()
-            )
+            CliError::InvalidDetectTarget {
+                value: "animals".to_string()
+            }
         );
     }
 
@@ -1512,7 +1608,11 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--detect-score must be finite and in [0, 1]".to_string())
+            CliError::OutOfRange {
+                flag: "--detect-score",
+                min: 0.0,
+                max: 1.0
+            }
         );
     }
 
@@ -1522,14 +1622,18 @@ mod tests {
             .unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--detect-min-area must be greater than 0".to_string())
+            CliError::NotPositive {
+                flag: "--detect-min-area"
+            }
         );
 
         let err =
             CliConfig::parse_from(vec!["--detect-max".to_string(), "0".to_string()]).unwrap_err();
         assert_eq!(
             err,
-            CliError::Message("--detect-max must be greater than 0".to_string())
+            CliError::NotPositive {
+                flag: "--detect-max"
+            }
         );
     }
 }

@@ -98,11 +98,7 @@ impl Pass for ReorderForFusion {
             return Ok(false);
         }
 
-        graph
-            .set_order(order)
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: format!("reorder_nodes_for_fusion produced an invalid order: {e}"),
-            })?;
+        graph.set_order(order)?;
         Ok(true)
     }
 }

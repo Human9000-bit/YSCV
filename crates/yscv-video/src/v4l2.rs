@@ -7,6 +7,7 @@
 use crate::VideoError;
 use std::ops::Deref;
 use std::os::unix::io::AsRawFd;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // C FFI — 3 declarations, zero deps
@@ -362,9 +363,11 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source(
-                "V4L2: S_PARM (set frame rate) failed".into(),
-            ));
+            return Err(VideoError::Io {
+                op: "VIDIOC_S_PARM",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         Ok(())
     }
@@ -381,7 +384,11 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source(format!("V4L2: S_CTRL {id:#x} failed")));
+            return Err(VideoError::Io {
+                op: "VIDIOC_S_CTRL",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         Ok(())
     }
@@ -402,7 +409,11 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source(format!("V4L2: G_CTRL {id:#x} failed")));
+            return Err(VideoError::Io {
+                op: "VIDIOC_G_CTRL",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         Ok(ctrl.value)
     }
@@ -423,7 +434,11 @@ impl V4l2Camera {
             .read(true)
             .write(true)
             .open(device)
-            .map_err(|e| VideoError::Source(format!("V4L2: cannot open {device}: {e}")))?;
+            .map_err(|e| VideoError::Io {
+                op: "open",
+                path: Some(device.into()),
+                source: Arc::new(e),
+            })?;
 
         let fd = file.as_raw_fd();
 
@@ -437,17 +452,21 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: QUERYCAP failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_QUERYCAP",
+                path: Some(device.into()),
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         if cap.capabilities & V4L2_CAP_VIDEO_CAPTURE == 0 {
-            return Err(VideoError::Source(
-                "V4L2: device does not support video capture".into(),
-            ));
+            return Err(VideoError::Missing {
+                what: "V4L2 VIDEO_CAPTURE capability",
+            });
         }
         if cap.capabilities & V4L2_CAP_STREAMING == 0 {
-            return Err(VideoError::Source(
-                "V4L2: device does not support streaming I/O".into(),
-            ));
+            return Err(VideoError::Missing {
+                what: "V4L2 STREAMING capability",
+            });
         }
 
         // S_FMT — set desired format
@@ -460,7 +479,11 @@ impl V4l2Camera {
 
         let ret = unsafe { ioctl(fd, VIDIOC_S_FMT, &mut fmt as *mut V4l2Format as *mut u8) };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: S_FMT failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_S_FMT",
+                path: Some(device.into()),
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
 
         let actual_w = fmt.fmt.pix.width;
@@ -481,12 +504,16 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: REQBUFS failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_REQBUFS",
+                path: Some(device.into()),
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         if reqbufs.count == 0 {
-            return Err(VideoError::Source(
-                "V4L2: driver allocated 0 buffers".into(),
-            ));
+            return Err(VideoError::Missing {
+                what: "V4L2 capture buffers (driver allocated 0)",
+            });
         }
 
         // QUERYBUF + mmap each buffer
@@ -499,15 +526,18 @@ impl V4l2Camera {
 
             let ret = unsafe { ioctl(fd, VIDIOC_QUERYBUF, &mut buf as *mut V4l2Buffer as *mut u8) };
             if ret < 0 {
+                let err = VideoError::Io {
+                    op: "VIDIOC_QUERYBUF",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 // Unmap any already-mapped buffers before returning
                 for &(ptr, len) in &buffers {
                     unsafe {
                         munmap(ptr, len);
                     }
                 }
-                return Err(VideoError::Source(format!(
-                    "V4L2: QUERYBUF failed for buffer {i}"
-                )));
+                return Err(err);
             }
 
             let ptr = unsafe {
@@ -521,14 +551,17 @@ impl V4l2Camera {
                 )
             };
             if ptr == MAP_FAILED {
+                let err = VideoError::Io {
+                    op: "mmap",
+                    path: Some(device.into()),
+                    source: Arc::new(std::io::Error::last_os_error()),
+                };
                 for &(p, l) in &buffers {
                     unsafe {
                         munmap(p, l);
                     }
                 }
-                return Err(VideoError::Source(format!(
-                    "V4L2: mmap failed for buffer {i}"
-                )));
+                return Err(err);
             }
 
             buffers.push((ptr, buf.length as usize));
@@ -556,9 +589,11 @@ impl V4l2Camera {
             let ret =
                 unsafe { ioctl(self.fd, VIDIOC_QBUF, &mut buf as *mut V4l2Buffer as *mut u8) };
             if ret < 0 {
-                return Err(VideoError::Source(format!(
-                    "V4L2: QBUF failed for buffer {i}"
-                )));
+                return Err(VideoError::Io {
+                    op: "VIDIOC_QBUF",
+                    path: None,
+                    source: Arc::new(std::io::Error::last_os_error()),
+                });
             }
         }
 
@@ -572,7 +607,11 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: STREAMON failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_STREAMON",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         self.streaming = true;
         Ok(())
@@ -584,7 +623,9 @@ impl V4l2Camera {
     /// before the next capture call; dropping it re-queues the buffer.
     pub fn capture_frame(&mut self) -> Result<V4l2Frame<'_>, VideoError> {
         if !self.streaming {
-            return Err(VideoError::Source("V4L2: not streaming".into()));
+            return Err(VideoError::Unavailable {
+                what: "V4L2 capture stream (not streaming)",
+            });
         }
 
         // DQBUF
@@ -600,15 +641,20 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: DQBUF failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_DQBUF",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
 
         let idx = buf.index as usize;
         let bytes_used = buf.bytesused as usize;
         if idx >= self.buffers.len() {
-            return Err(VideoError::Source(format!(
-                "V4L2: DQBUF returned invalid buffer index {idx}"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "V4L2 DQBUF buffer index",
+                value: idx as i64,
+            });
         }
 
         let (ptr, len) = self.buffers[idx];
@@ -637,7 +683,9 @@ impl V4l2Camera {
     /// `stop_streaming` can borrow the camera.
     pub fn capture_frame_indexed(&mut self) -> Result<(u32, V4l2Frame<'_>), VideoError> {
         if !self.streaming {
-            return Err(VideoError::Source("V4L2: not streaming".into()));
+            return Err(VideoError::Unavailable {
+                what: "V4L2 capture stream (not streaming)",
+            });
         }
 
         let mut buf: V4l2Buffer = unsafe { std::mem::zeroed() };
@@ -653,15 +701,20 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: DQBUF failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_DQBUF",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
 
         let idx = buf.index as usize;
         let bytes_used = buf.bytesused as usize;
         if idx >= self.buffers.len() {
-            return Err(VideoError::Source(format!(
-                "V4L2: DQBUF returned invalid buffer index {idx}"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "V4L2 DQBUF buffer index",
+                value: idx as i64,
+            });
         }
 
         let (ptr, len) = self.buffers[idx];
@@ -694,7 +747,11 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: QBUF (re-queue) failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_QBUF",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         Ok(())
     }
@@ -711,9 +768,10 @@ impl V4l2Camera {
     /// [`Self::export_dmabuf_owned`] for automatic cleanup via RAII.
     pub fn export_dmabuf(&self, buffer_index: u32) -> Result<i32, VideoError> {
         if buffer_index as usize >= self.buffers.len() {
-            return Err(VideoError::Source(format!(
-                "V4L2: export_dmabuf buffer index {buffer_index} out of range"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "V4L2 export_dmabuf buffer index",
+                value: buffer_index.into(),
+            });
         }
         let mut ebuf = V4l2ExportBuffer {
             type_: V4L2_BUF_TYPE_VIDEO_CAPTURE,
@@ -733,14 +791,17 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source(format!(
-                "V4L2: VIDIOC_EXPBUF failed for buffer {buffer_index}"
-            )));
+            return Err(VideoError::Io {
+                op: "VIDIOC_EXPBUF",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         if ebuf.fd < 0 {
-            return Err(VideoError::Source(
-                "V4L2: VIDIOC_EXPBUF returned invalid fd".into(),
-            ));
+            return Err(VideoError::FieldOutOfRange {
+                field: "V4L2 VIDIOC_EXPBUF fd",
+                value: ebuf.fd.into(),
+            });
         }
         Ok(ebuf.fd)
     }
@@ -755,15 +816,12 @@ impl V4l2Camera {
     /// The returned slice aliases the mmap'd region. Do not call any
     /// frame-capture method while the slice is live.
     pub fn buffer_mut(&mut self, buffer_index: u32) -> Result<&mut [u8], VideoError> {
-        let (ptr, len) = self
-            .buffers
-            .get(buffer_index as usize)
-            .copied()
-            .ok_or_else(|| {
-                VideoError::Source(format!(
-                    "V4L2: buffer_mut index {buffer_index} out of range"
-                ))
-            })?;
+        let (ptr, len) = self.buffers.get(buffer_index as usize).copied().ok_or(
+            VideoError::FieldOutOfRange {
+                field: "V4L2 buffer_mut index",
+                value: buffer_index.into(),
+            },
+        )?;
         // SAFETY: ptr is mmap'd, writable (MAP_SHARED | PROT_WRITE); len
         // is the exact length from VIDIOC_QUERYBUF.
         Ok(unsafe { std::slice::from_raw_parts_mut(ptr, len) })
@@ -803,7 +861,11 @@ impl V4l2Camera {
             )
         };
         if ret < 0 {
-            return Err(VideoError::Source("V4L2: STREAMOFF failed".into()));
+            return Err(VideoError::Io {
+                op: "VIDIOC_STREAMOFF",
+                path: None,
+                source: Arc::new(std::io::Error::last_os_error()),
+            });
         }
         self.streaming = false;
         Ok(())

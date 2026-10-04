@@ -1,14 +1,14 @@
 use yscv_detect::{BoundingBox, Detection};
 use yscv_track::TrackedDetection;
 
-use crate::{EvalError, GroundTruthTrack, TrackingDatasetFrame};
+use crate::{DatasetFormatError, GroundTruthTrack, TrackingDatasetFrame};
 
 use super::helpers::ensure_frame_slot;
 
 pub(crate) fn parse_and_build_mot(
     ground_truth_text: &str,
     predictions_text: &str,
-) -> Result<Vec<TrackingDatasetFrame>, EvalError> {
+) -> Result<Vec<TrackingDatasetFrame>, DatasetFormatError> {
     let mut ground_truth_frames = parse_mot_ground_truth(ground_truth_text)?;
     let mut prediction_frames = parse_mot_predictions(predictions_text)?;
     let frame_count = ground_truth_frames.len().max(prediction_frames.len());
@@ -25,7 +25,8 @@ pub(crate) fn parse_and_build_mot(
         .collect())
 }
 
-fn parse_mot_ground_truth(text: &str) -> Result<Vec<Vec<GroundTruthTrack>>, EvalError> {
+fn parse_mot_ground_truth(text: &str) -> Result<Vec<Vec<GroundTruthTrack>>, DatasetFormatError> {
+    const RECORD: &str = "ground-truth line";
     let mut frames: Vec<Vec<GroundTruthTrack>> = Vec::new();
     for (line_idx, raw_line) in text.lines().enumerate() {
         let line_no = line_idx + 1;
@@ -36,34 +37,25 @@ fn parse_mot_ground_truth(text: &str) -> Result<Vec<Vec<GroundTruthTrack>>, Eval
 
         let tokens = parse_mot_tokens(line);
         if tokens.len() < 6 {
-            return Err(EvalError::InvalidDatasetFormat {
-                format: "mot",
-                message: format!(
-                    "invalid ground-truth line {line_no}: expected at least 6 comma-separated fields"
-                ),
+            return Err(DatasetFormatError::FieldCount {
+                record: RECORD,
+                index: line_no,
+                expected: "at least 6 comma-separated fields",
             });
         }
 
-        let frame_idx = parse_mot_frame_index(tokens[0], "ground-truth", line_no)?;
-        let object_id = parse_mot_positive_u64(tokens[1], "track id", "ground-truth", line_no)?;
-        let bbox = parse_mot_bbox(
-            tokens[2],
-            tokens[3],
-            tokens[4],
-            tokens[5],
-            "ground-truth",
-            line_no,
-        )?;
+        let frame_idx = parse_mot_frame_index(tokens[0], RECORD, line_no)?;
+        let object_id = parse_mot_positive_u64(tokens[1], "track id", RECORD, line_no)?;
+        let bbox = parse_mot_bbox(tokens[2], tokens[3], tokens[4], tokens[5], RECORD, line_no)?;
 
         if let Some(confidence_raw) = tokens.get(6).copied() {
-            let confidence = parse_mot_f32(confidence_raw, "confidence", "ground-truth", line_no)?;
+            let confidence = parse_mot_f32(confidence_raw, "confidence", RECORD, line_no)?;
             if confidence <= 0.0 {
                 continue;
             }
         }
 
-        let class_id =
-            parse_mot_optional_class_id(tokens.get(7).copied(), "ground-truth", line_no)?;
+        let class_id = parse_mot_optional_class_id(tokens.get(7).copied(), RECORD, line_no)?;
 
         ensure_frame_slot(&mut frames, frame_idx);
         frames[frame_idx].push(GroundTruthTrack {
@@ -75,7 +67,8 @@ fn parse_mot_ground_truth(text: &str) -> Result<Vec<Vec<GroundTruthTrack>>, Eval
     Ok(frames)
 }
 
-fn parse_mot_predictions(text: &str) -> Result<Vec<Vec<TrackedDetection>>, EvalError> {
+fn parse_mot_predictions(text: &str) -> Result<Vec<Vec<TrackedDetection>>, DatasetFormatError> {
+    const RECORD: &str = "prediction line";
     let mut frames: Vec<Vec<TrackedDetection>> = Vec::new();
     for (line_idx, raw_line) in text.lines().enumerate() {
         let line_no = line_idx + 1;
@@ -86,29 +79,21 @@ fn parse_mot_predictions(text: &str) -> Result<Vec<Vec<TrackedDetection>>, EvalE
 
         let tokens = parse_mot_tokens(line);
         if tokens.len() < 6 {
-            return Err(EvalError::InvalidDatasetFormat {
-                format: "mot",
-                message: format!(
-                    "invalid prediction line {line_no}: expected at least 6 comma-separated fields"
-                ),
+            return Err(DatasetFormatError::FieldCount {
+                record: RECORD,
+                index: line_no,
+                expected: "at least 6 comma-separated fields",
             });
         }
 
-        let frame_idx = parse_mot_frame_index(tokens[0], "prediction", line_no)?;
-        let track_id = parse_mot_positive_u64(tokens[1], "track id", "prediction", line_no)?;
-        let bbox = parse_mot_bbox(
-            tokens[2],
-            tokens[3],
-            tokens[4],
-            tokens[5],
-            "prediction",
-            line_no,
-        )?;
+        let frame_idx = parse_mot_frame_index(tokens[0], RECORD, line_no)?;
+        let track_id = parse_mot_positive_u64(tokens[1], "track id", RECORD, line_no)?;
+        let bbox = parse_mot_bbox(tokens[2], tokens[3], tokens[4], tokens[5], RECORD, line_no)?;
         let score = match tokens.get(6).copied() {
-            Some(raw) => parse_mot_f32(raw, "score", "prediction", line_no)?,
+            Some(raw) => parse_mot_f32(raw, "score", RECORD, line_no)?,
             None => 1.0,
         };
-        let class_id = parse_mot_optional_class_id(tokens.get(7).copied(), "prediction", line_no)?;
+        let class_id = parse_mot_optional_class_id(tokens.get(7).copied(), RECORD, line_no)?;
 
         ensure_frame_slot(&mut frames, frame_idx);
         frames[frame_idx].push(TrackedDetection {
@@ -127,32 +112,42 @@ fn parse_mot_tokens(line: &str) -> Vec<&str> {
     line.split(',').map(str::trim).collect()
 }
 
-fn parse_mot_frame_index(token: &str, source: &str, line_no: usize) -> Result<usize, EvalError> {
-    let frame_number = parse_mot_positive_u64(token, "frame index", source, line_no)?;
-    usize::try_from(frame_number - 1).map_err(|_| EvalError::InvalidDatasetFormat {
-        format: "mot",
-        message: format!(
-            "invalid {source} line {line_no}: frame index `{token}` exceeds usize::MAX on this platform"
-        ),
+fn parse_mot_frame_index(
+    token: &str,
+    record: &'static str,
+    line_no: usize,
+) -> Result<usize, DatasetFormatError> {
+    let frame_number = parse_mot_positive_u64(token, "frame index", record, line_no)?;
+    usize::try_from(frame_number - 1).map_err(|source| DatasetFormatError::IntOverflow {
+        record,
+        index: line_no,
+        field: "frame index",
+        value: frame_number,
+        source,
     })
 }
 
 fn parse_mot_positive_u64(
     token: &str,
     field: &'static str,
-    source: &str,
+    record: &'static str,
     line_no: usize,
-) -> Result<u64, EvalError> {
+) -> Result<u64, DatasetFormatError> {
     let value = token
         .parse::<i64>()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!("invalid {source} line {line_no} `{field}` value `{token}`: {err}"),
+        .map_err(|source| DatasetFormatError::ParseInt {
+            record,
+            index: line_no,
+            field,
+            value: token.to_string(),
+            source,
         })?;
     if value <= 0 {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!("invalid {source} line {line_no}: `{field}` must be > 0"),
+        return Err(DatasetFormatError::OutOfRange {
+            record,
+            index: line_no,
+            field,
+            expected: "> 0",
         });
     }
     Ok(value as u64)
@@ -161,19 +156,24 @@ fn parse_mot_positive_u64(
 fn parse_mot_f32(
     token: &str,
     field: &'static str,
-    source: &str,
+    record: &'static str,
     line_no: usize,
-) -> Result<f32, EvalError> {
+) -> Result<f32, DatasetFormatError> {
     let value = token
         .parse::<f32>()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!("invalid {source} line {line_no} `{field}` value `{token}`: {err}"),
+        .map_err(|source| DatasetFormatError::ParseFloat {
+            record,
+            index: line_no,
+            field,
+            value: token.to_string(),
+            source,
         })?;
     if !value.is_finite() {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!("invalid {source} line {line_no}: `{field}` must be finite"),
+        return Err(DatasetFormatError::OutOfRange {
+            record,
+            index: line_no,
+            field,
+            expected: "finite",
         });
     }
     Ok(value)
@@ -184,28 +184,28 @@ fn parse_mot_bbox(
     top_raw: &str,
     width_raw: &str,
     height_raw: &str,
-    source: &str,
+    record: &'static str,
     line_no: usize,
-) -> Result<BoundingBox, EvalError> {
-    let left = parse_mot_f32(left_raw, "bbox_left", source, line_no)?;
-    let top = parse_mot_f32(top_raw, "bbox_top", source, line_no)?;
-    let width = parse_mot_f32(width_raw, "bbox_width", source, line_no)?;
-    let height = parse_mot_f32(height_raw, "bbox_height", source, line_no)?;
+) -> Result<BoundingBox, DatasetFormatError> {
+    let left = parse_mot_f32(left_raw, "bbox_left", record, line_no)?;
+    let top = parse_mot_f32(top_raw, "bbox_top", record, line_no)?;
+    let width = parse_mot_f32(width_raw, "bbox_width", record, line_no)?;
+    let height = parse_mot_f32(height_raw, "bbox_height", record, line_no)?;
     if width <= 0.0 || height <= 0.0 {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!(
-                "invalid {source} line {line_no}: bbox_width and bbox_height must be > 0"
-            ),
+        return Err(DatasetFormatError::InvalidBox {
+            record,
+            index: line_no,
+            reason: "bbox_width and bbox_height must be > 0",
         });
     }
 
     let x2 = left + width;
     let y2 = top + height;
     if !x2.is_finite() || !y2.is_finite() {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!("invalid {source} line {line_no}: bbox corner overflow"),
+        return Err(DatasetFormatError::InvalidBox {
+            record,
+            index: line_no,
+            reason: "bbox corner overflow",
         });
     }
 
@@ -219,9 +219,9 @@ fn parse_mot_bbox(
 
 fn parse_mot_optional_class_id(
     token: Option<&str>,
-    source: &str,
+    record: &'static str,
     line_no: usize,
-) -> Result<usize, EvalError> {
+) -> Result<usize, DatasetFormatError> {
     let Some(raw) = token else {
         return Ok(0);
     };
@@ -231,17 +231,21 @@ fn parse_mot_optional_class_id(
 
     let parsed = raw
         .parse::<i64>()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "mot",
-            message: format!("invalid {source} line {line_no} `class_id` value `{raw}`: {err}"),
+        .map_err(|source| DatasetFormatError::ParseInt {
+            record,
+            index: line_no,
+            field: "class_id",
+            value: raw.to_string(),
+            source,
         })?;
     if parsed <= 0 {
         return Ok(0);
     }
-    usize::try_from(parsed).map_err(|_| EvalError::InvalidDatasetFormat {
-        format: "mot",
-        message: format!(
-            "invalid {source} line {line_no}: `class_id` value `{raw}` exceeds usize::MAX on this platform"
-        ),
+    usize::try_from(parsed).map_err(|source| DatasetFormatError::IntOverflow {
+        record,
+        index: line_no,
+        field: "class_id",
+        value: parsed as u64,
+        source,
     })
 }

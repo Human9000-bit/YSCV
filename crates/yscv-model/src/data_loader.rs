@@ -172,7 +172,7 @@ impl DataLoader {
 
         if total_batches == 0 {
             // No work to do; return an iterator that immediately finishes.
-            let (_tx, rx) = mpsc::sync_channel::<Result<DataLoaderBatch, String>>(0);
+            let (_tx, rx) = mpsc::sync_channel::<Result<DataLoaderBatch, ModelError>>(0);
             return DataLoaderIter {
                 receiver: rx,
                 _workers: Vec::new(),
@@ -185,7 +185,7 @@ impl DataLoader {
             .num_workers
             .saturating_mul(self.config.prefetch_factor)
             .max(1);
-        let (tx, rx) = mpsc::sync_channel::<Result<DataLoaderBatch, String>>(channel_capacity);
+        let (tx, rx) = mpsc::sync_channel::<Result<DataLoaderBatch, ModelError>>(channel_capacity);
 
         // Share data with workers via Arc.
         // NOTE: cloning Vec<Tensor> here is unavoidable without changing the
@@ -220,11 +220,7 @@ impl DataLoader {
                         .collect();
 
                     let result = build_batch(&inputs, &targets, &batch_indices);
-                    let send_result = match result {
-                        Ok(batch) => tx.send(Ok(batch)),
-                        Err(e) => tx.send(Err(e.to_string())),
-                    };
-                    if send_result.is_err() {
+                    if tx.send(result).is_err() {
                         // Receiver dropped; stop producing.
                         break;
                     }
@@ -246,7 +242,7 @@ impl DataLoader {
 
 /// Iterator over batches produced by worker threads.
 pub struct DataLoaderIter {
-    receiver: mpsc::Receiver<Result<DataLoaderBatch, String>>,
+    receiver: mpsc::Receiver<Result<DataLoaderBatch, ModelError>>,
     _workers: Vec<thread::JoinHandle<()>>,
     remaining: usize,
 }
@@ -259,16 +255,9 @@ impl Iterator for DataLoaderIter {
             return None;
         }
         match self.receiver.recv() {
-            Ok(Ok(batch)) => {
+            Ok(result) => {
                 self.remaining -= 1;
-                Some(Ok(batch))
-            }
-            Ok(Err(msg)) => {
-                self.remaining -= 1;
-                Some(Err(ModelError::DatasetLoadIo {
-                    path: String::new(),
-                    message: msg,
-                }))
+                Some(result)
             }
             Err(_) => {
                 // Channel closed unexpectedly.
@@ -588,9 +577,9 @@ impl StreamingDataLoader {
 
     /// Load a single batch file in the simple binary tensor-pair format.
     fn load_batch_file(path: &Path) -> Result<(Tensor, Tensor), ModelError> {
-        let data = std::fs::read(path).map_err(|e| ModelError::DatasetLoadIo {
-            path: path.display().to_string(),
-            message: e.to_string(),
+        let data = std::fs::read(path).map_err(|source| ModelError::Io {
+            path: path.to_path_buf(),
+            source: Arc::new(source),
         })?;
         let input = Self::read_tensor_from_bytes(&data, 0)?;
         let offset = Self::tensor_byte_size(&input) + 4 + input.shape().len() * 4;
@@ -607,9 +596,9 @@ impl StreamingDataLoader {
         let mut buf = Vec::new();
         Self::write_tensor_to_bytes(&mut buf, inputs);
         Self::write_tensor_to_bytes(&mut buf, targets);
-        std::fs::write(path, &buf).map_err(|e| ModelError::DatasetLoadIo {
-            path: path.display().to_string(),
-            message: e.to_string(),
+        std::fs::write(path, &buf).map_err(|source| ModelError::Io {
+            path: path.to_path_buf(),
+            source: Arc::new(source),
         })
     }
 
@@ -630,9 +619,10 @@ impl StreamingDataLoader {
 
     fn read_tensor_from_bytes(data: &[u8], offset: usize) -> Result<Tensor, ModelError> {
         if offset + 4 > data.len() {
-            return Err(ModelError::DatasetLoadIo {
-                path: String::new(),
-                message: "unexpected end of batch file (ndims)".to_string(),
+            return Err(ModelError::Truncated {
+                what: "batch file ndims",
+                needed: offset + 4,
+                len: data.len(),
             });
         }
         let ndims = u32::from_le_bytes([
@@ -644,9 +634,10 @@ impl StreamingDataLoader {
         let shape_start = offset + 4;
         let shape_end = shape_start + ndims * 4;
         if shape_end > data.len() {
-            return Err(ModelError::DatasetLoadIo {
-                path: String::new(),
-                message: "unexpected end of batch file (shape)".to_string(),
+            return Err(ModelError::Truncated {
+                what: "batch file shape",
+                needed: shape_end,
+                len: data.len(),
             });
         }
         let mut shape = Vec::with_capacity(ndims);
@@ -660,9 +651,10 @@ impl StreamingDataLoader {
         let data_start = shape_end;
         let data_end = data_start + num_elements * 4;
         if data_end > data.len() {
-            return Err(ModelError::DatasetLoadIo {
-                path: String::new(),
-                message: "unexpected end of batch file (data)".to_string(),
+            return Err(ModelError::Truncated {
+                what: "batch file data",
+                needed: data_end,
+                len: data.len(),
             });
         }
         let mut values = Vec::with_capacity(num_elements);

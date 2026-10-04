@@ -82,13 +82,11 @@ impl CutMixConfig {
         validate_cutmix_patch_fraction("min_patch_fraction", min_patch_fraction)?;
         self.min_patch_fraction = min_patch_fraction;
         if self.min_patch_fraction > self.max_patch_fraction {
-            return Err(ModelError::InvalidCutMixArgument {
-                field: "min_patch_fraction",
-                value: self.min_patch_fraction,
-                message: format!(
-                    "min_patch_fraction must be <= max_patch_fraction ({})",
-                    self.max_patch_fraction
-                ),
+            return Err(ModelError::InvalidRange {
+                op: "cutmix",
+                param: "patch_fraction",
+                min: self.min_patch_fraction,
+                max: self.max_patch_fraction,
             });
         }
         Ok(self)
@@ -98,13 +96,11 @@ impl CutMixConfig {
         validate_cutmix_patch_fraction("max_patch_fraction", max_patch_fraction)?;
         self.max_patch_fraction = max_patch_fraction;
         if self.min_patch_fraction > self.max_patch_fraction {
-            return Err(ModelError::InvalidCutMixArgument {
-                field: "max_patch_fraction",
-                value: self.max_patch_fraction,
-                message: format!(
-                    "max_patch_fraction must be >= min_patch_fraction ({})",
-                    self.min_patch_fraction
-                ),
+            return Err(ModelError::InvalidRange {
+                op: "cutmix",
+                param: "patch_fraction",
+                min: self.min_patch_fraction,
+                max: self.max_patch_fraction,
             });
         }
         Ok(self)
@@ -142,12 +138,10 @@ pub(super) fn validate_augmentation_compatibility(
         if let ImageAugmentationOp::ChannelNormalize { mean, std: _ } = op
             && mean.len() != channels
         {
-            return Err(ModelError::InvalidAugmentationArgument {
-                operation: "channel_normalize",
-                message: format!(
-                    "channel count mismatch: dataset_channels={channels}, mean/std_len={}",
-                    mean.len()
-                ),
+            return Err(ModelError::LengthMismatch {
+                what: "channel_normalize mean/std (vs dataset channels)",
+                expected: channels,
+                got: mean.len(),
             });
         }
     }
@@ -165,13 +159,11 @@ pub(super) fn validate_cutmix_config(config: &CutMixConfig) -> Result<(), ModelE
     validate_cutmix_patch_fraction("min_patch_fraction", config.min_patch_fraction())?;
     validate_cutmix_patch_fraction("max_patch_fraction", config.max_patch_fraction())?;
     if config.min_patch_fraction() > config.max_patch_fraction() {
-        return Err(ModelError::InvalidCutMixArgument {
-            field: "min_patch_fraction",
-            value: config.min_patch_fraction(),
-            message: format!(
-                "min_patch_fraction must be <= max_patch_fraction ({})",
-                config.max_patch_fraction()
-            ),
+        return Err(ModelError::InvalidRange {
+            op: "cutmix",
+            param: "patch_fraction",
+            min: config.min_patch_fraction(),
+            max: config.max_patch_fraction(),
         });
     }
     Ok(())
@@ -179,10 +171,11 @@ pub(super) fn validate_cutmix_config(config: &CutMixConfig) -> Result<(), ModelE
 
 fn validate_mixup_probability(probability: f32) -> Result<(), ModelError> {
     if !probability.is_finite() || !(0.0..=1.0).contains(&probability) {
-        return Err(ModelError::InvalidMixupArgument {
-            field: "probability",
+        return Err(ModelError::InvalidArgument {
+            op: "mixup",
+            param: "probability",
             value: probability,
-            message: "probability must be finite and in [0, 1]".to_string(),
+            expected: "finite value in [0, 1]",
         });
     }
     Ok(())
@@ -190,10 +183,11 @@ fn validate_mixup_probability(probability: f32) -> Result<(), ModelError> {
 
 fn validate_cutmix_probability(probability: f32) -> Result<(), ModelError> {
     if !probability.is_finite() || !(0.0..=1.0).contains(&probability) {
-        return Err(ModelError::InvalidCutMixArgument {
-            field: "probability",
+        return Err(ModelError::InvalidArgument {
+            op: "cutmix",
+            param: "probability",
             value: probability,
-            message: "probability must be finite and in [0, 1]".to_string(),
+            expected: "finite value in [0, 1]",
         });
     }
     Ok(())
@@ -201,10 +195,11 @@ fn validate_cutmix_probability(probability: f32) -> Result<(), ModelError> {
 
 fn validate_cutmix_patch_fraction(field: &'static str, value: f32) -> Result<(), ModelError> {
     if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(ModelError::InvalidCutMixArgument {
-            field,
+        return Err(ModelError::InvalidArgument {
+            op: "cutmix",
+            param: field,
             value,
-            message: format!("{field} must be finite and in [0, 1]"),
+            expected: "finite value in [0, 1]",
         });
     }
     Ok(())
@@ -221,10 +216,11 @@ pub(super) fn validate_cutmix_compatibility(inputs: &Tensor) -> Result<(), Model
 
 fn validate_mixup_lambda_min(lambda_min: f32) -> Result<(), ModelError> {
     if !lambda_min.is_finite() || !(0.0..=0.5).contains(&lambda_min) {
-        return Err(ModelError::InvalidMixupArgument {
-            field: "lambda_min",
+        return Err(ModelError::InvalidArgument {
+            op: "mixup",
+            param: "lambda_min",
             value: lambda_min,
-            message: "lambda_min must be finite and in [0, 0.5]".to_string(),
+            expected: "finite value in [0, 0.5]",
         });
     }
     Ok(())

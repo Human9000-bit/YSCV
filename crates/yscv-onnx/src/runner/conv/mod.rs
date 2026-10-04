@@ -283,11 +283,7 @@ pub(super) fn repack_depthwise_kernel_once(
             }
         }
     }
-    Tensor::from_vec(vec![kh, kw, channels, depth_mult], dw_data).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })
+    Tensor::from_vec(vec![kh, kw, channels, depth_mult], dw_data).map_err(OnnxError::from)
 }
 
 mod fused;
@@ -563,10 +559,7 @@ fn conv_compute_nhwc(
             if kernel == ConvKernel::IndirectNhwc3x3 {
                 let t = yscv_kernels::conv2d_nhwc_indirect_padded(
                     input_nhwc, w_nhwc, bias, sh, sw, pt, pl, pb, pr, activation,
-                )
-                .map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+                )?;
                 note_kernel(planned_kernel, kernel);
                 return Ok(t);
             }
@@ -585,18 +578,12 @@ fn conv_compute_nhwc(
         let (mut out_nhwc, activation_fused) = if has_padding {
             let t = yscv_kernels::conv2d_nhwc_padded(
                 input_nhwc, w_nhwc, bias, sh, sw, pt, pl, pb, pr, activation,
-            )
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+            )?;
             (t, true)
         } else {
             let t = yscv_kernels::conv2d_nhwc_with_activation_prepacked_default(
                 input_nhwc, w_nhwc, bias, sh, sw, activation, prepacked,
-            )
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+            )?;
             (t, true)
         };
         note_kernel(planned_kernel, kernel);
@@ -619,11 +606,7 @@ fn conv_compute_nhwc(
                     repack_depthwise_kernel_once(weight, o_ch, i_per_g, kh, kw, c, depth_mult)?;
                 &dw_kernel_owned
             };
-            let input_nchwc = yscv_kernels::nhwc_to_nchwc(input_nhwc, 8).map_err(|e| {
-                OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                }
-            })?;
+            let input_nchwc = yscv_kernels::nhwc_to_nchwc(input_nhwc, 8)?;
             let out_nchwc = yscv_kernels::conv2d_nchwc_dw3x3_s1_same_pad(
                 &input_nchwc,
                 dw_kernel,
@@ -633,15 +616,8 @@ fn conv_compute_nhwc(
                 yscv_kernels::ParallelElementwiseConfig::default(),
                 None,
                 None,
-            )
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
-            let mut out_nhwc = yscv_kernels::nchwc_to_nhwc(&out_nchwc, c).map_err(|e| {
-                OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                }
-            })?;
+            )?;
+            let mut out_nhwc = yscv_kernels::nchwc_to_nhwc(&out_nchwc, c)?;
             note_kernel(planned_kernel, kernel);
             apply_conv_activation(&mut out_nhwc, activation, true);
             return Ok(out_nhwc);
@@ -653,35 +629,27 @@ fn conv_compute_nhwc(
                 yscv_kernels::depthwise_conv2d_nhwc_padded_with_activation(
                     input_nhwc, weight, bias, sh, sw, pt, pl, pb, pr, activation,
                 )
-                .map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })
+                .map_err(OnnxError::from)
             } else {
                 let dw_kernel =
                     repack_depthwise_kernel_once(weight, o_ch, i_per_g, kh, kw, c, depth_mult)?;
                 yscv_kernels::depthwise_conv2d_nhwc_padded_with_activation(
                     input_nhwc, &dw_kernel, bias, sh, sw, pt, pl, pb, pr, activation,
                 )
-                .map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })
+                .map_err(OnnxError::from)
             }
         } else if is_dw_khwc {
             yscv_kernels::depthwise_conv2d_nhwc_with_activation(
                 input_nhwc, weight, bias, sh, sw, activation,
             )
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })
+            .map_err(OnnxError::from)
         } else {
             let dw_kernel =
                 repack_depthwise_kernel_once(weight, o_ch, i_per_g, kh, kw, c, depth_mult)?;
             yscv_kernels::depthwise_conv2d_nhwc_with_activation(
                 input_nhwc, &dw_kernel, bias, sh, sw, activation,
             )
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })
+            .map_err(OnnxError::from)
         }?;
         note_kernel(planned_kernel, kernel);
         apply_conv_activation(&mut out_nhwc, activation, activation_fused);
@@ -691,28 +659,30 @@ fn conv_compute_nhwc(
         let in_shape = input_nhwc.shape();
         let (n, ih, iw, total_ic) = (in_shape[0], in_shape[1], in_shape[2], in_shape[3]);
         if total_ic % group != 0 || o_ch % group != 0 {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "Grouped Conv channel mismatch: IC={total_ic}, OC={o_ch}, group={group}"
-                ),
+            return Err(OnnxError::NotDivisible {
+                op: "Conv",
+                what: "input/output channels",
+                dims: vec![total_ic, o_ch],
+                divisor: group,
             });
         }
         let ic_per_group = total_ic / group;
         let oc_per_group = o_ch / group;
         if i_per_g != ic_per_group {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "Grouped Conv weight/input mismatch: weight I/G={i_per_g}, input I/G={ic_per_group}"
-                ),
+            return Err(OnnxError::ChannelMismatch {
+                op: "Conv",
+                node: node.name.clone(),
+                expected: ic_per_group,
+                got: i_per_g,
             });
         }
         let padded_h = ih + pt + pb;
         let padded_w = iw + pl + pr;
         if kh > padded_h || kw > padded_w {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "Grouped Conv kernel larger than padded input: input=({ih},{iw}), pads=({pt},{pl},{pb},{pr}), kernel=({kh},{kw})"
-                ),
+            return Err(OnnxError::IncompatibleShapes {
+                op: "Conv",
+                left: vec![padded_h, padded_w],
+                right: vec![kh, kw],
             });
         }
         let oh = (padded_h - kh) / sh + 1;
@@ -806,11 +776,7 @@ fn conv_compute_nhwc(
                 }
             }
         }
-        let mut out_nhwc = Tensor::from_vec(vec![n, oh, ow, o_ch], out_data).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let mut out_nhwc = Tensor::from_vec(vec![n, oh, ow, o_ch], out_data)?;
         note_kernel(planned_kernel, kernel);
         apply_conv_activation(&mut out_nhwc, activation, relu_fused);
         Ok(out_nhwc)
@@ -837,18 +803,9 @@ pub(super) fn exec_conv_transpose(node: &OnnxNode, env: &mut TensorEnv) -> Resul
         nchw_to_nhwc(input)?
     };
     // ONNX ConvTranspose weight: [C_in, C_out, KH, KW] → [KH, KW, C_in, C_out]
-    let w_t = weight
-        .permute(&[2, 3, 0, 1])
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let w_t = weight.permute(&[2, 3, 0, 1])?;
 
-    let out_nhwc =
-        yscv_kernels::transpose_conv2d_nhwc(&input_nhwc, &w_t, bias, sh, sw).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+    let out_nhwc = yscv_kernels::transpose_conv2d_nhwc(&input_nhwc, &w_t, bias, sh, sw)?;
     env.insert(node.outputs[0].clone(), out_nhwc);
     env.mark_nhwc(&node.outputs[0]);
     Ok(())
@@ -894,21 +851,13 @@ pub(super) fn exec_deform_conv(node: &OnnxNode, env: &mut TensorEnv) -> Result<(
 
     // Convert offset from NCHW [N, kH*kW*2, out_H, out_W] to NHWC [N, out_H, out_W, kH*kW*2]
     let offset_nhwc = if offset.rank() == 4 {
-        offset
-            .permute(&[0, 2, 3, 1])
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?
+        offset.permute(&[0, 2, 3, 1])?
     } else {
         offset.clone()
     };
 
     // Weight: ONNX [O, I, KH, KW] → kernel expects [KH, KW, I, O]
-    let w_nhwc = weight
-        .permute(&[2, 3, 1, 0])
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let w_nhwc = weight.permute(&[2, 3, 1, 0])?;
 
     let out_nhwc = yscv_kernels::deformable_conv2d_nhwc(
         &input_nhwc,
@@ -917,10 +866,7 @@ pub(super) fn exec_deform_conv(node: &OnnxNode, env: &mut TensorEnv) -> Result<(
         bias,
         stride,
         padding,
-    )
-    .map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    )?;
 
     env.insert(node.outputs[0].clone(), out_nhwc);
     env.mark_nhwc(&node.outputs[0]);
@@ -933,18 +879,12 @@ pub(super) fn nchw_to_nhwc(input: &Tensor) -> Result<Tensor, OnnxError> {
     // Uses the specialized AVX 8×8 block transpose when c%8==0 and hw%8==0,
     // falling back to the generic `Tensor::permute` for non-aligned shapes
     // (e.g. first-layer RGB c=3).
-    yscv_kernels::nchw_to_nhwc_fast(input).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })
+    yscv_kernels::nchw_to_nhwc_fast(input).map_err(OnnxError::from)
 }
 
 /// Convert ONNX Conv weight [O, I, KH, KW] to yscv [KH, KW, I, O]
 pub(super) fn oihw_to_khwc_cout(weight: &Tensor) -> Result<Tensor, OnnxError> {
-    weight
-        .permute(&[2, 3, 1, 0])
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })
+    weight.permute(&[2, 3, 1, 0]).map_err(OnnxError::from)
 }
 
 /// Zero-pad an NHWC tensor on H/W dimensions.
@@ -981,9 +921,7 @@ pub(super) fn pad_nhwc_val(
                 .copy_from_slice(&in_data[src_start..src_start + row_bytes]);
         }
     }
-    Tensor::from_vec(vec![n, oh, ow, c], out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })
+    Tensor::from_vec(vec![n, oh, ow, c], out).map_err(OnnxError::from)
 }
 
 // ── BNNS NCHW fast path ────────────────────────────────────────────
@@ -1023,11 +961,7 @@ fn exec_conv_bnns_nchw(
     let w_oihw_owned;
     let w_oihw: &Tensor = if env.is_khwc_weight(&node.inputs[1]) {
         // KHWC [KH, KW, I, O] → OIHW [O, I, KH, KW]
-        w_oihw_owned = weight
-            .permute(&[3, 2, 0, 1])
-            .map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        w_oihw_owned = weight.permute(&[3, 2, 0, 1])?;
         &w_oihw_owned
     } else {
         weight

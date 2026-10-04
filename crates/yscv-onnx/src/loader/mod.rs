@@ -127,9 +127,7 @@ fn optimize_on_load() -> bool {
 /// and the optimizer invalidates it, so it is built exactly once, by whichever
 /// entry point above finishes the load.
 fn parse_onnx_model(data: &[u8]) -> Result<OnnxModel, OnnxError> {
-    let model_proto = onnx::ModelProto::decode(data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let model_proto = onnx::ModelProto::decode(data)?;
 
     let graph = model_proto.graph.ok_or(OnnxError::MissingGraph)?;
 
@@ -213,7 +211,8 @@ pub fn load_onnx_model_from_file(
 ) -> Result<OnnxModel, OnnxError> {
     let path = path.as_ref();
     let data = std::fs::read(path).map_err(|e| OnnxError::Io {
-        message: format!("{}: {e}", path.display()),
+        path: path.to_path_buf(),
+        source: std::sync::Arc::new(e),
     })?;
     load_onnx_model(&data)
 }

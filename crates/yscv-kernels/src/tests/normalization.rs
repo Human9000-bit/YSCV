@@ -41,7 +41,10 @@ fn layer_norm_last_dim_rejects_scalar_rank() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, KernelError::InvalidLayerNormRank { got_rank: 0 });
+    assert!(
+        matches!(err, KernelError::InvalidLayerNormRank { got_rank: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -58,13 +61,17 @@ fn layer_norm_last_dim_rejects_parameter_shape_mismatch() {
         },
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::LayerNormParameterShapeMismatch {
-            parameter: "gamma",
-            shape: vec![2],
-            expected_features: 3,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::LayerNormParameterShapeMismatch {
+                parameter: "gamma",
+                ref shape,
+                expected_features: 3,
+            }
+                if shape == &[2]
+        ),
+        "{err:?}"
     );
 }
 
@@ -82,7 +89,10 @@ fn layer_norm_last_dim_rejects_invalid_epsilon() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, KernelError::InvalidLayerNormEpsilon);
+    assert!(
+        matches!(err, KernelError::InvalidLayerNormEpsilon),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -154,7 +164,10 @@ fn batch_norm2d_nhwc_rejects_invalid_rank() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, KernelError::InvalidBatchNormRank { got_rank: 3 });
+    assert!(
+        matches!(err, KernelError::InvalidBatchNormRank { got_rank: 3 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -176,13 +189,17 @@ fn batch_norm2d_nhwc_rejects_parameter_shape_mismatch() {
         },
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        KernelError::BatchNormParameterShapeMismatch {
-            parameter: "gamma",
-            shape: vec![1],
-            expected_channels: 2,
-        }
+    assert!(
+        matches!(
+            err,
+            KernelError::BatchNormParameterShapeMismatch {
+                parameter: "gamma",
+                ref shape,
+                expected_channels: 2,
+            }
+                if shape == &[1]
+        ),
+        "{err:?}"
     );
 }
 
@@ -205,7 +222,10 @@ fn batch_norm2d_nhwc_rejects_invalid_epsilon() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, KernelError::InvalidBatchNormEpsilon);
+    assert!(
+        matches!(err, KernelError::InvalidBatchNormEpsilon),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -227,7 +247,10 @@ fn batch_norm2d_nhwc_rejects_invalid_variance_envelope() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, KernelError::InvalidBatchNormVariance { channel: 0 });
+    assert!(
+        matches!(err, KernelError::InvalidBatchNormVariance { channel: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]

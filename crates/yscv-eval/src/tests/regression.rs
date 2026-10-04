@@ -54,12 +54,21 @@ fn mape_perfect() {
 fn regression_length_mismatch() {
     let a = vec![1.0, 2.0];
     let b = vec![1.0];
-    let expected = EvalError::CountLengthMismatch {
-        ground_truth: 1,
-        predictions: 2,
-    };
-    assert_eq!(r2_score(&a, &b).unwrap_err(), expected);
-    assert_eq!(mae(&a, &b).unwrap_err(), expected);
-    assert_eq!(rmse(&a, &b).unwrap_err(), expected);
-    assert_eq!(mape(&a, &b).unwrap_err(), expected);
+    for err in [
+        r2_score(&a, &b).unwrap_err(),
+        mae(&a, &b).unwrap_err(),
+        rmse(&a, &b).unwrap_err(),
+        mape(&a, &b).unwrap_err(),
+    ] {
+        assert!(
+            matches!(
+                err,
+                EvalError::CountLengthMismatch {
+                    ground_truth: 1,
+                    predictions: 2
+                }
+            ),
+            "{err:?}"
+        );
+    }
 }

@@ -43,11 +43,9 @@ fn leaky_relu_forward_produces_expected_values() {
 #[test]
 fn leaky_relu_rejects_invalid_slope() {
     let err = LeakyReLULayer::new(-0.1).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidLeakyReluSlope {
-            negative_slope: -0.1
-        }
+    assert!(
+        matches!(err, ModelError::InvalidLeakyReluSlope { negative_slope } if negative_slope == -0.1),
+        "{err:?}"
     );
 }
 

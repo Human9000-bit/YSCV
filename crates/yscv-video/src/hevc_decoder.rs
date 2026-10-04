@@ -46,7 +46,7 @@
 //! -> reconstruct -> deblock -> SAO -> chroma -> RGB output.
 
 use super::h264_bitstream::BitstreamReader;
-use crate::VideoError;
+use crate::{VideoCodec, VideoError};
 
 // ---------------------------------------------------------------------------
 // HEVC NAL Unit Types
@@ -400,15 +400,23 @@ pub fn parse_hevc_sps(data: &[u8]) -> Result<HevcSps, VideoError> {
     let bit_depth_luma_minus8 = reader.read_ue()?;
     let bit_depth_chroma_minus8 = reader.read_ue()?;
     let log2_max_pic_order_cnt_lsb_minus4 = reader.read_ue()?;
-    if bit_depth_luma_minus8 > 8 || bit_depth_chroma_minus8 > 8 {
-        return Err(VideoError::Codec(format!(
-            "HEVC SPS bit_depth_minus8 out of range: luma {bit_depth_luma_minus8} chroma {bit_depth_chroma_minus8}"
-        )));
+    if bit_depth_luma_minus8 > 8 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC SPS bit_depth_luma_minus8",
+            value: bit_depth_luma_minus8.into(),
+        });
+    }
+    if bit_depth_chroma_minus8 > 8 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC SPS bit_depth_chroma_minus8",
+            value: bit_depth_chroma_minus8.into(),
+        });
     }
     if log2_max_pic_order_cnt_lsb_minus4 > 12 {
-        return Err(VideoError::Codec(format!(
-            "HEVC SPS log2_max_pic_order_cnt_lsb_minus4 out of range: {log2_max_pic_order_cnt_lsb_minus4}"
-        )));
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC SPS log2_max_pic_order_cnt_lsb_minus4",
+            value: log2_max_pic_order_cnt_lsb_minus4.into(),
+        });
     }
     let bit_depth_luma = bit_depth_luma_minus8 as u8 + 8;
     let bit_depth_chroma = bit_depth_chroma_minus8 as u8 + 8;
@@ -508,10 +516,17 @@ pub fn parse_hevc_pps(data: &[u8]) -> Result<HevcPps, VideoError> {
     let cabac_init_present = reader.read_bit()? != 0;
     let num_ref_idx_l0_default_minus1 = reader.read_ue()?;
     let num_ref_idx_l1_default_minus1 = reader.read_ue()?;
-    if num_ref_idx_l0_default_minus1 > 14 || num_ref_idx_l1_default_minus1 > 14 {
-        return Err(VideoError::Codec(format!(
-            "HEVC PPS num_ref_idx_default_active_minus1 out of range: l0 {num_ref_idx_l0_default_minus1} l1 {num_ref_idx_l1_default_minus1}"
-        )));
+    if num_ref_idx_l0_default_minus1 > 14 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC PPS num_ref_idx_l0_default_active_minus1",
+            value: num_ref_idx_l0_default_minus1.into(),
+        });
+    }
+    if num_ref_idx_l1_default_minus1 > 14 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "HEVC PPS num_ref_idx_l1_default_active_minus1",
+            value: num_ref_idx_l1_default_minus1.into(),
+        });
     }
     let num_ref_idx_l0_default = num_ref_idx_l0_default_minus1 as u8 + 1;
     let num_ref_idx_l1_default = num_ref_idx_l1_default_minus1 as u8 + 1;
@@ -1789,7 +1804,9 @@ impl HevcDecoder {
         use crate::HevcNalUnitType;
 
         if nal_data.len() < 2 {
-            return Err(VideoError::Codec("NAL unit too short".into()));
+            return Err(VideoError::Truncated {
+                what: "HEVC NAL unit",
+            });
         }
         let nal_type = HevcNalUnitType::from_header(nal_data);
         let payload = &nal_data[2..]; // skip 2-byte NAL header
@@ -1814,7 +1831,9 @@ impl HevcDecoder {
                     self.decode_picture(payload, true)
                 })) {
                     Ok(r) => r,
-                    Err(_) => Err(VideoError::Codec("HEVC decode panicked".into())),
+                    Err(_) => Err(VideoError::DecodePanicked {
+                        codec: VideoCodec::H265,
+                    }),
                 }
             }
             HevcNalUnitType::CraNut => {
@@ -1822,7 +1841,9 @@ impl HevcDecoder {
                     self.decode_picture(payload, true)
                 })) {
                     Ok(r) => r,
-                    Err(_) => Err(VideoError::Codec("HEVC decode panicked".into())),
+                    Err(_) => Err(VideoError::DecodePanicked {
+                        codec: VideoCodec::H265,
+                    }),
                 }
             }
             // P/B slice NAL types (trailing, TSA, STSA, RADL, RASL)
@@ -1840,7 +1861,9 @@ impl HevcDecoder {
                     self.decode_picture(payload, false)
                 })) {
                     Ok(r) => r,
-                    Err(_) => Err(VideoError::Codec("HEVC decode panicked".into())),
+                    Err(_) => Err(VideoError::DecodePanicked {
+                        codec: VideoCodec::H265,
+                    }),
                 }
             }
             _ => Ok(None), // non-VCL or unsupported VCL
@@ -1858,27 +1881,28 @@ impl HevcDecoder {
         payload: &[u8],
         is_keyframe: bool,
     ) -> Result<Option<crate::DecodedFrame>, VideoError> {
-        let sps = self
-            .sps
-            .as_ref()
-            .ok_or_else(|| VideoError::Codec("Slice received before SPS".into()))?;
-        let pps = self
-            .pps
-            .as_ref()
-            .ok_or_else(|| VideoError::Codec("Slice received before PPS".into()))?;
+        let sps = self.sps.as_ref().ok_or(VideoError::Missing {
+            what: "HEVC SPS before slice",
+        })?;
+        let pps = self.pps.as_ref().ok_or(VideoError::Missing {
+            what: "HEVC PPS before slice",
+        })?;
 
         let w = sps.pic_width as usize;
         let h = sps.pic_height as usize;
         if w == 0 || h == 0 || w > 8192 || h > 8192 {
-            return Err(VideoError::Codec(format!(
-                "HEVC frame dimensions out of range: {w}x{h}"
-            )));
+            return Err(VideoError::InvalidDimensions {
+                what: "HEVC frame (max 8192x8192)",
+                width: w,
+                height: h,
+            });
         }
         let ctu_size_log2 = sps.log2_min_cb_size + sps.log2_diff_max_min_cb_size;
         if !(3..=7).contains(&ctu_size_log2) {
-            return Err(VideoError::Codec(format!(
-                "HEVC CTU size log2 out of range: {ctu_size_log2}"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "HEVC CTU size log2",
+                value: ctu_size_log2.into(),
+            });
         }
         let ctu_size = 1usize << ctu_size_log2;
         let max_depth = sps.log2_diff_max_min_cb_size.min(5);
@@ -2463,22 +2487,34 @@ mod tests {
         let pps = bits_to_bytes(&pps);
 
         for err in [
-            parse_hevc_sps(&sps).err().map(|e| e.to_string()),
-            crate::hevc_params::parse_hevc_sps(&sps)
-                .err()
-                .map(|e| e.to_string()),
+            parse_hevc_sps(&sps).err(),
+            crate::hevc_params::parse_hevc_sps(&sps).err(),
         ] {
-            let err = err.unwrap_or_default();
-            assert!(err.contains("bit_depth_minus8"), "{err}");
+            assert!(
+                matches!(
+                    err,
+                    Some(VideoError::FieldOutOfRange {
+                        field: "HEVC SPS bit_depth_luma_minus8",
+                        value: 9,
+                    })
+                ),
+                "{err:?}"
+            );
         }
         for err in [
-            parse_hevc_pps(&pps).err().map(|e| e.to_string()),
-            crate::hevc_params::parse_hevc_pps(&pps)
-                .err()
-                .map(|e| e.to_string()),
+            parse_hevc_pps(&pps).err(),
+            crate::hevc_params::parse_hevc_pps(&pps).err(),
         ] {
-            let err = err.unwrap_or_default();
-            assert!(err.contains("num_ref_idx_default_active_minus1"), "{err}");
+            assert!(
+                matches!(
+                    err,
+                    Some(VideoError::FieldOutOfRange {
+                        field: "HEVC PPS num_ref_idx_l0_default_active_minus1",
+                        value: 15,
+                    })
+                ),
+                "{err:?}"
+            );
         }
     }
 

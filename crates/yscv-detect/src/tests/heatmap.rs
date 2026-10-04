@@ -115,19 +115,28 @@ fn detect_from_heatmap_with_scratch_reuses_buffer_for_resized_maps() {
 fn detect_from_heatmap_rejects_invalid_threshold() {
     let heatmap = Tensor::zeros(vec![2, 2, 1]).unwrap();
     let err = detect_from_heatmap(&heatmap, 1.2, 1, 0.5, 10).unwrap_err();
-    assert_eq!(err, DetectError::InvalidThreshold { threshold: 1.2 });
+    assert!(
+        matches!(err, DetectError::InvalidThreshold { threshold } if threshold == 1.2),
+        "{err:?}"
+    );
 }
 
 #[test]
 fn detect_from_heatmap_rejects_invalid_iou_threshold() {
     let heatmap = Tensor::zeros(vec![2, 2, 1]).unwrap();
     let err = detect_from_heatmap(&heatmap, 0.5, 1, 1.2, 10).unwrap_err();
-    assert_eq!(err, DetectError::InvalidIouThreshold { iou_threshold: 1.2 });
+    assert!(
+        matches!(err, DetectError::InvalidIouThreshold { iou_threshold } if iou_threshold == 1.2),
+        "{err:?}"
+    );
 }
 
 #[test]
 fn detect_from_heatmap_rejects_zero_max_detections() {
     let heatmap = Tensor::zeros(vec![2, 2, 1]).unwrap();
     let err = detect_from_heatmap(&heatmap, 0.5, 1, 0.5, 0).unwrap_err();
-    assert_eq!(err, DetectError::InvalidMaxDetections { max_detections: 0 });
+    assert!(
+        matches!(err, DetectError::InvalidMaxDetections { max_detections: 0 }),
+        "{err:?}"
+    );
 }

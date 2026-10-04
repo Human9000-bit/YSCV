@@ -11,11 +11,10 @@ pub(super) fn exec_gather(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
         axis_raw as usize
     };
     if axis >= input.rank() {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "Gather axis {axis} out of range for rank-{} input",
-                input.rank()
-            ),
+        return Err(OnnxError::AxisOutOfRange {
+            op: "Gather",
+            axis: axis_raw,
+            rank: input.rank(),
         });
     }
 
@@ -35,11 +34,7 @@ pub(super) fn exec_gather(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
                 data[k as usize]
             })
             .collect();
-        let out = Tensor::from_vec(indices.shape().to_vec(), out_data).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let out = Tensor::from_vec(indices.shape().to_vec(), out_data)?;
         env.insert(node.outputs[0].clone(), out);
         return Ok(());
     }
@@ -75,10 +70,11 @@ pub(super) fn exec_gather(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
                 k += src_dim as i64;
             }
             if k < 0 || k as usize >= src_dim {
-                return Err(OnnxError::DecodeFailed {
-                    message: format!(
-                        "Gather index {raw} out of bounds for axis {axis} (dim {src_dim})"
-                    ),
+                return Err(OnnxError::IndexOutOfRange {
+                    op: "Gather",
+                    index: raw as i64,
+                    axis,
+                    dim: src_dim,
                 });
             }
             let src_off = src_o + (k as usize) * inner;
@@ -87,9 +83,7 @@ pub(super) fn exec_gather(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
         }
     }
 
-    let result = Tensor::from_vec(out_shape, out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let result = Tensor::from_vec(out_shape, out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -134,10 +128,7 @@ pub(super) fn exec_gather_elements(node: &OnnxNode, env: &mut TensorEnv) -> Resu
         }
     }
 
-    let result =
-        Tensor::from_vec(idx_shape.to_vec(), out).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(idx_shape.to_vec(), out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -183,9 +174,7 @@ pub(super) fn exec_scatter_elements(node: &OnnxNode, env: &mut TensorEnv) -> Res
         }
     }
 
-    let result = Tensor::from_vec(shape.to_vec(), out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let result = Tensor::from_vec(shape.to_vec(), out)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }
@@ -217,9 +206,7 @@ pub(super) fn exec_scatter_nd(node: &OnnxNode, env: &mut TensorEnv) -> Result<()
         }
     }
 
-    let t = Tensor::from_vec(shape.to_vec(), out).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let t = Tensor::from_vec(shape.to_vec(), out)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -269,9 +256,7 @@ pub(super) fn exec_gather_nd(node: &OnnxNode, env: &mut TensorEnv) -> Result<(),
         out_shape.push(1);
     }
 
-    let t = Tensor::from_vec(out_shape, result).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let t = Tensor::from_vec(out_shape, result)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }

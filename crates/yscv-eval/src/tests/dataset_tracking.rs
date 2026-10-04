@@ -16,13 +16,10 @@ fn tracking_dataset_jsonl_parses_and_evaluates() {
 #[test]
 fn tracking_dataset_jsonl_rejects_bad_line() {
     let err = parse_tracking_dataset_jsonl("{bad json}").unwrap_err();
-    match err {
-        EvalError::InvalidDatasetEntry { line, message } => {
-            assert_eq!(line, 1);
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::InvalidDatasetEntry { line: 1, source } if source.is_syntax()),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -81,13 +78,20 @@ fn tracking_dataset_mot_rejects_invalid_bbox_size() {
     let ground_truth = "1,1,0.0,0.0,0.0,2.0,1,1,1";
     let predictions = "1,11,0.0,0.0,2.0,2.0,0.9";
     let err = parse_tracking_dataset_mot(ground_truth, predictions).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "mot");
-            assert!(message.contains("bbox_width and bbox_height must be > 0"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "mot",
+                source: DatasetFormatError::InvalidBox {
+                    record: "ground-truth line",
+                    index: 1,
+                    reason: "bbox_width and bbox_height must be > 0"
+                },
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -95,11 +99,9 @@ fn load_tracking_dataset_mot_reports_io_errors() {
     let missing_gt = workspace_path("benchmarks/__missing_eval_tracking_mot_gt__.txt");
     let pred = workspace_path("benchmarks/eval-tracking-mot-pred-sample.txt");
     let err = load_tracking_dataset_mot_txt_files(&missing_gt, &pred).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_gt.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_gt && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }

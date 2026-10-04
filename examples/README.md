@@ -138,6 +138,6 @@ for the TOML schema and sample configs.
 |---|---|
 | Build fails, missing system lib | [docs/troubleshooting.md](../docs/troubleshooting.md) |
 | `librknnrt.so not found` on Mac/dev host | Expected — RKNN dispatcher only loads on the actual board |
-| `validate_models: ModelInvalid` | Wrong file extension or corrupted model — check the magic-byte error message |
+| `validate_models: BadRknnMagic` / `BadOnnxMagic` / `ModelTruncated` | Wrong file extension or corrupted model — the error carries the bytes it found |
 | Inference works but slow | [docs/performance-benchmarks.md](../docs/performance-benchmarks.md) for expected numbers per backend |
 | Want to write a custom op | [docs/architecture.md](../docs/architecture.md) explains kernel dispatch |

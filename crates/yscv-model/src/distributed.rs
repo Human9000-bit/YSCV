@@ -167,28 +167,28 @@ impl InProcessTransport {
 
 impl Transport for InProcessTransport {
     fn send(&self, dest_rank: usize, data: &[u8]) -> Result<(), ModelError> {
-        self.senders[dest_rank].send(data.to_vec()).map_err(|e| {
-            ModelError::CheckpointSerialization {
-                message: format!("transport send failed: {e}"),
-            }
-        })
+        self.senders[dest_rank]
+            .send(data.to_vec())
+            .map_err(|_| ModelError::ChannelClosed {
+                op: "send",
+                peer: dest_rank,
+            })
     }
 
     fn recv(&self, src_rank: usize) -> Result<Vec<u8>, ModelError> {
         self.receivers[src_rank]
             .recv()
-            .map_err(|e| ModelError::CheckpointSerialization {
-                message: format!("transport recv failed: {e}"),
+            .map_err(|_| ModelError::ChannelClosed {
+                op: "recv",
+                peer: src_rank,
             })
     }
 
     fn barrier(&self) -> Result<(), ModelError> {
-        let mut state =
-            self.barrier_state
-                .lock()
-                .map_err(|e| ModelError::CheckpointSerialization {
-                    message: format!("barrier lock failed: {e}"),
-                })?;
+        let mut state = self
+            .barrier_state
+            .lock()
+            .map_err(|_| ModelError::LockPoisoned { lock: "barrier" })?;
         state.count += 1;
         if state.count == state.target {
             state.count = 0;
@@ -206,12 +206,10 @@ impl Transport for InProcessTransport {
             }
             // Put receiver back for next barrier
             let (tx, rx) = mpsc::channel();
-            let mut state =
-                self.barrier_state
-                    .lock()
-                    .map_err(|e| ModelError::CheckpointSerialization {
-                        message: format!("barrier lock failed: {e}"),
-                    })?;
+            let mut state = self
+                .barrier_state
+                .lock()
+                .map_err(|_| ModelError::LockPoisoned { lock: "barrier" })?;
             state.condvar_senders[self.rank] = tx;
             state.condvar_receivers[self.rank] = Some(rx);
             Ok(())
@@ -534,15 +532,17 @@ fn serialize_tensors(tensors: &[Tensor]) -> Result<Vec<u8>, ModelError> {
         let data = t.data().to_vec();
         entries.push((shape, data));
     }
-    serde_json::to_vec(&entries).map_err(|e| ModelError::CheckpointSerialization {
-        message: format!("tensor serialization failed: {e}"),
+    serde_json::to_vec(&entries).map_err(|source| ModelError::Json {
+        what: "gradient tensors",
+        source: Arc::new(source),
     })
 }
 
 fn deserialize_tensors(data: &[u8]) -> Result<Vec<Tensor>, ModelError> {
     let entries: Vec<(Vec<usize>, Vec<f32>)> =
-        serde_json::from_slice(data).map_err(|e| ModelError::CheckpointSerialization {
-            message: format!("tensor deserialization failed: {e}"),
+        serde_json::from_slice(data).map_err(|source| ModelError::Json {
+            what: "gradient tensors",
+            source: Arc::new(source),
         })?;
     let mut tensors = Vec::with_capacity(entries.len());
     for (shape, values) in entries {
@@ -696,7 +696,7 @@ pub fn gather_shards(shards: &[Tensor]) -> Result<Tensor, ModelError> {
 
     let mut out_shape = vec![total_rows];
     out_shape.extend_from_slice(&tail);
-    Tensor::from_vec(out_shape, data).map_err(ModelError::Tensor)
+    Ok(Tensor::from_vec(out_shape, data)?)
 }
 
 #[cfg(test)]

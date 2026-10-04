@@ -26,9 +26,7 @@ pub(super) fn exec_sigmoid(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), O
 pub(super) fn exec_add(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxError> {
     let a = get_tensor(env, &node.name, &node.inputs[0])?;
     let b = get_tensor(env, &node.name, &node.inputs[1])?;
-    let out = kernel_add(a, b).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = kernel_add(a, b)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -36,9 +34,7 @@ pub(super) fn exec_add(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
 pub(super) fn exec_sub(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxError> {
     let a = get_tensor(env, &node.name, &node.inputs[0])?;
     let b = get_tensor(env, &node.name, &node.inputs[1])?;
-    let out = kernel_sub(a, b).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = kernel_sub(a, b)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -46,9 +42,7 @@ pub(super) fn exec_sub(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
 pub(super) fn exec_mul(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxError> {
     let a = get_tensor(env, &node.name, &node.inputs[0])?;
     let b = get_tensor(env, &node.name, &node.inputs[1])?;
-    let out = kernel_mul(a, b).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = kernel_mul(a, b)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -56,9 +50,7 @@ pub(super) fn exec_mul(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
 pub(super) fn exec_div(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxError> {
     let a = get_tensor(env, &node.name, &node.inputs[0])?;
     let b = get_tensor(env, &node.name, &node.inputs[1])?;
-    let out = a.div(b).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = a.div(b)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -66,9 +58,7 @@ pub(super) fn exec_div(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
 pub(super) fn exec_pow(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxError> {
     let a = get_tensor(env, &node.name, &node.inputs[0])?;
     let b = get_tensor(env, &node.name, &node.inputs[1])?;
-    let out = a.pow(b).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = a.pow(b)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -168,10 +158,7 @@ pub(super) fn exec_leaky_relu(node: &OnnxNode, env: &mut TensorEnv) -> Result<()
         .iter()
         .map(|&v| if v >= 0.0 { v } else { alpha * v })
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -184,10 +171,7 @@ pub(super) fn exec_elu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
         .iter()
         .map(|&v| if v >= 0.0 { v } else { alpha * (v.exp() - 1.0) })
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -207,10 +191,7 @@ pub(super) fn exec_selu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
             }
         })
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -223,10 +204,7 @@ pub(super) fn exec_celu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
         .iter()
         .map(|&x| x.max(0.0) + (alpha * ((x / alpha).exp() - 1.0)).min(0.0))
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -239,10 +217,7 @@ pub(super) fn exec_thresholded_relu(node: &OnnxNode, env: &mut TensorEnv) -> Res
         .iter()
         .map(|&x| if x > alpha { x } else { 0.0 })
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -256,10 +231,7 @@ pub(super) fn exec_hard_sigmoid(node: &OnnxNode, env: &mut TensorEnv) -> Result<
         .iter()
         .map(|&x| (alpha * x + beta).clamp(0.0, 1.0))
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -272,10 +244,7 @@ pub(super) fn exec_gelu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
         .iter()
         .map(|&x| 0.5 * x * (1.0 + erf_approx(x * sqrt2_inv)))
         .collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -283,10 +252,7 @@ pub(super) fn exec_gelu(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
 pub(super) fn exec_erf(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxError> {
     let input = get_tensor(env, &node.name, &node.inputs[0])?;
     let data: Vec<f32> = input.data().iter().map(|&x| erf_approx(x)).collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -323,10 +289,7 @@ pub(super) fn exec_unary(
 ) -> Result<(), OnnxError> {
     let input = get_tensor(env, &node.name, &node.inputs[0])?;
     let data: Vec<f32> = input.data().iter().map(|&v| f(v)).collect();
-    let out =
-        Tensor::from_vec(input.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_vec(input.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -348,9 +311,7 @@ pub(super) fn exec_mod(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), OnnxE
             }
         })
         .collect();
-    let out = Tensor::from_vec(a.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(a.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -374,9 +335,7 @@ pub(super) fn exec_bitshift(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
             r as f32
         })
         .collect();
-    let out = Tensor::from_vec(a.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(a.shape().to_vec(), data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }

@@ -220,12 +220,15 @@ fn dataset_batches_with_weighted_sampling_reject_invalid_weights() {
             },
         )
         .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidSamplingWeightsLength {
-            expected: 3,
-            got: 2
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidSamplingWeightsLength {
+                expected: 3,
+                got: 2
+            }
+        ),
+        "{err:?}"
     );
 
     let err = dataset
@@ -241,12 +244,9 @@ fn dataset_batches_with_weighted_sampling_reject_invalid_weights() {
             },
         )
         .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidSamplingWeight {
-            index: 1,
-            value: -1.0
-        }
+    assert!(
+        matches!(err, ModelError::InvalidSamplingWeight { index: 1, value } if value == -1.0),
+        "{err:?}"
     );
 
     let err = dataset
@@ -262,7 +262,10 @@ fn dataset_batches_with_weighted_sampling_reject_invalid_weights() {
             },
         )
         .unwrap_err();
-    assert_eq!(err, ModelError::InvalidSamplingDistribution);
+    assert!(
+        matches!(err, ModelError::InvalidSamplingDistribution),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -399,13 +402,16 @@ fn dataset_batches_with_balanced_class_sampling_reject_invalid_one_hot_targets()
             },
         )
         .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidClassSamplingTargetValue {
-            index: 1,
-            value: 0.4,
-            reason: "one-hot value must be close to 0 or 1",
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidClassSamplingTargetValue {
+                index: 1,
+                value,
+                reason: "one-hot value must be close to 0 or 1",
+            } if value == 0.4
+        ),
+        "{err:?}"
     );
 }
 
@@ -429,36 +435,47 @@ fn dataset_batches_with_balanced_class_sampling_reject_invalid_class_label() {
             },
         )
         .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidClassSamplingTargetValue {
-            index: 1,
-            value: 1.5,
-            reason: "class label must be an integer value",
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidClassSamplingTargetValue {
+                index: 1,
+                value,
+                reason: "class label must be an integer value",
+            } if value == 1.5
+        ),
+        "{err:?}"
     );
 }
 
 #[test]
 fn mixup_config_rejects_invalid_arguments() {
     let lambda_err = MixUpConfig::new().with_lambda_min(0.6).unwrap_err();
-    assert_eq!(
-        lambda_err,
-        ModelError::InvalidMixupArgument {
-            field: "lambda_min",
-            value: 0.6,
-            message: "lambda_min must be finite and in [0, 0.5]".to_string()
-        }
+    assert!(
+        matches!(
+            lambda_err,
+            ModelError::InvalidArgument {
+                op: "mixup",
+                param: "lambda_min",
+                value,
+                expected: "finite value in [0, 0.5]",
+            } if value == 0.6
+        ),
+        "{lambda_err:?}"
     );
 
     let probability_err = MixUpConfig::new().with_probability(1.2).unwrap_err();
-    assert_eq!(
-        probability_err,
-        ModelError::InvalidMixupArgument {
-            field: "probability",
-            value: 1.2,
-            message: "probability must be finite and in [0, 1]".to_string()
-        }
+    assert!(
+        matches!(
+            probability_err,
+            ModelError::InvalidArgument {
+                op: "mixup",
+                param: "probability",
+                value,
+                expected: "finite value in [0, 1]",
+            } if value == 1.2
+        ),
+        "{probability_err:?}"
     );
 }
 
@@ -536,25 +553,33 @@ fn dataset_batches_with_mixup_probability_zero_leaves_batch_unchanged() {
 #[test]
 fn cutmix_config_rejects_invalid_arguments() {
     let probability_err = CutMixConfig::new().with_probability(-0.1).unwrap_err();
-    assert_eq!(
-        probability_err,
-        ModelError::InvalidCutMixArgument {
-            field: "probability",
-            value: -0.1,
-            message: "probability must be finite and in [0, 1]".to_string()
-        }
+    assert!(
+        matches!(
+            probability_err,
+            ModelError::InvalidArgument {
+                op: "cutmix",
+                param: "probability",
+                value,
+                expected: "finite value in [0, 1]",
+            } if value == -0.1
+        ),
+        "{probability_err:?}"
     );
 
     let min_err = CutMixConfig::new()
         .with_min_patch_fraction(1.1)
         .unwrap_err();
-    assert_eq!(
-        min_err,
-        ModelError::InvalidCutMixArgument {
-            field: "min_patch_fraction",
-            value: 1.1,
-            message: "min_patch_fraction must be finite and in [0, 1]".to_string()
-        }
+    assert!(
+        matches!(
+            min_err,
+            ModelError::InvalidArgument {
+                op: "cutmix",
+                param: "min_patch_fraction",
+                value,
+                expected: "finite value in [0, 1]",
+            } if value == 1.1
+        ),
+        "{min_err:?}"
     );
 
     let max_err = CutMixConfig::new()
@@ -562,13 +587,17 @@ fn cutmix_config_rejects_invalid_arguments() {
         .unwrap()
         .with_min_patch_fraction(0.8)
         .unwrap_err();
-    assert_eq!(
-        max_err,
-        ModelError::InvalidCutMixArgument {
-            field: "min_patch_fraction",
-            value: 0.8,
-            message: "min_patch_fraction must be <= max_patch_fraction (0.2)".to_string()
-        }
+    assert!(
+        matches!(
+            max_err,
+            ModelError::InvalidRange {
+                op: "cutmix",
+                param: "patch_fraction",
+                min,
+                max,
+            } if min == 0.8 && max == 0.2
+        ),
+        "{max_err:?}"
     );
 }
 
@@ -673,7 +702,10 @@ fn dataset_batches_with_cutmix_reject_non_nhwc_inputs() {
             },
         )
         .unwrap_err();
-    assert_eq!(err, ModelError::InvalidCutMixInputShape { got: vec![4, 2] });
+    assert!(
+        matches!(err, ModelError::InvalidCutMixInputShape { ref got } if *got == [4, 2]),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -727,13 +759,16 @@ fn dataset_split_by_counts_rejects_invalid_counts() {
     .unwrap();
 
     let err = dataset.split_by_counts(2, 2, false, 0).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidSplitCounts {
-            train_count: 2,
-            validation_count: 2,
-            dataset_len: 3
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidSplitCounts {
+                train_count: 2,
+                validation_count: 2,
+                dataset_len: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -842,13 +877,16 @@ fn dataset_split_by_class_ratio_rejects_invalid_one_hot_targets() {
     let err = dataset
         .split_by_class_ratio(0.6, 0.2, true, 999)
         .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidClassSamplingTargetValue {
-            index: 1,
-            value: 1.0,
-            reason: "one-hot row must contain exactly one active class",
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidClassSamplingTargetValue {
+                index: 1,
+                value,
+                reason: "one-hot row must contain exactly one active class",
+            } if value == 1.0
+        ),
+        "{err:?}"
     );
 }
 
@@ -859,12 +897,15 @@ fn dataset_rejects_invalid_shapes() {
         Tensor::from_vec(vec![3, 1], vec![1.0, 2.0, 3.0]).unwrap(),
     )
     .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::DatasetShapeMismatch {
-            inputs: vec![2, 1],
-            targets: vec![3, 1]
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::DatasetShapeMismatch {
+                ref inputs,
+                ref targets
+            } if *inputs == [2, 1] && *targets == [3, 1]
+        ),
+        "{err:?}"
     );
 }
 
@@ -888,9 +929,9 @@ fn dataset_batches_with_augmentation_reject_non_nhwc_inputs() {
             },
         )
         .unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidAugmentationInputShape { got: vec![2, 2] }
+    assert!(
+        matches!(err, ModelError::InvalidAugmentationInputShape { ref got } if *got == [2, 2]),
+        "{err:?}"
     );
 }
 
@@ -948,14 +989,17 @@ fn parse_supervised_dataset_jsonl_rejects_scalar_target_for_multi_value_shape() 
     let content = r#"{"input":[1.0],"target":0.0}"#;
 
     let err = parse_supervised_dataset_jsonl(content, &config).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidDatasetRecordLength {
-            line: 1,
-            field: "target",
-            expected: 2,
-            got: 1,
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidDatasetRecordLength {
+                line: 1,
+                field: "target",
+                expected: 2,
+                got: 1,
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -964,13 +1008,10 @@ fn parse_supervised_dataset_jsonl_rejects_invalid_json() {
     let config = SupervisedJsonlConfig::new(vec![1], vec![1]).unwrap();
     let content = "{\"input\":[1.0],\"target\":[0.0]}\n{bad-json}";
     let err = parse_supervised_dataset_jsonl(content, &config).unwrap_err();
-    assert!(matches!(
-        err,
-        ModelError::DatasetJsonlParse {
-            line: 2,
-            message: _
-        }
-    ));
+    assert!(
+        matches!(err, ModelError::DatasetJsonlParse { line: 2, .. }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -978,14 +1019,17 @@ fn parse_supervised_dataset_jsonl_rejects_invalid_record_length() {
     let config = SupervisedJsonlConfig::new(vec![2], vec![1]).unwrap();
     let content = "{\"input\":[1.0],\"target\":[0.0]}";
     let err = parse_supervised_dataset_jsonl(content, &config).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidDatasetRecordLength {
-            line: 1,
-            field: "input",
-            expected: 2,
-            got: 1
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidDatasetRecordLength {
+                line: 1,
+                field: "input",
+                expected: 2,
+                got: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -994,14 +1038,17 @@ fn parse_supervised_dataset_jsonl_rejects_infinite_values() {
     let config = SupervisedJsonlConfig::new(vec![1], vec![1]).unwrap();
     let content = "{\"input\":[1e39],\"target\":[0.0]}";
     let err = parse_supervised_dataset_jsonl(content, &config).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidDatasetRecordValue {
-            line: 1,
-            field: "input",
-            index: 0,
-            reason: "infinite value is not allowed"
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidDatasetRecordValue {
+                line: 1,
+                field: "input",
+                index: 0,
+                reason: "infinite value is not allowed"
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -1025,25 +1072,24 @@ fn load_supervised_dataset_jsonl_file_reports_missing_file() {
     let config = SupervisedJsonlConfig::new(vec![1], vec![1]).unwrap();
     let path = unique_temp_path("yscv-model-jsonl-missing");
     let err = load_supervised_dataset_jsonl_file(&path, &config).unwrap_err();
-    assert!(matches!(
-        err,
-        ModelError::DatasetLoadIo {
-            path: _,
-            message: _
-        }
-    ));
+    assert!(
+        matches!(err, ModelError::Io { path: ref p, .. } if *p == path),
+        "{err:?}"
+    );
 }
 
 #[test]
 fn supervised_jsonl_config_rejects_zero_dimensions() {
     let err = SupervisedJsonlConfig::new(vec![0, 2], vec![1]).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidDatasetAdapterShape {
-            field: "input_shape",
-            shape: vec![0, 2],
-            message: "dimension at index 0 must be > 0".to_string()
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidDatasetAdapterShape {
+                field: "input_shape",
+                ref shape,
+            } if *shape == [0, 2]
+        ),
+        "{err:?}"
     );
 }
 
@@ -1084,13 +1130,16 @@ fn parse_supervised_dataset_csv_supports_custom_delimiter() {
 fn parse_supervised_dataset_csv_rejects_invalid_column_count() {
     let config = SupervisedCsvConfig::new(vec![2], vec![1]).unwrap();
     let err = parse_supervised_dataset_csv("1.0,2.0", &config).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidDatasetRecordColumns {
-            line: 1,
-            expected: 3,
-            got: 2
-        }
+    assert!(
+        matches!(
+            err,
+            ModelError::InvalidDatasetRecordColumns {
+                line: 1,
+                expected: 3,
+                got: 2
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -1098,14 +1147,17 @@ fn parse_supervised_dataset_csv_rejects_invalid_column_count() {
 fn parse_supervised_dataset_csv_rejects_invalid_numeric_value() {
     let config = SupervisedCsvConfig::new(vec![1], vec![1]).unwrap();
     let err = parse_supervised_dataset_csv("abc,1.0", &config).unwrap_err();
-    assert!(matches!(
-        err,
-        ModelError::DatasetCsvParse {
-            line: 1,
-            column: 1,
-            message: _
-        }
-    ));
+    assert!(
+        matches!(
+            err,
+            ModelError::DatasetCsvParse {
+                line: 1,
+                column: 1,
+                ..
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -1128,13 +1180,10 @@ fn load_supervised_dataset_csv_file_reports_missing_file() {
     let config = SupervisedCsvConfig::new(vec![1], vec![1]).unwrap();
     let path = unique_temp_path("yscv-model-csv-missing");
     let err = load_supervised_dataset_csv_file(&path, &config).unwrap_err();
-    assert!(matches!(
-        err,
-        ModelError::DatasetLoadIo {
-            path: _,
-            message: _
-        }
-    ));
+    assert!(
+        matches!(err, ModelError::Io { path: ref p, .. } if *p == path),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -1143,7 +1192,10 @@ fn supervised_csv_config_rejects_control_delimiter() {
         .unwrap()
         .with_delimiter('\n')
         .unwrap_err();
-    assert_eq!(err, ModelError::InvalidCsvDelimiter { delimiter: '\n' });
+    assert!(
+        matches!(err, ModelError::InvalidCsvDelimiter { delimiter: '\n' }),
+        "{err:?}"
+    );
 }
 
 // ── Image manifest/folder dataset tests ─────────────────────────────
@@ -1198,12 +1250,9 @@ fn parse_supervised_image_manifest_csv_resizes_to_configured_shape() {
 fn parse_supervised_image_manifest_csv_rejects_empty_image_path() {
     let config = SupervisedImageManifestConfig::new(vec![1], 2, 2).unwrap();
     let err = parse_supervised_image_manifest_csv(",1.0", &config).unwrap_err();
-    assert_eq!(
-        err,
-        ModelError::InvalidDatasetRecordPath {
-            line: 1,
-            message: "image path is empty".to_string()
-        }
+    assert!(
+        matches!(err, ModelError::InvalidDatasetRecordPath { line: 1 }),
+        "{err:?}"
     );
 }
 
@@ -1213,13 +1262,10 @@ fn parse_supervised_image_manifest_csv_reports_decode_errors() {
         .unwrap()
         .with_image_root(std::env::temp_dir());
     let err = parse_supervised_image_manifest_csv("does-not-exist.png,0.0", &config).unwrap_err();
-    assert!(matches!(
-        err,
-        ModelError::DatasetImageDecode {
-            path: _,
-            message: _
-        }
-    ));
+    assert!(
+        matches!(err, ModelError::DatasetImageDecode { .. }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -1347,13 +1393,10 @@ fn load_supervised_image_folder_dataset_supports_bmp_extension() {
 
     let config = SupervisedImageFolderConfig::new(2, 2).unwrap();
     let err = load_supervised_image_folder_dataset(&temp_root, &config).unwrap_err();
-    assert!(matches!(
-        err,
-        ModelError::DatasetImageDecode {
-            path: _,
-            message: _
-        }
-    ));
+    assert!(
+        matches!(err, ModelError::DatasetImageDecode { .. }),
+        "{err:?}"
+    );
 
     let _ = std::fs::remove_file(&bmp_image);
     let _ = std::fs::remove_dir(&class_dir);
@@ -1366,24 +1409,30 @@ fn supervised_image_folder_config_rejects_invalid_allowed_extensions() {
         .unwrap()
         .with_allowed_extensions(Vec::new())
         .unwrap_err();
-    assert_eq!(
-        empty_err,
-        ModelError::InvalidImageFolderExtension {
-            extension: "<list>".to_string(),
-            message: "extension list must be non-empty".to_string(),
-        }
+    assert!(
+        matches!(
+            empty_err,
+            ModelError::InvalidImageFolderExtension {
+                ref extension,
+                reason: "extension list must be non-empty",
+            } if extension == "<list>"
+        ),
+        "{empty_err:?}"
     );
 
     let dotted_err = SupervisedImageFolderConfig::new(2, 2)
         .unwrap()
         .with_allowed_extensions(vec![".png".to_string()])
         .unwrap_err();
-    assert_eq!(
-        dotted_err,
-        ModelError::InvalidImageFolderExtension {
-            extension: ".png".to_string(),
-            message: "extension must not start with '.'".to_string(),
-        }
+    assert!(
+        matches!(
+            dotted_err,
+            ModelError::InvalidImageFolderExtension {
+                ref extension,
+                reason: "extension must not start with '.'",
+            } if extension == ".png"
+        ),
+        "{dotted_err:?}"
     );
 }
 
@@ -1422,7 +1471,7 @@ fn load_supervised_image_folder_dataset_rejects_empty_dataset() {
 
     let config = SupervisedImageFolderConfig::new(2, 2).unwrap();
     let err = load_supervised_image_folder_dataset(&temp_root, &config).unwrap_err();
-    assert_eq!(err, ModelError::EmptyDataset);
+    assert!(matches!(err, ModelError::EmptyDataset), "{err:?}");
 
     let _ = std::fs::remove_file(class_dir.join("notes.txt"));
     let _ = std::fs::remove_dir(&class_dir);

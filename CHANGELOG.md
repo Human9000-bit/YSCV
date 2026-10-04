@@ -7,6 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Error enums no longer derive `PartialEq`/`Eq`** — `KernelError`,
+  `AutogradError`, `OptimError`, `ModelError`, `ImgProcError`, `VideoError`,
+  `DetectError`, `EvalError`, `OnnxError` and `RecognizeError`, so that they can
+  carry the underlying `io::Error` / parser error as their `source()`. They stay
+  `Clone`. Compare errors with `matches!` instead of `==`. `TensorError` and
+  `TrackError` are unchanged.
+- **`yscv-kernels` / `yscv-tensor` errors are typed.** `KernelError::{Gpu, Rknn,
+  UnsupportedOperation, LayoutConversion}` and `TensorError::UnsupportedOperation`
+  message strings are replaced by typed variants (a failed RKNN call carries
+  `func` + `status`; I/O sources are kept behind `Arc`). RKNN slot auto-recovery
+  now decides on the status code instead of message text.
+  `AutogradError::BackendError` is removed; `PoolError` derives `thiserror::Error`.
+- **`OnnxError` is typed.** `DecodeFailed`, `ShapeMismatch` and `GpuKernel` are
+  removed. Tensor, kernel and IR errors nest unchanged through the `Tensor`,
+  `Kernel` and `Ir` variants (`IrError` is now public), and a failure inside a CPU
+  node comes back as `AtNode { node, op_type, source }` — match through it to
+  reach the inner error. `Io` carries `path` + `source`;
+  `MissingAttribute::attr` is `&'static str`.
+- **`VideoError` is typed.** `Codec`, `Source` and `ContainerParse(String)` are
+  replaced by format-agnostic parse variants (`Truncated`, `OutOfBounds`,
+  `Missing`, `Malformed`, `FieldOutOfRange`, `InvalidDimensions`,
+  `BufferTooSmall`), `HwDecode { backend, op, status }`, `UnsupportedCodec`,
+  `Io` (keeps the `io::Error`, including errno from failed V4L2 / framebuffer /
+  serial ioctls) and `Camera`. `RgaError`, `DrmError` and `MppError` drop their
+  `String` variants; `RtError` derives `thiserror::Error`.
+- **`ModelError` is typed.** `OnnxExport`, `TransportError`,
+  `CheckpointSerialization`, `SafeTensorsParse`, `SafeTensorsIo`,
+  `DatasetLoadIo` and `Invalid{Augmentation,Mixup,CutMix}Argument` are replaced by
+  typed variants (`Io`, `Json`, `Truncated`, `InvalidArgument`, `InvalidRange`,
+  safetensors / transport / hub families) that keep their sources; `OnnxError`
+  nests through `Onnx`. `DataLoader` worker errors now arrive unchanged instead
+  of as `DatasetLoadIo`.
+- **`ImgProcError` I/O variants are typed.** `Io`, `ImageDecode` and
+  `ImageEncode` carry `path: PathBuf` and an `Arc` source instead of a message;
+  `UnsupportedFormat::path` is a `PathBuf`; new `ImageBufferSize`.
+- **`RecognizeError` nests its sources.** `Serialization` wraps
+  `Arc<serde_json::Error>`, `Io` carries the `path` and `Arc<io::Error>`, and a
+  new transparent `Tensor(TensorError)` replaces stringified tensor errors.
+- **`EvalError` dataset errors are typed.** Adapter failures carry a public
+  `DatasetFormatError` (record kind + index, parse/CSV/XML/JSON sources) inside
+  `InvalidDatasetFormat`, or the new `InvalidDatasetFile { path }` for per-file
+  label formats. I/O and JSON errors hold `PathBuf` + `Arc` sources;
+  `InvalidThresholdEntry` is split into four typed threshold variants.
+- **`yscv-pipeline` errors are typed.** `Error::Other`, `Error::Kernel(String)`,
+  `ConfigError::InvalidField` and `ConfigError::ModelInvalid` are replaced by
+  variants carrying the task, path and offending value. `Kernel` and `Onnx` wrap
+  the backend error via `#[from]`, so `source()` reaches the original error. The
+  ONNX→RKNN cache path no longer has to be valid UTF-8.
+- **`CliError::Message` is replaced by typed variants** (`yscv::cli`) carrying
+  `&'static str` flag names and the std parse error as source. Run-time failures
+  (device not found, missing report path, failed diagnostics, benchmark
+  regression) move to `AppError`. `CliError` no longer derives `Eq`.
+- **`yscv-quantize`** argument and calibration-sample errors are typed and keep
+  their `serde_json` / `TensorError` / `OnnxError` sources.
+
+### Fixed
+
+- **`yscv-model`**: `inspect_weights` no longer panics on a weight file whose
+  header is truncated; it returns `ModelError::Truncated` like `load_weights`.
+
 ## [0.2.0] — 2026-10-01
 
 ### Added

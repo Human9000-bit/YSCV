@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use serde::Deserialize;
 
@@ -92,17 +93,15 @@ pub struct CameraDiagnosticsViolation {
 pub fn parse_camera_diagnostics_report_json(
     text: &str,
 ) -> Result<CameraDiagnosticsReport, EvalError> {
-    serde_json::from_str(text).map_err(|err| EvalError::InvalidDiagnosticsReport {
-        message: err.to_string(),
-    })
+    Ok(serde_json::from_str(text).map_err(Arc::new)?)
 }
 
 pub fn load_camera_diagnostics_report_json_file(
     path: &Path,
 ) -> Result<CameraDiagnosticsReport, EvalError> {
     let body = fs::read_to_string(path).map_err(|err| EvalError::DiagnosticsReportIo {
-        path: path.display().to_string(),
-        message: err.to_string(),
+        path: path.to_path_buf(),
+        source: Arc::new(err),
     })?;
     parse_camera_diagnostics_report_json(&body)
 }

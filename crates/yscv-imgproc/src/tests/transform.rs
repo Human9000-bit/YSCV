@@ -19,7 +19,10 @@ fn normalize_applies_per_channel_params() {
 fn normalize_rejects_zero_std() {
     let input = Tensor::from_vec(vec![1, 1, 1], vec![1.0]).unwrap();
     let err = normalize(&input, &[0.0], &[0.0]).unwrap_err();
-    assert_eq!(err, ImgProcError::ZeroStdAtChannel { channel: 0 });
+    assert!(
+        matches!(err, ImgProcError::ZeroStdAtChannel { channel: 0 }),
+        "{err:?}"
+    );
 }
 
 // ── NMS ─────────────────────────────────────────────────────────────

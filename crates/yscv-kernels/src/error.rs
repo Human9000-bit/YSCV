@@ -1,8 +1,10 @@
+use std::sync::Arc;
+
 use thiserror::Error;
-use yscv_tensor::TensorError;
+use yscv_tensor::{Layout, TensorError};
 
 /// Errors returned by kernel backends.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum KernelError {
     #[error(transparent)]
     Tensor(#[from] TensorError),
@@ -14,8 +16,11 @@ pub enum KernelError {
         "matmul_2d shape mismatch: left={left:?}, right={right:?}; expected left[1] == right[0]"
     )]
     MatMulShapeMismatch { left: Vec<usize>, right: Vec<usize> },
-    #[error("failed to build cpu thread pool: {message}")]
-    ThreadPoolBuild { message: String },
+    #[error("failed to build cpu thread pool: {source}")]
+    ThreadPoolBuild {
+        #[source]
+        source: Arc<rayon::ThreadPoolBuildError>,
+    },
     #[error("pool2d_nhwc requires rank-4 tensor [N,H,W,C], got rank={got_rank}")]
     InvalidPoolRank { got_rank: usize },
     #[error(
@@ -210,21 +215,156 @@ pub enum KernelError {
         expected: Vec<usize>,
         got: Vec<usize>,
     },
-    #[error("GPU backend error: {message}")]
-    Gpu { message: String },
+    #[error("no GPU adapter found")]
+    GpuNoAdapter,
+    #[cfg(feature = "gpu")]
+    #[error("GPU device request failed: {source}")]
+    GpuDeviceRequest {
+        #[from]
+        source: wgpu::RequestDeviceError,
+    },
+    #[error("GPU channel closed during read-back")]
+    GpuReadbackChannelClosed,
+    #[error("GPU buffer map failed during read-back")]
+    GpuBufferMapFailed,
+    #[error("{pipeline} pipeline not available on this device")]
+    GpuPipelineUnavailable { pipeline: &'static str },
+    #[error("GPU op got empty {what}")]
+    GpuEmpty { what: &'static str },
+    #[error("GPU device index {index} out of range (available: {available})")]
+    GpuDeviceIndexOutOfRange { index: usize, available: usize },
+    #[error("no GPU devices available")]
+    NoGpuDevices,
+    #[error("{class} class not available")]
+    ObjcClassUnavailable { class: &'static str },
     #[error("kan layer {name} has {got} values, expected {expected}")]
     KanShapeMismatch {
         name: &'static str,
         expected: usize,
         got: usize,
     },
-    #[error("kan grid needs grid_size > 0 and lo < hi, got grid_size={grid_size}, range={range}")]
-    InvalidKanGrid { grid_size: usize, range: String },
+    #[error(
+        "kan grid needs grid_size > 0 and lo < hi, got grid_size={grid_size}, range=({lo}, {hi})"
+    )]
+    InvalidKanGrid { grid_size: usize, lo: f32, hi: f32 },
+    #[error("{op}: expected {expected} shape, got {got:?}")]
+    UnexpectedShape {
+        op: &'static str,
+        expected: &'static str,
+        got: Vec<usize>,
+    },
+    #[error("{op}: shape mismatch, expected {expected:?}, got {got:?}")]
+    NchwcShapeMismatch {
+        op: &'static str,
+        expected: Vec<usize>,
+        got: Vec<usize>,
+    },
+    #[error("expected NCHWc-tagged tensor, got {layout:?}")]
+    NotNchwc { layout: Layout },
+    #[error("invalid NCHWc block size {block}, expected a power of two in 1..=255")]
+    InvalidNchwcBlock { block: usize },
+    #[error("NCHWc block size mismatch: {left} vs {right}")]
+    NchwcBlockMismatch { left: usize, right: usize },
+    #[error("NCHWc channel count {channels} outside 1..={capacity}")]
+    InvalidNchwcChannels { channels: usize, capacity: usize },
+    #[error(
+        "{channels} channels not divisible by NCHWc block {block} (caller must dispatch to NHWC path)"
+    )]
+    NchwcChannelsNotBlockAligned { channels: usize, block: usize },
+    #[error("{op}: {what} has {got} channels, expected {expected}")]
+    NchwcChannelMismatch {
+        op: &'static str,
+        what: &'static str,
+        got: usize,
+        expected: usize,
+    },
     #[cfg(feature = "rknn")]
-    #[error("RKNN backend error: {message}")]
-    Rknn { message: String },
-    #[error("unsupported operation: {0}")]
-    UnsupportedOperation(String),
-    #[error("layout conversion: {0}")]
-    LayoutConversion(String),
+    #[error("{func} failed: {} ({status})", crate::rknn::ffi::rknn_error_name(*status))]
+    RknnCall { func: &'static str, status: i32 },
+    #[cfg(feature = "rknn")]
+    #[error(
+        "rknn_wait failed: {} ({status}) — frame {frame_id} after {elapsed:?}",
+        crate::rknn::ffi::rknn_error_name(*status)
+    )]
+    RknnWait {
+        status: i32,
+        frame_id: u64,
+        elapsed: std::time::Duration,
+    },
+    #[cfg(feature = "rknn")]
+    #[error("RKNN symbol `{symbol}` not available")]
+    RknnSymbolMissing { symbol: &'static str },
+    #[cfg(feature = "rknn")]
+    #[error("failed to load {library}")]
+    RknnLibraryUnavailable { library: &'static str },
+    #[cfg(feature = "rknn")]
+    #[error("RKNN compiler only available on Linux")]
+    RknnCompilerUnsupportedPlatform,
+    #[cfg(feature = "rknn")]
+    #[error("{func} returned null")]
+    RknnNullPointer { func: &'static str },
+    #[cfg(feature = "rknn")]
+    #[error("RKNN {lock} lock poisoned (slot {slot:?})")]
+    RknnLockPoisoned {
+        lock: &'static str,
+        slot: Option<usize>,
+    },
+    #[cfg(feature = "rknn")]
+    #[error("RKNN {what} index {index} out of range (have {len})")]
+    RknnIndexOutOfRange {
+        what: &'static str,
+        index: usize,
+        len: usize,
+    },
+    #[cfg(feature = "rknn")]
+    #[error("no RKNN {what} named `{name}`")]
+    RknnUnknownTensor { what: &'static str, name: String },
+    #[cfg(feature = "rknn")]
+    #[error("missing RKNN input `{name}`")]
+    RknnMissingInput { name: String },
+    #[cfg(feature = "rknn")]
+    #[error("expected {expected} {what}, got {got}")]
+    RknnCountMismatch {
+        what: &'static str,
+        expected: usize,
+        got: usize,
+    },
+    #[cfg(feature = "rknn")]
+    #[error(
+        "input `{name}`: {got} bytes but the model expects exactly {expected} \
+         (check your pre-processing matches the .rknn's input shape/dtype)"
+    )]
+    RknnInputSize {
+        name: String,
+        expected: usize,
+        got: usize,
+    },
+    #[cfg(feature = "rknn")]
+    #[error("{op}: {reason}")]
+    RknnInvalidCall {
+        op: &'static str,
+        reason: &'static str,
+    },
+    #[cfg(feature = "rknn")]
+    #[error(
+        "slot {slot} has no pending frame — handle already waited on or slot was reused by a later submit"
+    )]
+    RknnNoPendingFrame { slot: usize },
+    #[cfg(feature = "rknn")]
+    #[error("{what} {path:?}: {source}")]
+    RknnIo {
+        what: &'static str,
+        path: std::path::PathBuf,
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+    #[cfg(feature = "rknn")]
+    #[error("path {path:?} contains an interior NUL byte")]
+    RknnPathContainsNul { path: std::path::PathBuf },
+    #[cfg(feature = "rknn")]
+    #[error("calibration dataset {path:?} is {reason}")]
+    RknnCalibrationDataset {
+        path: std::path::PathBuf,
+        reason: &'static str,
+    },
 }

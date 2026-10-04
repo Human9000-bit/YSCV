@@ -3,7 +3,7 @@ use yscv_kernels::KernelError;
 use yscv_tensor::TensorError;
 
 /// Errors returned by autograd graph building and backpropagation.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum AutogradError {
     #[error("graph node not found: id={id}")]
     NodeNotFound { id: usize },
@@ -32,6 +32,4 @@ pub enum AutogradError {
     },
     #[error("invalid truncate request: requested={requested}, available={available}")]
     InvalidTruncate { requested: usize, available: usize },
-    #[error("backend error: {0}")]
-    BackendError(String),
 }

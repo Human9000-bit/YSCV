@@ -614,8 +614,8 @@ impl Graph {
 }
 
 /// Structural faults in the IR. These are bugs in a pass, not malformed input.
-#[derive(Debug, thiserror::Error, PartialEq, Eq)]
-pub(crate) enum IrError {
+#[derive(Debug, Clone, thiserror::Error, PartialEq, Eq)]
+pub enum IrError {
     #[error("value '{value}' has a stale or missing definition")]
     StaleDef { value: String },
     #[error("value '{value}' has a use list that disagrees with the graph")]

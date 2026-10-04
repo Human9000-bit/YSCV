@@ -170,29 +170,24 @@ impl PipelineConfig {
     /// task name uniqueness, no cycles, no dangling input refs. Does NOT
     /// touch the filesystem or check accelerator availability.
     pub fn validate_self(&self) -> Result<(), ConfigError> {
-        if self.camera.width == 0 || self.camera.height == 0 {
-            return Err(ConfigError::InvalidField(format!(
-                "camera dimensions must be non-zero (got {}×{})",
-                self.camera.width, self.camera.height
-            )));
-        }
-        if self.camera.fps == 0 {
-            return Err(ConfigError::InvalidField("camera.fps must be > 0".into()));
-        }
-        if self.encoder.bitrate_kbps == 0 {
-            return Err(ConfigError::InvalidField(
-                "encoder.bitrate_kbps must be > 0".into(),
-            ));
+        for (field, value) in [
+            ("camera.width", self.camera.width),
+            ("camera.height", self.camera.height),
+            ("camera.fps", self.camera.fps),
+            ("encoder.bitrate_kbps", self.encoder.bitrate_kbps),
+        ] {
+            if value == 0 {
+                return Err(ConfigError::ZeroField { field });
+            }
         }
 
         // Task name uniqueness.
         let mut seen: FxHashSet<&str> = FxHashSet::default();
         for task in &self.tasks {
             if !seen.insert(task.name.as_str()) {
-                return Err(ConfigError::InvalidField(format!(
-                    "duplicate task name '{}'",
-                    task.name
-                )));
+                return Err(ConfigError::DuplicateTask {
+                    task: task.name.clone(),
+                });
             }
         }
 
@@ -232,7 +227,7 @@ impl PipelineConfig {
                 return Err(ConfigError::AcceleratorUnavailable {
                     task: task.name.clone(),
                     accelerator: task.accelerator.label(),
-                    feature_hint: task.accelerator.feature_hint().to_string(),
+                    feature_hint: task.accelerator.feature_hint(),
                 });
             }
         }
@@ -267,16 +262,17 @@ impl PipelineConfig {
                     path: task.model_path.clone(),
                 });
             }
-            let bytes = std::fs::read(&task.model_path).map_err(|e| ConfigError::ModelInvalid {
-                task: task.name.clone(),
-                path: task.model_path.clone(),
-                reason: format!("read failed: {e}"),
-            })?;
-            if bytes.is_empty() {
-                return Err(ConfigError::ModelInvalid {
+            let bytes =
+                std::fs::read(&task.model_path).map_err(|source| ConfigError::ModelRead {
                     task: task.name.clone(),
                     path: task.model_path.clone(),
-                    reason: "file is empty".into(),
+                    source,
+                })?;
+            if bytes.is_empty() {
+                return Err(ConfigError::ModelTruncated {
+                    task: task.name.clone(),
+                    path: task.model_path.clone(),
+                    len: 0,
                 });
             }
             match &task.accelerator {
@@ -335,34 +331,31 @@ fn validate_rknn_model(
     const RKNN_MAGIC: [u8; 4] = *b"RKNN";
     const RKNF_MAGIC: [u8; 4] = *b"RKNF";
     if bytes.len() < 4 {
-        return Err(ConfigError::ModelInvalid {
+        return Err(ConfigError::ModelTruncated {
             task: task.name.clone(),
             path: task.model_path.clone(),
-            reason: format!("only {} bytes — truncated?", bytes.len()),
+            len: bytes.len(),
         });
     }
     let magic: [u8; 4] = [bytes[0], bytes[1], bytes[2], bytes[3]];
     if magic != RKNN_MAGIC && magic != RKNF_MAGIC {
-        return Err(ConfigError::ModelInvalid {
+        return Err(ConfigError::BadRknnMagic {
             task: task.name.clone(),
             path: task.model_path.clone(),
-            reason: format!(
-                "expected RKNN / RKNF magic, got {:02x?} — is this really a \
-                 .rknn file? (export via rknn-toolkit2)",
-                magic
-            ),
+            magic,
         });
     }
     // If the runtime is actually loadable on this host, do a full parse.
     #[cfg(feature = "rknn-validate")]
     {
         if yscv_kernels::rknn_available() {
-            let _ =
-                yscv_kernels::RknnBackend::load(bytes).map_err(|e| ConfigError::ModelInvalid {
+            let _ = yscv_kernels::RknnBackend::load(bytes).map_err(|source| {
+                ConfigError::RknnRejected {
                     task: task.name.clone(),
                     path: task.model_path.clone(),
-                    reason: format!("rknn SDK refused the file: {e}"),
-                })?;
+                    source: Box::new(source),
+                }
+            })?;
         }
     }
     Ok(())
@@ -378,15 +371,12 @@ fn validate_onnx_model(
     task: &crate::config::InferenceTask,
     bytes: &[u8],
 ) -> Result<(), ConfigError> {
-    if bytes.first().copied() != Some(0x08) {
-        return Err(ConfigError::ModelInvalid {
+    let first_byte = bytes.first().copied().unwrap_or(0);
+    if first_byte != 0x08 {
+        return Err(ConfigError::BadOnnxMagic {
             task: task.name.clone(),
             path: task.model_path.clone(),
-            reason: format!(
-                "expected ONNX protobuf (first byte 0x08 for ir_version), \
-                 got {:#04x} — is this really an .onnx file?",
-                bytes.first().copied().unwrap_or(0)
-            ),
+            first_byte,
         });
     }
     Ok(())
@@ -474,7 +464,15 @@ mod tests {
         let mut cfg = minimal_cfg();
         cfg.camera.width = 0;
         let err = cfg.validate_self().unwrap_err();
-        assert!(matches!(err, ConfigError::InvalidField(_)));
+        assert!(
+            matches!(
+                err,
+                ConfigError::ZeroField {
+                    field: "camera.width"
+                }
+            ),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -490,10 +488,10 @@ mod tests {
             });
         }
         let err = cfg.validate_self().unwrap_err();
-        match err {
-            ConfigError::InvalidField(msg) => assert!(msg.contains("duplicate task")),
-            _ => panic!("expected InvalidField"),
-        }
+        assert!(
+            matches!(&err, ConfigError::DuplicateTask { task } if task == "detector"),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -624,7 +622,7 @@ outputs = [{ name = "output0", source = "detections" }]
                 let err = ConfigError::AcceleratorUnavailable {
                     task: task.name.clone(),
                     accelerator: task.accelerator.label(),
-                    feature_hint: task.accelerator.feature_hint().to_string(),
+                    feature_hint: task.accelerator.feature_hint(),
                 };
                 assert!(matches!(err, ConfigError::AcceleratorUnavailable { .. }));
                 return;
@@ -668,14 +666,11 @@ outputs = [{ name = "output0", source = "detections" }]
         let result = cfg.validate_models();
         std::fs::remove_file(&path).ok();
         match result {
-            Err(ConfigError::ModelInvalid { task, reason, .. }) => {
+            Err(ConfigError::BadRknnMagic { task, magic, .. }) => {
                 assert_eq!(task, "detector");
-                assert!(
-                    reason.contains("RKNN") || reason.contains("RKNF"),
-                    "unexpected reason: {reason}"
-                );
+                assert_eq!(&magic, b"NOT_");
             }
-            other => panic!("expected ModelInvalid, got {other:?}"),
+            other => panic!("expected BadRknnMagic, got {other:?}"),
         }
     }
 
@@ -694,11 +689,13 @@ outputs = [{ name = "output0", source = "detections" }]
         let result = cfg.validate_models();
         std::fs::remove_file(&path).ok();
         match result {
-            Err(ConfigError::ModelInvalid { task, reason, .. }) => {
+            Err(ConfigError::BadOnnxMagic {
+                task, first_byte, ..
+            }) => {
                 assert_eq!(task, "detector");
-                assert!(reason.contains("0x08"), "unexpected reason: {reason}");
+                assert_eq!(first_byte, 0xff);
             }
-            other => panic!("expected ModelInvalid, got {other:?}"),
+            other => panic!("expected BadOnnxMagic, got {other:?}"),
         }
     }
 

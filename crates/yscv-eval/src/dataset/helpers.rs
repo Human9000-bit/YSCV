@@ -2,16 +2,17 @@ use rustc_hash::FxHashMap;
 use std::fs;
 use std::io::ErrorKind;
 use std::path::Path;
+use std::sync::Arc;
 
-use crate::{DetectionDatasetFrame, EvalError};
+use crate::{DatasetFormatError, DetectionDatasetFrame, EvalError};
 
 pub(crate) fn read_optional_text_file(path: &Path) -> Result<Option<String>, EvalError> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
         Err(err) => Err(EvalError::DatasetIo {
-            path: path.display().to_string(),
-            message: err.to_string(),
+            path: path.to_path_buf(),
+            source: Arc::new(err),
         }),
     }
 }
@@ -39,10 +40,7 @@ pub(crate) fn ensure_frame_slot<T>(frames: &mut Vec<Vec<T>>, frame_idx: usize) {
     }
 }
 
-pub(crate) fn parse_image_id_manifest(
-    text: &str,
-    format: &'static str,
-) -> Result<Vec<String>, EvalError> {
+pub(crate) fn parse_image_id_manifest(text: &str) -> Result<Vec<String>, DatasetFormatError> {
     use rustc_hash::FxHashSet;
     let mut image_ids = Vec::new();
     let mut seen = FxHashSet::default();
@@ -53,15 +51,17 @@ pub(crate) fn parse_image_id_manifest(
             continue;
         }
         if line.split_whitespace().count() != 1 {
-            return Err(EvalError::InvalidDatasetFormat {
-                format,
-                message: format!("manifest line {line_no} must contain exactly one image id"),
+            return Err(DatasetFormatError::FieldCount {
+                record: "manifest line",
+                index: line_no,
+                expected: "exactly one image id",
             });
         }
         if !seen.insert(line.to_string()) {
-            return Err(EvalError::InvalidDatasetFormat {
-                format,
-                message: format!("duplicate image id `{line}` in manifest at line {line_no}"),
+            return Err(DatasetFormatError::DuplicateImageId {
+                record: "manifest line",
+                index: line_no,
+                id: line.to_string(),
             });
         }
         image_ids.push(line.to_string());

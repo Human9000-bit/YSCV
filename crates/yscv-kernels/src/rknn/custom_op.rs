@@ -260,8 +260,9 @@ pub(crate) fn allocate_slot(
             return Ok(idx);
         }
     }
-    Err(KernelError::Rknn {
-        message: format!("too many custom-op handlers registered (>{MAX_CUSTOM_OP_SLOTS})"),
+    Err(KernelError::RknnInvalidCall {
+        op: "register_custom_ops",
+        reason: "too many custom-op handlers registered (MAX_CUSTOM_OP_SLOTS reached)",
     })
 }
 

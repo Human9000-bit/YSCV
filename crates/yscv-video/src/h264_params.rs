@@ -88,7 +88,7 @@ impl Sps {
 /// Parses an SPS NAL unit (without the NAL header byte).
 pub fn parse_sps(nal_data: &[u8]) -> Result<Sps, VideoError> {
     if nal_data.is_empty() {
-        return Err(VideoError::Codec("empty SPS data".into()));
+        return Err(VideoError::Truncated { what: "H.264 SPS" });
     }
 
     // Remove emulation prevention bytes (0x00 0x00 0x03 -> 0x00 0x00)
@@ -123,10 +123,17 @@ pub fn parse_sps(nal_data: &[u8]) -> Result<Sps, VideoError> {
         }
         let bit_depth_luma_minus8 = r.read_ue()?;
         let bit_depth_chroma_minus8 = r.read_ue()?;
-        if bit_depth_luma_minus8 > 6 || bit_depth_chroma_minus8 > 6 {
-            return Err(VideoError::Codec(format!(
-                "SPS bit_depth_minus8 out of range: luma {bit_depth_luma_minus8} chroma {bit_depth_chroma_minus8}"
-            )));
+        if bit_depth_luma_minus8 > 6 {
+            return Err(VideoError::FieldOutOfRange {
+                field: "H.264 SPS bit_depth_luma_minus8",
+                value: bit_depth_luma_minus8.into(),
+            });
+        }
+        if bit_depth_chroma_minus8 > 6 {
+            return Err(VideoError::FieldOutOfRange {
+                field: "H.264 SPS bit_depth_chroma_minus8",
+                value: bit_depth_chroma_minus8.into(),
+            });
         }
         bit_depth_luma = bit_depth_luma_minus8 + 8;
         bit_depth_chroma = bit_depth_chroma_minus8 + 8;
@@ -151,9 +158,10 @@ pub fn parse_sps(nal_data: &[u8]) -> Result<Sps, VideoError> {
 
     let log2_max_frame_num_minus4 = r.read_ue()?;
     if log2_max_frame_num_minus4 > 12 {
-        return Err(VideoError::Codec(format!(
-            "SPS log2_max_frame_num_minus4 out of range: {log2_max_frame_num_minus4}"
-        )));
+        return Err(VideoError::FieldOutOfRange {
+            field: "H.264 SPS log2_max_frame_num_minus4",
+            value: log2_max_frame_num_minus4.into(),
+        });
     }
     let log2_max_frame_num = log2_max_frame_num_minus4 + 4;
     let pic_order_cnt_type = r.read_ue()?;
@@ -163,9 +171,10 @@ pub fn parse_sps(nal_data: &[u8]) -> Result<Sps, VideoError> {
     if pic_order_cnt_type == 0 {
         let log2_max_pic_order_cnt_lsb_minus4 = r.read_ue()?;
         if log2_max_pic_order_cnt_lsb_minus4 > 12 {
-            return Err(VideoError::Codec(format!(
-                "SPS log2_max_pic_order_cnt_lsb_minus4 out of range: {log2_max_pic_order_cnt_lsb_minus4}"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "H.264 SPS log2_max_pic_order_cnt_lsb_minus4",
+                value: log2_max_pic_order_cnt_lsb_minus4.into(),
+            });
         }
         log2_max_pic_order_cnt_lsb = log2_max_pic_order_cnt_lsb_minus4 + 4;
     } else if pic_order_cnt_type == 1 {
@@ -174,9 +183,10 @@ pub fn parse_sps(nal_data: &[u8]) -> Result<Sps, VideoError> {
         let _offset_for_top_to_bottom = r.read_se()?;
         let num_ref_frames_in_poc = r.read_ue()?;
         if num_ref_frames_in_poc > 255 {
-            return Err(VideoError::Codec(format!(
-                "SPS num_ref_frames_in_pic_order_cnt_cycle too large: {num_ref_frames_in_poc}"
-            )));
+            return Err(VideoError::FieldOutOfRange {
+                field: "H.264 SPS num_ref_frames_in_pic_order_cnt_cycle",
+                value: num_ref_frames_in_poc.into(),
+            });
         }
         for _ in 0..num_ref_frames_in_poc {
             let _offset = r.read_se()?;
@@ -344,7 +354,7 @@ pub struct Pps {
 /// Parses a PPS NAL unit (without the NAL header byte).
 pub fn parse_pps(nal_data: &[u8]) -> Result<Pps, VideoError> {
     if nal_data.is_empty() {
-        return Err(VideoError::Codec("empty PPS data".into()));
+        return Err(VideoError::Truncated { what: "H.264 PPS" });
     }
     let rbsp = remove_emulation_prevention(nal_data);
     let mut r = BitstreamReader::new(&rbsp);
@@ -543,10 +553,17 @@ fn parse_weight_table(
     } else {
         0
     };
-    if luma_log2_denom > 7 || chroma_log2_denom > 7 {
-        return Err(VideoError::Codec(format!(
-            "pred_weight_table log2 weight denominator out of range: luma {luma_log2_denom} chroma {chroma_log2_denom}"
-        )));
+    if luma_log2_denom > 7 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "H.264 luma_log2_weight_denom",
+            value: luma_log2_denom.into(),
+        });
+    }
+    if chroma_log2_denom > 7 {
+        return Err(VideoError::FieldOutOfRange {
+            field: "H.264 chroma_log2_weight_denom",
+            value: chroma_log2_denom.into(),
+        });
     }
 
     let luma_default = 1i32 << luma_log2_denom;
@@ -853,10 +870,17 @@ pub(crate) fn parse_slice_header(
         if disable_deblocking_filter_idc != 1 {
             let alpha_div2 = r.read_se()?;
             let beta_div2 = r.read_se()?;
-            if !(-6..=6).contains(&alpha_div2) || !(-6..=6).contains(&beta_div2) {
-                return Err(VideoError::Codec(format!(
-                    "slice deblocking offset out of range: alpha {alpha_div2} beta {beta_div2}"
-                )));
+            if !(-6..=6).contains(&alpha_div2) {
+                return Err(VideoError::FieldOutOfRange {
+                    field: "H.264 slice_alpha_c0_offset_div2",
+                    value: alpha_div2.into(),
+                });
+            }
+            if !(-6..=6).contains(&beta_div2) {
+                return Err(VideoError::FieldOutOfRange {
+                    field: "H.264 slice_beta_offset_div2",
+                    value: beta_div2.into(),
+                });
             }
             alpha_c0_offset = alpha_div2 * 2;
             beta_offset = beta_div2 * 2;

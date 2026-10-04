@@ -398,11 +398,11 @@ pub(crate) fn exec_qlinear_conv(node: &OnnxNode, env: &mut TensorEnv) -> Result<
                 if packed_ok {
                     let p = env.prepacked_i8_b(&node.inputs[3]).unwrap();
                     if p.k() != k_dim || p.n() != c_out {
-                        return Err(OnnxError::DecodeFailed {
-                            message: format!(
-                                "QLinearConv {}: prepacked weight shape mismatch",
-                                node.name
-                            ),
+                        return Err(OnnxError::PrepackedShapeMismatch {
+                            op: "QLinearConv",
+                            node: node.name.clone(),
+                            expected: vec![k_dim, c_out],
+                            got: vec![p.k(), p.n()],
                         });
                     }
                 }
@@ -821,13 +821,8 @@ pub(crate) fn exec_qlinear_conv(node: &OnnxNode, env: &mut TensorEnv) -> Result<
         })
         .collect();
 
-    let deq_x_t = Tensor::from_vec(x_shape_nchw, deq_x).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
-    let deq_w_t =
-        Tensor::from_vec(w.shape().to_vec(), deq_w).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let deq_x_t = Tensor::from_vec(x_shape_nchw, deq_x)?;
+    let deq_w_t = Tensor::from_vec(w.shape().to_vec(), deq_w)?;
 
     let float_node = OnnxNode {
         name: node.name.clone(),
@@ -847,11 +842,7 @@ pub(crate) fn exec_qlinear_conv(node: &OnnxNode, env: &mut TensorEnv) -> Result<
             .enumerate()
             .map(|(o, &v)| v * x_scale * w_scale[if w_per_channel { o } else { 0 }])
             .collect();
-        let deq_bias_t = Tensor::from_vec(b.shape().to_vec(), deq_bias).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+        let deq_bias_t = Tensor::from_vec(b.shape().to_vec(), deq_bias)?;
         env.insert("__qb".into(), deq_bias_t);
     }
     exec_conv(&float_node, env, yscv_kernels::Activation::None)?;
@@ -870,11 +861,7 @@ pub(crate) fn exec_qlinear_conv(node: &OnnxNode, env: &mut TensorEnv) -> Result<
         .iter()
         .map(|&v| (v / y_scale + y_zp).round_ties_even().clamp(-128.0, 127.0))
         .collect();
-    let out = Tensor::from_vec(float_out.shape().to_vec(), quant).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let out = Tensor::from_vec(float_out.shape().to_vec(), quant)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -908,8 +895,11 @@ fn resolve_fused_input_nhwc(
         }
     };
     if shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("{node_name}: fused-chain input rank must be 4, got {shape:?}"),
+        return Err(OnnxError::UnexpectedShape {
+            op: "fused chain",
+            node: node_name.to_string(),
+            what: "input",
+            shape,
         });
     }
     let (n_n, c_in, ih, iw) = if nhwc {
@@ -960,8 +950,11 @@ pub(crate) fn exec_quantized_pw_dw(
     let pw_w = get_tensor(env, &pw.name, &pw.inputs[3])?;
     let pw_w_shape = pw_w.shape().to_vec();
     if pw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDw {}: PW weight rank must be 4", pw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDw",
+            node: pw.name.clone(),
+            what: "PW weight",
+            shape: pw_w_shape,
         });
     }
     let (c_exp_pw, c_in_pw, _, _) = (pw_w_shape[0], pw_w_shape[1], pw_w_shape[2], pw_w_shape[3]);
@@ -969,25 +962,41 @@ pub(crate) fn exec_quantized_pw_dw(
     let dw_w = get_tensor(env, &dw.name, &dw.inputs[3])?;
     let dw_w_shape = dw_w.shape().to_vec();
     if dw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDw {}: DW weight rank must be 4", dw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDw",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
     let (c_exp_dw, _, kh, kw) = (dw_w_shape[0], dw_w_shape[1], dw_w_shape[2], dw_w_shape[3]);
-    if c_exp_pw != c_exp_dw || kh != kw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDw {}+{}: c_exp mismatch ({} vs {}) or kh != kw",
-                pw.name, dw.name, c_exp_pw, c_exp_dw
-            ),
+    if c_exp_pw != c_exp_dw {
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedPwDw",
+            node: dw.name.clone(),
+            expected: c_exp_pw,
+            got: c_exp_dw,
+        });
+    }
+    if kh != kw {
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDw",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
 
     let strides = crate::runner::get_attr_ints(dw, Attr::Strides).unwrap_or_else(|| vec![1, 1]);
     let pads = crate::runner::get_attr_ints(dw, Attr::Pads).unwrap_or_else(|| vec![0, 0, 0, 0]);
     if strides.len() != 2 || pads.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDw {}: unexpected DW strides/pads", dw.name),
+        return Err(OnnxError::InvalidAttribute {
+            node: dw.name.clone(),
+            attr: if strides.len() != 2 {
+                "strides"
+            } else {
+                "pads"
+            },
         });
     }
     let stride = strides[0] as usize;
@@ -1016,11 +1025,11 @@ pub(crate) fn exec_quantized_pw_dw(
     //     f32) — fall back to `get_tensor` and round/cast.
     let (input_nhwc, n_n, c_in, ih, iw) = resolve_fused_input_nhwc(env, &pw.name, &pw.inputs[0])?;
     if c_in != c_in_pw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDw {}: input c={} != PW weight c_in={}",
-                pw.name, c_in, c_in_pw
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedPwDw",
+            node: pw.name.clone(),
+            expected: c_in_pw,
+            got: c_in,
         });
     }
     let out_h = (ih + 2 * pad - kh) / stride + 1;
@@ -1028,29 +1037,25 @@ pub(crate) fn exec_quantized_pw_dw(
 
     let pw_packed = env
         .prepacked_i8_b(&pw.inputs[3])
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDw {}: PW weight not prepacked (loader gate broken)",
-                pw.name
-            ),
+        .ok_or_else(|| OnnxError::NotPrepacked {
+            op: "QuantizedPwDw",
+            node: pw.name.clone(),
+            weight: "PW",
         })?;
     if pw_packed.k() != c_in_pw || pw_packed.n() != c_exp_pw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDw {}: PW prepacked shape {}x{} mismatch with weight",
-                pw.name,
-                pw_packed.k(),
-                pw_packed.n()
-            ),
+        return Err(OnnxError::PrepackedShapeMismatch {
+            op: "QuantizedPwDw",
+            node: pw.name.clone(),
+            expected: vec![c_in_pw, c_exp_pw],
+            got: vec![pw_packed.k(), pw_packed.n()],
         });
     }
     let dw_weight =
         env.prepacked_i8_depthwise(&dw.inputs[3])
-            .ok_or_else(|| OnnxError::DecodeFailed {
-                message: format!(
-                    "QuantizedPwDw {}: DW weight not prepacked (loader gate broken)",
-                    dw.name
-                ),
+            .ok_or_else(|| OnnxError::NotPrepacked {
+                op: "QuantizedPwDw",
+                node: dw.name.clone(),
+                weight: "DW",
             })?;
 
     let params = yscv_kernels::Int8FusedPwDwParams {
@@ -1114,8 +1119,11 @@ pub(crate) fn exec_quantized_pw_dw_fork(
     let pw_w = get_tensor(env, &pw.name, &pw.inputs[3])?;
     let pw_w_shape = pw_w.shape().to_vec();
     if pw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDwFork {}: PW weight rank must be 4", pw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDwFork",
+            node: pw.name.clone(),
+            what: "PW weight",
+            shape: pw_w_shape,
         });
     }
     let (c_exp_pw, c_in_pw, _, _) = (pw_w_shape[0], pw_w_shape[1], pw_w_shape[2], pw_w_shape[3]);
@@ -1123,25 +1131,41 @@ pub(crate) fn exec_quantized_pw_dw_fork(
     let dw_w = get_tensor(env, &dw.name, &dw.inputs[3])?;
     let dw_w_shape = dw_w.shape().to_vec();
     if dw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDwFork {}: DW weight rank must be 4", dw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDwFork",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
     let (c_exp_dw, _, kh, kw) = (dw_w_shape[0], dw_w_shape[1], dw_w_shape[2], dw_w_shape[3]);
-    if c_exp_pw != c_exp_dw || kh != kw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDwFork {}+{}: c_exp mismatch ({} vs {}) or kh != kw",
-                pw.name, dw.name, c_exp_pw, c_exp_dw
-            ),
+    if c_exp_pw != c_exp_dw {
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedPwDwFork",
+            node: dw.name.clone(),
+            expected: c_exp_pw,
+            got: c_exp_dw,
+        });
+    }
+    if kh != kw {
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDwFork",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
 
     let strides = crate::runner::get_attr_ints(dw, Attr::Strides).unwrap_or_else(|| vec![1, 1]);
     let pads = crate::runner::get_attr_ints(dw, Attr::Pads).unwrap_or_else(|| vec![0, 0, 0, 0]);
     if strides.len() != 2 || pads.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDwFork {}: unexpected DW strides/pads", dw.name),
+        return Err(OnnxError::InvalidAttribute {
+            node: dw.name.clone(),
+            attr: if strides.len() != 2 {
+                "strides"
+            } else {
+                "pads"
+            },
         });
     }
     let stride = strides[0] as usize;
@@ -1162,11 +1186,11 @@ pub(crate) fn exec_quantized_pw_dw_fork(
 
     let (input_nhwc, n_n, c_in, ih, iw) = resolve_fused_input_nhwc(env, &pw.name, &pw.inputs[0])?;
     if c_in != c_in_pw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDwFork {}: input c={} != PW weight c_in={}",
-                pw.name, c_in, c_in_pw
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedPwDwFork",
+            node: pw.name.clone(),
+            expected: c_in_pw,
+            got: c_in,
         });
     }
     let out_h = (ih + 2 * pad - kh) / stride + 1;
@@ -1174,13 +1198,17 @@ pub(crate) fn exec_quantized_pw_dw_fork(
 
     let pw_packed = env
         .prepacked_i8_b(&pw.inputs[3])
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDwFork {}: PW weight not prepacked", pw.name),
+        .ok_or_else(|| OnnxError::NotPrepacked {
+            op: "QuantizedPwDwFork",
+            node: pw.name.clone(),
+            weight: "PW",
         })?;
     let dw_weight =
         env.prepacked_i8_depthwise(&dw.inputs[3])
-            .ok_or_else(|| OnnxError::DecodeFailed {
-                message: format!("QuantizedPwDwFork {}: DW weight not prepacked", dw.name),
+            .ok_or_else(|| OnnxError::NotPrepacked {
+                op: "QuantizedPwDwFork",
+                node: dw.name.clone(),
+                weight: "DW",
             })?;
 
     let params = yscv_kernels::Int8FusedPwDwParams {
@@ -1215,17 +1243,13 @@ pub(crate) fn exec_quantized_pw_dw_fork(
         None,
     );
 
-    let side = Tensor::from_vec(vec![n_n, c_exp_pw, ih, iw], side_nchw).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let side = Tensor::from_vec(vec![n_n, c_exp_pw, ih, iw], side_nchw)?;
     let side_name = dq
         .outputs
         .first()
         .cloned()
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDwFork {}: DQ has no output", dq.name),
+        .ok_or_else(|| OnnxError::MissingOutput {
+            node: dq.name.clone(),
         })?;
     env.insert(side_name, side);
     env.insert_quant_i8(
@@ -1259,14 +1283,20 @@ pub(crate) fn exec_quantized_dw_residual(
     let dw_w = get_tensor(env, &dw.name, &dw.inputs[3])?;
     let dw_w_shape = dw_w.shape().to_vec();
     if dw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedDwResidual {}: DW weight rank must be 4", dw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwResidual",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
     let (c_in_dw, _, kh, kw) = (dw_w_shape[0], dw_w_shape[1], dw_w_shape[2], dw_w_shape[3]);
     if kh != kw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedDwResidual {}: kh != kw", dw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwResidual",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
 
@@ -1274,31 +1304,33 @@ pub(crate) fn exec_quantized_dw_residual(
     let conv_w_shape = conv_w.shape().to_vec();
     let conv_w_data = conv_w.data().to_vec();
     if conv_w_shape.len() != 4 || conv_w_shape[0] != 1 || conv_w_shape[1] != 1 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwResidual {}: expected KHWC 1x1 Conv weight, got {:?}",
-                conv.name, conv_w_shape
-            ),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwResidual",
+            node: conv.name.clone(),
+            what: "1x1 weight",
+            shape: conv_w_shape,
         });
     }
     let (c_in_pw, c_out_pw) = (conv_w_shape[2], conv_w_shape[3]);
     if c_in_pw != c_in_dw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwResidual {}+{}: c mismatch {} vs {}",
-                dw.name, conv.name, c_in_dw, c_in_pw
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedDwResidual",
+            node: conv.name.clone(),
+            expected: c_in_dw,
+            got: c_in_pw,
         });
     }
 
     let strides = crate::runner::get_attr_ints(dw, Attr::Strides).unwrap_or_else(|| vec![1, 1]);
     let pads = crate::runner::get_attr_ints(dw, Attr::Pads).unwrap_or_else(|| vec![0, 0, 0, 0]);
     if strides.len() != 2 || pads.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwResidual {}: unexpected DW strides/pads",
-                dw.name
-            ),
+        return Err(OnnxError::InvalidAttribute {
+            node: dw.name.clone(),
+            attr: if strides.len() != 2 {
+                "strides"
+            } else {
+                "pads"
+            },
         });
     }
     let stride = strides[0] as usize;
@@ -1322,11 +1354,11 @@ pub(crate) fn exec_quantized_dw_residual(
 
     let (input_nhwc, n_n, c_in, ih, iw) = resolve_fused_input_nhwc(env, &dw.name, &dw.inputs[0])?;
     if c_in != c_in_dw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwResidual {}: input c={} != DW c={}",
-                dw.name, c_in, c_in_dw
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedDwResidual",
+            node: dw.name.clone(),
+            expected: c_in_dw,
+            got: c_in,
         });
     }
     let out_h = (ih + 2 * pad - kh) / stride + 1;
@@ -1335,8 +1367,10 @@ pub(crate) fn exec_quantized_dw_residual(
 
     let dw_weight =
         env.prepacked_i8_depthwise(&dw.inputs[3])
-            .ok_or_else(|| OnnxError::DecodeFailed {
-                message: format!("QuantizedDwResidual {}: DW weight not prepacked", dw.name),
+            .ok_or_else(|| OnnxError::NotPrepacked {
+                op: "QuantizedDwResidual",
+                node: dw.name.clone(),
+                weight: "DW",
             })?;
     let dw_params = yscv_kernels::DepthwiseI8Params {
         batch: n_n,
@@ -1394,15 +1428,16 @@ pub(crate) fn exec_quantized_dw_residual(
     let conv_out_name = conv
         .outputs
         .first()
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!("QuantizedDwResidual {}: Conv has no output", conv.name),
+        .ok_or_else(|| OnnxError::MissingOutput {
+            node: conv.name.clone(),
         })?;
     let residual_name = add
         .inputs
         .iter()
         .find(|name| *name != conv_out_name)
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!("QuantizedDwResidual {}: Add residual missing", add.name),
+        .ok_or_else(|| OnnxError::MissingInput {
+            node: add.name.clone(),
+            input: "residual".into(),
         })?;
     let residual = get_tensor(env, &add.name, residual_name)?;
     let residual_shape = residual.shape().to_vec();
@@ -1441,11 +1476,11 @@ pub(crate) fn exec_quantized_dw_residual(
         }
         residual_nhwc.as_ptr()
     } else {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwResidual {}: residual shape mismatch {:?}",
-                add.name, residual_shape
-            ),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwResidual",
+            node: add.name.clone(),
+            what: "residual",
+            shape: residual_shape,
         });
     };
 
@@ -1519,11 +1554,11 @@ pub(crate) fn exec_quantized_pw_dq(
     let w = get_tensor(env, &qconv.name, &qconv.inputs[3])?;
     let w_shape = w.shape().to_vec();
     if w_shape.len() != 4 || w_shape[2] != 1 || w_shape[3] != 1 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDq {}: expected OIHW 1x1 weight, got {:?}",
-                qconv.name, w_shape
-            ),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDq",
+            node: qconv.name.clone(),
+            what: "1x1 weight",
+            shape: w_shape,
         });
     }
     let (c_out, c_in_w) = (w_shape[0], w_shape[1]);
@@ -1556,11 +1591,11 @@ pub(crate) fn exec_quantized_pw_dq(
         }
     };
     if x_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDq {}: input rank must be 4, got {:?}",
-                qconv.name, x_shape
-            ),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedPwDq",
+            node: qconv.name.clone(),
+            what: "input",
+            shape: x_shape,
         });
     }
     // Physical shape is `[N,H,W,C]` when NHWC-resident, `[N,C,H,W]` otherwise.
@@ -1570,11 +1605,11 @@ pub(crate) fn exec_quantized_pw_dq(
         (x_shape[0], x_shape[1], x_shape[2], x_shape[3])
     };
     if c_in != c_in_w {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedPwDq {}: input c={} != weight c={}",
-                qconv.name, c_in, c_in_w
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedPwDq",
+            node: qconv.name.clone(),
+            expected: c_in_w,
+            got: c_in,
         });
     }
 
@@ -1592,8 +1627,10 @@ pub(crate) fn exec_quantized_pw_dq(
 
     let packed = env
         .prepacked_i8_b(&qconv.inputs[3])
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDq {}: PW weight not prepacked", qconv.name),
+        .ok_or_else(|| OnnxError::NotPrepacked {
+            op: "QuantizedPwDq",
+            node: qconv.name.clone(),
+            weight: "PW",
         })?;
     let m = n_n * h * w_in;
     let mut acc = vec![0_i32; m * c_out];
@@ -1643,14 +1680,10 @@ pub(crate) fn exec_quantized_pw_dq(
         .outputs
         .first()
         .cloned()
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!("QuantizedPwDq {}: DQ has no output", dq.name),
+        .ok_or_else(|| OnnxError::MissingOutput {
+            node: dq.name.clone(),
         })?;
-    let tensor = Tensor::from_vec(vec![n_n, h, w_in, c_out], out_nhwc).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let tensor = Tensor::from_vec(vec![n_n, h, w_in, c_out], out_nhwc)?;
     env.insert(out_name.clone(), tensor);
     env.mark_nhwc(&out_name);
     crate::runner::note_quant_chain_executed();
@@ -1691,39 +1724,53 @@ pub(crate) fn exec_quantized_dw_pw(
     let dw_w = get_tensor(env, &dw.name, &dw.inputs[3])?;
     let dw_w_shape = dw_w.shape().to_vec();
     if dw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedDwPw {}: DW weight rank must be 4", dw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwPw",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
     let (c_in_dw, _, kh, kw) = (dw_w_shape[0], dw_w_shape[1], dw_w_shape[2], dw_w_shape[3]);
     if kh != kw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedDwPw {}: kh != kw", dw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwPw",
+            node: dw.name.clone(),
+            what: "DW weight",
+            shape: dw_w_shape,
         });
     }
 
     let pw_w = get_tensor(env, &pw.name, &pw.inputs[3])?;
     let pw_w_shape = pw_w.shape().to_vec();
     if pw_w_shape.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedDwPw {}: PW weight rank must be 4", pw.name),
+        return Err(OnnxError::UnexpectedShape {
+            op: "QuantizedDwPw",
+            node: pw.name.clone(),
+            what: "PW weight",
+            shape: pw_w_shape,
         });
     }
     let (c_out_pw, c_in_pw, _, _) = (pw_w_shape[0], pw_w_shape[1], pw_w_shape[2], pw_w_shape[3]);
     if c_in_pw != c_in_dw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwPw {}+{}: c_in mismatch (DW={}, PW K={})",
-                dw.name, pw.name, c_in_dw, c_in_pw
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedDwPw",
+            node: pw.name.clone(),
+            expected: c_in_dw,
+            got: c_in_pw,
         });
     }
 
     let strides = crate::runner::get_attr_ints(dw, Attr::Strides).unwrap_or_else(|| vec![1, 1]);
     let pads = crate::runner::get_attr_ints(dw, Attr::Pads).unwrap_or_else(|| vec![0, 0, 0, 0]);
     if strides.len() != 2 || pads.len() != 4 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("QuantizedDwPw {}: unexpected DW strides/pads", dw.name),
+        return Err(OnnxError::InvalidAttribute {
+            node: dw.name.clone(),
+            attr: if strides.len() != 2 {
+                "strides"
+            } else {
+                "pads"
+            },
         });
     }
     let stride = strides[0] as usize;
@@ -1750,11 +1797,11 @@ pub(crate) fn exec_quantized_dw_pw(
     //     representing i8 — fall back to `get_tensor` and round/cast.
     let (input_nhwc, n_n, c_in, ih, iw) = resolve_fused_input_nhwc(env, &dw.name, &dw.inputs[0])?;
     if c_in != c_in_dw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwPw {}: input c={} != DW c_in={}",
-                dw.name, c_in, c_in_dw
-            ),
+        return Err(OnnxError::ChannelMismatch {
+            op: "QuantizedDwPw",
+            node: dw.name.clone(),
+            expected: c_in_dw,
+            got: c_in,
         });
     }
     let out_h = (ih + 2 * pad - kh) / stride + 1;
@@ -1762,28 +1809,24 @@ pub(crate) fn exec_quantized_dw_pw(
 
     let dw_weight =
         env.prepacked_i8_depthwise(&dw.inputs[3])
-            .ok_or_else(|| OnnxError::DecodeFailed {
-                message: format!(
-                    "QuantizedDwPw {}: DW weight not prepacked (loader gate broken)",
-                    dw.name
-                ),
+            .ok_or_else(|| OnnxError::NotPrepacked {
+                op: "QuantizedDwPw",
+                node: dw.name.clone(),
+                weight: "DW",
             })?;
     let pw_packed = env
         .prepacked_i8_b(&pw.inputs[3])
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwPw {}: PW weight not prepacked (loader gate broken)",
-                pw.name
-            ),
+        .ok_or_else(|| OnnxError::NotPrepacked {
+            op: "QuantizedDwPw",
+            node: pw.name.clone(),
+            weight: "PW",
         })?;
     if pw_packed.k() != c_in_dw || pw_packed.n() != c_out_pw {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "QuantizedDwPw {}: PW prepacked shape {}x{} mismatch with weight",
-                pw.name,
-                pw_packed.k(),
-                pw_packed.n()
-            ),
+        return Err(OnnxError::PrepackedShapeMismatch {
+            op: "QuantizedDwPw",
+            node: pw.name.clone(),
+            expected: vec![c_in_dw, c_out_pw],
+            got: vec![pw_packed.k(), pw_packed.n()],
         });
     }
 
@@ -1911,11 +1954,11 @@ pub(crate) fn exec_conv_integer(node: &OnnxNode, env: &mut TensorEnv) -> Result<
                             &x_im2col, packed, m, &mut acc,
                         );
                     } else {
-                        return Err(OnnxError::DecodeFailed {
-                            message: format!(
-                                "ConvInteger {}: prepacked weight shape mismatch",
-                                node.name
-                            ),
+                        return Err(OnnxError::PrepackedShapeMismatch {
+                            op: "ConvInteger",
+                            node: node.name.clone(),
+                            expected: vec![k_dim, c_out],
+                            got: vec![packed.k(), packed.n()],
                         });
                     }
                 } else {
@@ -1950,11 +1993,7 @@ pub(crate) fn exec_conv_integer(node: &OnnxNode, env: &mut TensorEnv) -> Result<
                         }
                     }
                 }
-                let out_t = Tensor::from_vec(vec![n_n, c_out, oh, ow], out).map_err(|e| {
-                    OnnxError::DecodeFailed {
-                        message: e.to_string(),
-                    }
-                })?;
+                let out_t = Tensor::from_vec(vec![n_n, c_out, oh, ow], out)?;
                 env.insert(node.outputs[0].clone(), out_t);
                 return Ok(());
             }
@@ -1964,12 +2003,8 @@ pub(crate) fn exec_conv_integer(node: &OnnxNode, env: &mut TensorEnv) -> Result<
     let deq_x: Vec<f32> = x.data().iter().map(|&v| v - x_zp).collect();
     let deq_w: Vec<f32> = w.data().iter().map(|&v| v - w_zp).collect();
 
-    let t_x = Tensor::from_vec(x.shape().to_vec(), deq_x).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
-    let t_w = Tensor::from_vec(w.shape().to_vec(), deq_w).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let t_x = Tensor::from_vec(x.shape().to_vec(), deq_x)?;
+    let t_w = Tensor::from_vec(w.shape().to_vec(), deq_w)?;
 
     let conv_node = OnnxNode {
         name: node.name.clone(),
@@ -1991,10 +2026,7 @@ pub(crate) fn exec_conv_integer(node: &OnnxNode, env: &mut TensorEnv) -> Result<
     env.remove("__ci_w");
 
     let rounded: Vec<f32> = out.data().iter().map(|&v| v.round()).collect();
-    let result =
-        Tensor::from_vec(out.shape().to_vec(), rounded).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(out.shape().to_vec(), rounded)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }

@@ -52,9 +52,7 @@ pub fn quantize_matmul_weights_int4_packed(
     group_size: usize,
 ) -> Result<usize, OnnxError> {
     if group_size == 0 || group_size & 1 != 0 {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("group_size must be even and > 0, got {group_size}"),
-        });
+        return Err(OnnxError::InvalidGroupSize { group_size });
     }
 
     let candidates = collect_packing_candidates(&model.nodes);

@@ -226,12 +226,11 @@ mod tests {
                 "fails"
             }
             fn run(&self, _graph: &mut Graph) -> Result<Changed, OnnxError> {
-                Err(OnnxError::DecodeFailed {
-                    message: "boom".to_string(),
-                })
+                Err(OnnxError::MissingGraph)
             }
         }
         let manager = manager_of(vec![Box::new(Fails)], DEFAULT_MAX_SWEEPS, Vec::new());
-        assert!(manager.run(&mut empty_graph()).is_err());
+        let result = manager.run(&mut empty_graph());
+        assert!(matches!(result, Err(OnnxError::MissingGraph)), "{result:?}");
     }
 }

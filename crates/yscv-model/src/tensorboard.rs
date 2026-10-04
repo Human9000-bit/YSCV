@@ -1,7 +1,8 @@
 use rustc_hash::FxHashMap;
 use std::fs::{self, File};
 use std::io::{BufWriter, Write};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use super::callbacks::TrainingCallback;
@@ -114,6 +115,7 @@ fn encode_event_file_version(wall_time: f64, step: i64, version: &str) -> Vec<u8
 /// Writes TensorBoard-compatible event files in TFRecord format.
 pub struct TensorBoardWriter {
     file: BufWriter<File>,
+    path: PathBuf,
 }
 
 impl TensorBoardWriter {
@@ -123,9 +125,9 @@ impl TensorBoardWriter {
     /// `file_version` event required by TensorBoard.
     pub fn new(log_dir: impl AsRef<Path>) -> Result<Self, ModelError> {
         let log_dir = log_dir.as_ref();
-        fs::create_dir_all(log_dir).map_err(|e| ModelError::DatasetLoadIo {
-            path: log_dir.display().to_string(),
-            message: e.to_string(),
+        fs::create_dir_all(log_dir).map_err(|source| ModelError::Io {
+            path: log_dir.to_path_buf(),
+            source: Arc::new(source),
         })?;
 
         let timestamp = SystemTime::now()
@@ -137,12 +139,13 @@ impl TensorBoardWriter {
         let filename = format!("events.out.tfevents.{timestamp}.{hostname}");
         let filepath = log_dir.join(filename);
 
-        let f = File::create(&filepath).map_err(|e| ModelError::DatasetLoadIo {
-            path: filepath.display().to_string(),
-            message: e.to_string(),
+        let f = File::create(&filepath).map_err(|source| ModelError::Io {
+            path: filepath.clone(),
+            source: Arc::new(source),
         })?;
         let mut writer = Self {
             file: BufWriter::new(f),
+            path: filepath,
         };
 
         let wall_time = timestamp as f64;
@@ -164,9 +167,9 @@ impl TensorBoardWriter {
 
     /// Flush buffered data to disk.
     pub fn flush(&mut self) -> Result<(), ModelError> {
-        self.file.flush().map_err(|e| ModelError::DatasetLoadIo {
-            path: "tensorboard events".to_string(),
-            message: e.to_string(),
+        self.file.flush().map_err(|source| ModelError::Io {
+            path: self.path.clone(),
+            source: Arc::new(source),
         })
     }
 
@@ -182,9 +185,9 @@ impl TensorBoardWriter {
             .and_then(|_| w.write_all(&len_crc.to_le_bytes()))
             .and_then(|_| w.write_all(data))
             .and_then(|_| w.write_all(&data_crc.to_le_bytes()))
-            .map_err(|e| ModelError::DatasetLoadIo {
-                path: "tensorboard events".to_string(),
-                message: e.to_string(),
+            .map_err(|source| ModelError::Io {
+                path: self.path.clone(),
+                source: Arc::new(source),
             })
     }
 }

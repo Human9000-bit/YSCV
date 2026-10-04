@@ -187,17 +187,25 @@ pub fn yuv422_to_rgb8(
     let expected_uv = (width / 2) * height;
 
     if y_plane.len() < expected_y {
-        return Err(VideoError::Codec(format!(
-            "Y plane too small: expected {expected_y}, got {}",
-            y_plane.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "Y plane",
+            expected: expected_y,
+            got: y_plane.len(),
+        });
     }
-    if u_plane.len() < expected_uv || v_plane.len() < expected_uv {
-        return Err(VideoError::Codec(format!(
-            "UV planes too small for 4:2:2: expected {expected_uv}, got U={} V={}",
-            u_plane.len(),
-            v_plane.len()
-        )));
+    if u_plane.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "U plane",
+            expected: expected_uv,
+            got: u_plane.len(),
+        });
+    }
+    if v_plane.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "V plane",
+            expected: expected_uv,
+            got: v_plane.len(),
+        });
     }
 
     let mut rgb = vec![0u8; width * height * 3];
@@ -239,17 +247,25 @@ pub fn yuv444_to_rgb8(
     let expected = width * height;
 
     if y_plane.len() < expected {
-        return Err(VideoError::Codec(format!(
-            "Y plane too small: expected {expected}, got {}",
-            y_plane.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "Y plane",
+            expected,
+            got: y_plane.len(),
+        });
     }
-    if u_plane.len() < expected || v_plane.len() < expected {
-        return Err(VideoError::Codec(format!(
-            "UV planes too small for 4:4:4: expected {expected}, got U={} V={}",
-            u_plane.len(),
-            v_plane.len()
-        )));
+    if u_plane.len() < expected {
+        return Err(VideoError::BufferTooSmall {
+            what: "U plane",
+            expected,
+            got: u_plane.len(),
+        });
+    }
+    if v_plane.len() < expected {
+        return Err(VideoError::BufferTooSmall {
+            what: "V plane",
+            expected,
+            got: v_plane.len(),
+        });
     }
 
     let mut rgb = vec![0u8; width * height * 3];
@@ -276,10 +292,11 @@ pub fn yuv444_to_rgb8(
 pub fn mono_to_rgb8(y_plane: &[u8], width: usize, height: usize) -> Result<Vec<u8>, VideoError> {
     let expected = width * height;
     if y_plane.len() < expected {
-        return Err(VideoError::Codec(format!(
-            "Y plane too small: expected {expected}, got {}",
-            y_plane.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "Y plane",
+            expected,
+            got: y_plane.len(),
+        });
     }
     let mut rgb = vec![0u8; expected * 3];
     for i in 0..expected {
@@ -373,17 +390,25 @@ pub fn yuv420_p16_to_rgb16(
     let expected_y = w * h;
     let expected_uv = (w / 2) * (h / 2);
     if y.len() < expected_y {
-        return Err(VideoError::Codec(format!(
-            "Y16 plane too small: expected {expected_y}, got {}",
-            y.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "Y16 plane",
+            expected: expected_y,
+            got: y.len(),
+        });
     }
-    if u.len() < expected_uv || v.len() < expected_uv {
-        return Err(VideoError::Codec(format!(
-            "UV16 planes too small: expected {expected_uv}, got U={} V={}",
-            u.len(),
-            v.len()
-        )));
+    if u.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "U16 plane",
+            expected: expected_uv,
+            got: u.len(),
+        });
+    }
+    if v.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "V16 plane",
+            expected: expected_uv,
+            got: v.len(),
+        });
     }
 
     let max_in = (1i32 << bit_depth) - 1;
@@ -439,17 +464,25 @@ pub fn yuv420_to_rgb8(
     let expected_uv = (width / 2) * (height / 2);
 
     if y_plane.len() < expected_y {
-        return Err(VideoError::Codec(format!(
-            "Y plane too small: expected {expected_y}, got {}",
-            y_plane.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "Y plane",
+            expected: expected_y,
+            got: y_plane.len(),
+        });
     }
-    if u_plane.len() < expected_uv || v_plane.len() < expected_uv {
-        return Err(VideoError::Codec(format!(
-            "UV planes too small: expected {expected_uv}, got U={} V={}",
-            u_plane.len(),
-            v_plane.len()
-        )));
+    if u_plane.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "U plane",
+            expected: expected_uv,
+            got: u_plane.len(),
+        });
+    }
+    if v_plane.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "V plane",
+            expected: expected_uv,
+            got: v_plane.len(),
+        });
     }
 
     let mut rgb = vec![0u8; width * height * 3];
@@ -500,17 +533,25 @@ pub fn yuv420_to_rgb8_into(
     let expected_uv = (width / 2) * (height / 2);
 
     if y_plane.len() < expected_y {
-        return Err(VideoError::Codec(format!(
-            "Y plane too small: expected {expected_y}, got {}",
-            y_plane.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "Y plane",
+            expected: expected_y,
+            got: y_plane.len(),
+        });
     }
-    if u_plane.len() < expected_uv || v_plane.len() < expected_uv {
-        return Err(VideoError::Codec(format!(
-            "UV planes too small: expected {expected_uv}, got U={} V={}",
-            u_plane.len(),
-            v_plane.len()
-        )));
+    if u_plane.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "U plane",
+            expected: expected_uv,
+            got: u_plane.len(),
+        });
+    }
+    if v_plane.len() < expected_uv {
+        return Err(VideoError::BufferTooSmall {
+            what: "V plane",
+            expected: expected_uv,
+            got: v_plane.len(),
+        });
     }
 
     let total = width * height * 3;
@@ -1125,22 +1166,25 @@ pub fn nv12_to_rgb8(
     let expected_out = w * h * 3;
 
     if y.len() < expected_y {
-        return Err(VideoError::Codec(format!(
-            "NV12: Y plane too small: expected {expected_y}, got {}",
-            y.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "NV12 Y plane",
+            expected: expected_y,
+            got: y.len(),
+        });
     }
     if uv.len() < expected_uv {
-        return Err(VideoError::Codec(format!(
-            "NV12: UV plane too small: expected {expected_uv}, got {}",
-            uv.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "NV12 UV plane",
+            expected: expected_uv,
+            got: uv.len(),
+        });
     }
     if out.len() < expected_out {
-        return Err(VideoError::Codec(format!(
-            "NV12: output buffer too small: expected {expected_out}, got {}",
-            out.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "NV12 output buffer",
+            expected: expected_out,
+            got: out.len(),
+        });
     }
 
     #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
@@ -1393,19 +1437,25 @@ pub fn yuyv_to_rgb8(data: &[u8], w: usize, h: usize, out: &mut [u8]) -> Result<(
     let expected_out = w * h * 3;
 
     if data.len() < expected_in {
-        return Err(VideoError::Codec(format!(
-            "YUYV: input too small: expected {expected_in}, got {}",
-            data.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "YUYV input",
+            expected: expected_in,
+            got: data.len(),
+        });
     }
     if out.len() < expected_out {
-        return Err(VideoError::Codec(format!(
-            "YUYV: output too small: expected {expected_out}, got {}",
-            out.len()
-        )));
+        return Err(VideoError::BufferTooSmall {
+            what: "YUYV output",
+            expected: expected_out,
+            got: out.len(),
+        });
     }
     if !w.is_multiple_of(2) {
-        return Err(VideoError::Codec("YUYV: width must be even".into()));
+        return Err(VideoError::InvalidDimensions {
+            what: "YUYV frame (odd width)",
+            width: w,
+            height: h,
+        });
     }
 
     #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]

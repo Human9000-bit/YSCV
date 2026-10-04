@@ -31,7 +31,10 @@ fn softmax_last_dim_normalizes_each_row() {
 fn softmax_last_dim_rejects_scalar_rank() {
     let input = Tensor::scalar(1.0);
     let err = softmax_last_dim(&input).unwrap_err();
-    assert_eq!(err, KernelError::InvalidSoftmaxRank { got_rank: 0 });
+    assert!(
+        matches!(err, KernelError::InvalidSoftmaxRank { got_rank: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -99,7 +102,10 @@ fn log_softmax_last_dim_matches_ln_softmax() {
 fn log_softmax_last_dim_rejects_scalar_rank() {
     let input = Tensor::scalar(1.0);
     let err = log_softmax_last_dim(&input).unwrap_err();
-    assert_eq!(err, KernelError::InvalidLogSoftmaxRank { got_rank: 0 });
+    assert!(
+        matches!(err, KernelError::InvalidLogSoftmaxRank { got_rank: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -146,7 +152,10 @@ fn logsumexp_last_dim_reduces_each_row() {
 fn logsumexp_last_dim_rejects_scalar_rank() {
     let input = Tensor::scalar(1.0);
     let err = logsumexp_last_dim(&input).unwrap_err();
-    assert_eq!(err, KernelError::InvalidLogSumExpRank { got_rank: 0 });
+    assert!(
+        matches!(err, KernelError::InvalidLogSumExpRank { got_rank: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]

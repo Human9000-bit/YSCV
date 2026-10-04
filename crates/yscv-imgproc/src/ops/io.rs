@@ -1,4 +1,5 @@
 use std::path::Path;
+use std::sync::Arc;
 
 use image::{DynamicImage, ImageFormat, ImageReader};
 use yscv_tensor::Tensor;
@@ -14,12 +15,14 @@ use super::super::ImgProcError;
 pub fn imread(path: impl AsRef<Path>) -> Result<Tensor, ImgProcError> {
     let path = path.as_ref();
     let reader = ImageReader::open(path).map_err(|e| ImgProcError::Io {
-        message: format!("{}: {e}", path.display()),
+        path: path.to_path_buf(),
+        source: Arc::new(e),
     })?;
     let img = reader
         .decode()
         .map_err(|e| ImgProcError::ImageDecode {
-            message: format!("{}: {e}", path.display()),
+            path: path.to_path_buf(),
+            source: Arc::new(e),
         })?
         .into_rgb8();
     let (w, h) = (img.width() as usize, img.height() as usize);
@@ -34,12 +37,14 @@ pub fn imread(path: impl AsRef<Path>) -> Result<Tensor, ImgProcError> {
 pub fn imread_gray(path: impl AsRef<Path>) -> Result<Tensor, ImgProcError> {
     let path = path.as_ref();
     let reader = ImageReader::open(path).map_err(|e| ImgProcError::Io {
-        message: format!("{}: {e}", path.display()),
+        path: path.to_path_buf(),
+        source: Arc::new(e),
     })?;
     let img = reader
         .decode()
         .map_err(|e| ImgProcError::ImageDecode {
-            message: format!("{}: {e}", path.display()),
+            path: path.to_path_buf(),
+            source: Arc::new(e),
         })?
         .into_luma8();
     let (w, h) = (img.width() as usize, img.height() as usize);
@@ -71,7 +76,7 @@ pub fn imwrite(path: impl AsRef<Path>, image: &Tensor) -> Result<(), ImgProcErro
     }
 
     let format = ImageFormat::from_path(path).map_err(|_| ImgProcError::UnsupportedFormat {
-        path: path.display().to_string(),
+        path: path.to_path_buf(),
     })?;
 
     let bytes: Vec<u8> = image
@@ -80,28 +85,26 @@ pub fn imwrite(path: impl AsRef<Path>, image: &Tensor) -> Result<(), ImgProcErro
         .map(|&v| (v.clamp(0.0, 1.0) * 255.0 + 0.5) as u8)
         .collect();
 
+    let buffer_size = ImgProcError::ImageBufferSize {
+        height: h,
+        width: w,
+        channels: c,
+    };
     let dyn_img = if c == 1 {
         DynamicImage::ImageLuma8(
-            image::GrayImage::from_raw(w as u32, h as u32, bytes).ok_or_else(|| {
-                ImgProcError::ImageEncode {
-                    message: "failed to construct grayscale image buffer".into(),
-                }
-            })?,
+            image::GrayImage::from_raw(w as u32, h as u32, bytes).ok_or(buffer_size)?,
         )
     } else {
         DynamicImage::ImageRgb8(
-            image::RgbImage::from_raw(w as u32, h as u32, bytes).ok_or_else(|| {
-                ImgProcError::ImageEncode {
-                    message: "failed to construct RGB image buffer".into(),
-                }
-            })?,
+            image::RgbImage::from_raw(w as u32, h as u32, bytes).ok_or(buffer_size)?,
         )
     };
 
     dyn_img
         .save_with_format(path, format)
         .map_err(|e| ImgProcError::ImageEncode {
-            message: format!("{}: {e}", path.display()),
+            path: path.to_path_buf(),
+            source: Arc::new(e),
         })
 }
 
@@ -163,7 +166,12 @@ mod tests {
     #[test]
     #[cfg_attr(miri, ignore)]
     fn test_imread_nonexistent_file() {
-        let result = imread(Path::new("/tmp/nonexistent_yscv_test_image.png"));
-        assert!(result.is_err());
+        let missing = Path::new("/tmp/nonexistent_yscv_test_image.png");
+        let err = imread(missing).unwrap_err();
+        assert!(
+            matches!(&err, ImgProcError::Io { path, source }
+                if path == missing && source.kind() == std::io::ErrorKind::NotFound),
+            "{err:?}"
+        );
     }
 }

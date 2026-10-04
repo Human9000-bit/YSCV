@@ -96,6 +96,19 @@ accelerator that isn't compiled in or whose runtime library is missing
 on the host → startup aborts with a clear `ConfigError`. No silent CPU
 fallback, no degradation in flight.
 
+## Errors
+
+Config-time failures are `ConfigError` variants (`ZeroField`,
+`DuplicateTask`, `UnknownSource`, `CyclicDependency`,
+`AcceleratorUnavailable`, `ModelNotFound`, `ModelRead`,
+`ModelTruncated`, `BadRknnMagic`, `BadOnnxMagic`, `RknnRejected`).
+Runtime failures are `Error` variants: `Kernel` and `Onnx` wrap the
+backend's typed error unchanged, `LoadModel` / `RknnCompile` add the task
+and model path, `AcceleratorNotCompiled` names the missing cargo feature,
+and `InputNotF32`, `NoProducer`, `Recover` etc. describe dispatch-level
+faults. Nothing is flattened into a string — `source()` walks down to
+the original `OnnxError` / `KernelError` / `io::Error`.
+
 ## Layered escape hatches
 
 The trait-object dispatcher path is the most ergonomic. Each layer

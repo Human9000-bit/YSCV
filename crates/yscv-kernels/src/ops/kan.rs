@@ -79,10 +79,7 @@ impl KanLinear {
     ) -> Result<Self, KernelError> {
         let (lo, hi) = grid_range;
         if grid_size == 0 || lo.partial_cmp(&hi) != Some(std::cmp::Ordering::Less) {
-            return Err(KernelError::InvalidKanGrid {
-                grid_size,
-                range: format!("({lo}, {hi})"),
-            });
+            return Err(KernelError::InvalidKanGrid { grid_size, lo, hi });
         }
         let edges = in_features * out_features;
         let nb = grid_size + ACTIVE - 1;

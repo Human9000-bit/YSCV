@@ -46,7 +46,10 @@ fn huber_loss_rejects_invalid_delta() {
     let target = graph.constant(Tensor::from_vec(vec![2], vec![1.0, 2.0]).unwrap());
 
     let err = huber_loss(&mut graph, pred, target, 0.0).unwrap_err();
-    assert_eq!(err, ModelError::InvalidHuberDelta { delta: 0.0 });
+    assert!(
+        matches!(err, ModelError::InvalidHuberDelta { delta } if delta == 0.0),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -68,7 +71,10 @@ fn hinge_loss_rejects_invalid_margin() {
     let target = graph.constant(Tensor::from_vec(vec![2], vec![1.0, -1.0]).unwrap());
 
     let err = hinge_loss(&mut graph, pred, target, 0.0).unwrap_err();
-    assert_eq!(err, ModelError::InvalidHingeMargin { margin: 0.0 });
+    assert!(
+        matches!(err, ModelError::InvalidHingeMargin { margin } if margin == 0.0),
+        "{err:?}"
+    );
 }
 
 #[test]

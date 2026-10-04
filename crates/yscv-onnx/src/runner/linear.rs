@@ -17,9 +17,7 @@ pub(super) fn exec_gemm(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
     // Borrow-or-own pattern: avoid cloning when no transpose needed
     let a_owned;
     let a_ref: &Tensor = if trans_a {
-        a_owned = a.transpose_2d().map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        a_owned = a.transpose_2d()?;
         &a_owned
     } else {
         a
@@ -46,11 +44,7 @@ pub(super) fn exec_gemm(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
                 }
                 *o = s;
             }
-            let mut out = Tensor::from_vec(vec![1, n_out], out_data).map_err(|e| {
-                OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                }
-            })?;
+            let mut out = Tensor::from_vec(vec![1, n_out], out_data)?;
             if (alpha - 1.0).abs() > f32::EPSILON {
                 out = out.scale(alpha);
             }
@@ -60,9 +54,7 @@ pub(super) fn exec_gemm(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
                 } else {
                     std::borrow::Cow::Borrowed(c_tensor)
                 };
-                out = kernel_add(&out, &addend).map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+                out = kernel_add(&out, &addend)?;
             }
             env.insert(node.outputs[0].clone(), out);
             return Ok(());
@@ -71,17 +63,13 @@ pub(super) fn exec_gemm(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
 
     let b_owned;
     let b_ref: &Tensor = if trans_b {
-        b_owned = b.transpose_2d().map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        b_owned = b.transpose_2d()?;
         &b_owned
     } else {
         b
     };
 
-    let mut out = matmul_2d(a_ref, b_ref).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let mut out = matmul_2d(a_ref, b_ref)?;
 
     if (alpha - 1.0).abs() > f32::EPSILON {
         out = out.scale(alpha);
@@ -89,13 +77,9 @@ pub(super) fn exec_gemm(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
     if let Some(c_tensor) = c {
         if (beta_val - 1.0).abs() > f32::EPSILON {
             let scaled_c = c_tensor.scale(beta_val);
-            out = kernel_add(&out, &scaled_c).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+            out = kernel_add(&out, &scaled_c)?;
         } else {
-            out = kernel_add(&out, c_tensor).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+            out = kernel_add(&out, c_tensor)?;
         }
     }
     env.insert(node.outputs[0].clone(), out);
@@ -212,10 +196,7 @@ pub(super) fn exec_fused_transpose_matmul(
     let mut out_shape = out_batch;
     out_shape.push(m);
     out_shape.push(n);
-    let out =
-        Tensor::from_aligned(out_shape, out_aligned).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out = Tensor::from_aligned(out_shape, out_aligned)?;
     env.insert(matmul_node.outputs[0].clone(), out);
     Ok(())
 }
@@ -268,10 +249,7 @@ pub(super) fn exec_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
             }
             let mut out_shape: Vec<usize> = a_shape[..a_rank - 1].to_vec();
             out_shape.push(n);
-            let out =
-                Tensor::from_vec(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-                    message: e.to_string(),
-                })?;
+            let out = Tensor::from_vec(out_shape, out_data)?;
             env.insert(node.outputs[0].clone(), out);
             return Ok(());
         }
@@ -285,13 +263,10 @@ pub(super) fn exec_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
         let k = a.shape()[1];
         let n = b.shape()[1];
         if k != b.shape()[0] {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "MatMul {} shape mismatch: {:?} x {:?}",
-                    node.name,
-                    a.shape(),
-                    b.shape()
-                ),
+            return Err(OnnxError::IncompatibleShapes {
+                op: "MatMul",
+                left: a.shape().to_vec(),
+                right: b.shape().to_vec(),
             });
         }
         let mut out_data = vec![0.0_f32; m * n];
@@ -307,15 +282,11 @@ pub(super) fn exec_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
             yscv_kernels::ParallelMatmulConfig::default(),
             None,
         );
-        let out = Tensor::from_vec(vec![m, n], out_data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let out = Tensor::from_vec(vec![m, n], out_data)?;
         env.insert(node.outputs[0].clone(), out);
         return Ok(());
     } else if a.rank() <= 2 && b.rank() <= 2 {
-        let out = matmul_2d(a, b).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let out = matmul_2d(a, b)?;
         env.insert(node.outputs[0].clone(), out);
         return Ok(());
     }
@@ -401,9 +372,7 @@ pub(super) fn exec_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
     let mut out_shape = out_batch;
     out_shape.push(m);
     out_shape.push(n);
-    let out = Tensor::from_vec(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let out = Tensor::from_vec(out_shape, out_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -414,18 +383,14 @@ pub(super) fn exec_einsum(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
     if equation == "ij,jk->ik" && node.inputs.len() == 2 {
         let a = get_tensor(env, &node.name, &node.inputs[0])?;
         let b = get_tensor(env, &node.name, &node.inputs[1])?;
-        let result = yscv_kernels::matmul_2d(a, b).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let result = yscv_kernels::matmul_2d(a, b)?;
         env.insert(node.outputs[0].clone(), result);
         return Ok(());
     }
 
     if equation == "ij->ji" && node.inputs.len() == 1 {
         let a = get_tensor(env, &node.name, &node.inputs[0])?;
-        let result = a.transpose_2d().map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let result = a.transpose_2d()?;
         env.insert(node.outputs[0].clone(), result);
         return Ok(());
     }
@@ -467,11 +432,11 @@ pub(super) fn exec_qlinear_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Resul
             if packed.k() == k && packed.n() == n {
                 yscv_kernels::int8_matmul_prepacked_dispatch(&a_i8, packed, m, &mut acc);
             } else {
-                return Err(OnnxError::DecodeFailed {
-                    message: format!(
-                        "QLinearMatMul {}: prepacked weight shape mismatch",
-                        node.name
-                    ),
+                return Err(OnnxError::PrepackedShapeMismatch {
+                    op: "QLinearMatMul",
+                    node: node.name.clone(),
+                    expected: vec![k, n],
+                    got: vec![packed.k(), packed.n()],
                 });
             }
         } else {
@@ -483,9 +448,7 @@ pub(super) fn exec_qlinear_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Resul
             .iter()
             .map(|&v| ((v as f32) * composite + y_zp).round().clamp(-128.0, 127.0))
             .collect();
-        let out = Tensor::from_vec(vec![m, n], quant).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let out = Tensor::from_vec(vec![m, n], quant)?;
         env.insert(node.outputs[0].clone(), out);
         crate::runner::note_qlinear_matmul_fast();
         return Ok(());
@@ -495,14 +458,8 @@ pub(super) fn exec_qlinear_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Resul
     let deq_a: Vec<f32> = a.data().iter().map(|&v| (v - a_zp) * a_scale).collect();
     let deq_b: Vec<f32> = b.data().iter().map(|&v| (v - b_zp) * b_scale).collect();
 
-    let deq_a_t =
-        Tensor::from_vec(a.shape().to_vec(), deq_a).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-    let deq_b_t =
-        Tensor::from_vec(b.shape().to_vec(), deq_b).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let deq_a_t = Tensor::from_vec(a.shape().to_vec(), deq_a)?;
+    let deq_b_t = Tensor::from_vec(b.shape().to_vec(), deq_b)?;
 
     let float_node = OnnxNode {
         name: node.name.clone(),
@@ -528,11 +485,7 @@ pub(super) fn exec_qlinear_matmul(node: &OnnxNode, env: &mut TensorEnv) -> Resul
         .iter()
         .map(|&v| (v / y_scale + y_zp).round().clamp(-128.0, 127.0))
         .collect();
-    let out = Tensor::from_vec(float_out.shape().to_vec(), quant).map_err(|e| {
-        OnnxError::DecodeFailed {
-            message: e.to_string(),
-        }
-    })?;
+    let out = Tensor::from_vec(float_out.shape().to_vec(), quant)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -635,12 +588,7 @@ pub(super) fn exec_grouped_query_attention(
         }
     }
 
-    let out =
-        Tensor::from_vec(vec![batch, seq_q, num_q_heads * d_head], out_data).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: e.to_string(),
-            }
-        })?;
+    let out = Tensor::from_vec(vec![batch, seq_q, num_q_heads * d_head], out_data)?;
     env.insert(node.outputs[0].clone(), out);
     Ok(())
 }
@@ -679,11 +627,11 @@ pub(super) fn exec_matmul_integer(node: &OnnxNode, env: &mut TensorEnv) -> Resul
             if packed.k() == k && packed.n() == n {
                 yscv_kernels::int8_matmul_prepacked_dispatch(&a_i8, packed, m, &mut acc);
             } else {
-                return Err(OnnxError::DecodeFailed {
-                    message: format!(
-                        "MatMulInteger {}: prepacked weight shape mismatch",
-                        node.name
-                    ),
+                return Err(OnnxError::PrepackedShapeMismatch {
+                    op: "MatMulInteger",
+                    node: node.name.clone(),
+                    expected: vec![k, n],
+                    got: vec![packed.k(), packed.n()],
                 });
             }
         } else {
@@ -691,9 +639,7 @@ pub(super) fn exec_matmul_integer(node: &OnnxNode, env: &mut TensorEnv) -> Resul
             yscv_kernels::int8_matmul_dispatch(&a_i8, &b_i8, m, k, n, &mut acc);
         }
         let out_data: Vec<f32> = acc.iter().map(|&v| v as f32).collect();
-        let out = Tensor::from_vec(vec![m, n], out_data).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        let out = Tensor::from_vec(vec![m, n], out_data)?;
         env.insert(node.outputs[0].clone(), out);
         return Ok(());
     }
@@ -701,12 +647,8 @@ pub(super) fn exec_matmul_integer(node: &OnnxNode, env: &mut TensorEnv) -> Resul
     let deq_a: Vec<f32> = a.data().iter().map(|&v| v - a_zp).collect();
     let deq_b: Vec<f32> = b.data().iter().map(|&v| v - b_zp).collect();
 
-    let t_a = Tensor::from_vec(a.shape().to_vec(), deq_a).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
-    let t_b = Tensor::from_vec(b.shape().to_vec(), deq_b).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let t_a = Tensor::from_vec(a.shape().to_vec(), deq_a)?;
+    let t_b = Tensor::from_vec(b.shape().to_vec(), deq_b)?;
 
     let mm_node = OnnxNode {
         name: node.name.clone(),
@@ -728,10 +670,7 @@ pub(super) fn exec_matmul_integer(node: &OnnxNode, env: &mut TensorEnv) -> Resul
     env.remove("__mmi_b");
 
     let rounded: Vec<f32> = out.data().iter().map(|&v| v.round()).collect();
-    let result =
-        Tensor::from_vec(out.shape().to_vec(), rounded).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let result = Tensor::from_vec(out.shape().to_vec(), rounded)?;
     env.insert(node.outputs[0].clone(), result);
     Ok(())
 }

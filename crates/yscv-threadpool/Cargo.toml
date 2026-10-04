@@ -21,6 +21,7 @@ libc = "0.2"
 # via the `YSCV_POOL=rayon|yscv` env. Rayon is already a transitive dep
 # of yscv-kernels and yscv-onnx, so adding it here is free.
 rayon = "1.11"
+thiserror.workspace = true
 
 [lints]
 workspace = true

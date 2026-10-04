@@ -17,12 +17,15 @@ fn counting_computes_expected_errors() {
 #[test]
 fn counting_rejects_length_mismatch() {
     let err = evaluate_counts(&[1, 2], &[1]).unwrap_err();
-    assert_eq!(
-        err,
-        EvalError::CountLengthMismatch {
-            ground_truth: 2,
-            predictions: 1
-        }
+    assert!(
+        matches!(
+            err,
+            EvalError::CountLengthMismatch {
+                ground_truth: 2,
+                predictions: 1
+            }
+        ),
+        "{err:?}"
     );
 }
 

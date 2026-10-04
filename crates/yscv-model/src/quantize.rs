@@ -277,5 +277,5 @@ pub fn prune_magnitude(weights: &Tensor, sparsity: f32) -> Result<PrunedTensor, 
 
 /// Apply a binary mask to weights (element-wise multiply).
 pub fn apply_pruning_mask(weights: &Tensor, mask: &Tensor) -> Result<Tensor, ModelError> {
-    weights.mul(mask).map_err(ModelError::Tensor)
+    Ok(weights.mul(mask)?)
 }

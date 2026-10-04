@@ -143,8 +143,9 @@ impl RknnPipelinedPool {
     /// `submit` is hot-path memcpy + `rknn_run` (async) only.
     pub fn new(model_data: &[u8], cores: &[NpuCoreMask]) -> Result<Self, KernelError> {
         if cores.is_empty() {
-            return Err(KernelError::Rknn {
-                message: "RknnPipelinedPool: cores list must be non-empty".into(),
+            return Err(KernelError::RknnInvalidCall {
+                op: "RknnPipelinedPool::new",
+                reason: "cores list must be non-empty",
             });
         }
 
@@ -248,18 +249,28 @@ impl RknnPipelinedPool {
     /// Acquires write locks on the slot's `ctx` + `mem`; concurrent
     /// `submit` / `wait` on this slot block briefly.
     pub fn recover_failed(&self, slot_idx: usize) -> Result<(), KernelError> {
-        let slot = self.slots.get(slot_idx).ok_or_else(|| KernelError::Rknn {
-            message: format!(
-                "recover_failed: slot {slot_idx} out of range (pool size {})",
-                self.slots.len()
-            ),
-        })?;
-        let mut ctx = slot.ctx.write().map_err(|_| KernelError::Rknn {
-            message: format!("slot {slot_idx} ctx lock poisoned"),
-        })?;
-        let mut mem = slot.mem.write().map_err(|_| KernelError::Rknn {
-            message: format!("slot {slot_idx} mem lock poisoned"),
-        })?;
+        let slot = self
+            .slots
+            .get(slot_idx)
+            .ok_or(KernelError::RknnIndexOutOfRange {
+                what: "slot",
+                index: slot_idx,
+                len: self.slots.len(),
+            })?;
+        let mut ctx = slot
+            .ctx
+            .write()
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot ctx",
+                slot: Some(slot_idx),
+            })?;
+        let mut mem = slot
+            .mem
+            .write()
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot mem",
+                slot: Some(slot_idx),
+            })?;
 
         // Destroy old memory first — it's tied to the to-be-destroyed
         // context. Replacing the Vecs before `reset_with_flags` avoids
@@ -271,8 +282,9 @@ impl RknnPipelinedPool {
         let model_bytes = self
             .model_data
             .read()
-            .map_err(|_| KernelError::Rknn {
-                message: "model_data lock poisoned".into(),
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "model_data",
+                slot: None,
             })?
             .clone();
         ctx.reset_with_flags(&model_bytes, RKNN_FLAG_ASYNC_MASK)?;
@@ -331,9 +343,13 @@ impl RknnPipelinedPool {
         // Install the new bytes first so any concurrent `recover_failed`
         // mid-reload uses the fresh model.
         {
-            let mut slot = self.model_data.write().map_err(|_| KernelError::Rknn {
-                message: "model_data lock poisoned".into(),
-            })?;
+            let mut slot = self
+                .model_data
+                .write()
+                .map_err(|_| KernelError::RknnLockPoisoned {
+                    lock: "model_data",
+                    slot: None,
+                })?;
             *slot = Arc::new(new_model_data.to_vec());
         }
         // Walk every slot and recover it. Failures are best-effort:
@@ -359,10 +375,7 @@ impl RknnPipelinedPool {
     /// failure path. Non-recoverable errors are returned immediately
     /// with fail_streak reset (they're caller bugs, not NPU faults).
     fn handle_error(&self, slot_idx: usize, err: &KernelError) {
-        let recoverable = match err {
-            KernelError::Rknn { message } => is_recoverable_rknn_error(message),
-            _ => false,
-        };
+        let recoverable = is_recoverable_rknn_error(err);
         let slot = &self.slots[slot_idx];
         if !recoverable {
             slot.fail_streak.store(0, Ordering::Relaxed);
@@ -426,13 +439,15 @@ impl RknnPipelinedPool {
         let prev = slot
             .in_flight
             .lock()
-            .map_err(|_| KernelError::Rknn {
-                message: format!("slot {slot_idx} in-flight lock poisoned"),
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot in-flight",
+                slot: Some(slot_idx),
             })?
             .take();
         if let Some(frame) = prev {
-            let ctx = slot.ctx.read().map_err(|_| KernelError::Rknn {
-                message: format!("slot {slot_idx} ctx lock poisoned"),
+            let ctx = slot.ctx.read().map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot ctx",
+                slot: Some(slot_idx),
             })?;
             let _ = ctx.wait(frame)?;
         }
@@ -441,16 +456,21 @@ impl RknnPipelinedPool {
         // lock on `mem` serialises concurrent submits to the same slot
         // (should be rare — the `next` ring normally rotates first).
         {
-            let mut mem = slot.mem.write().map_err(|_| KernelError::Rknn {
-                message: format!("slot {slot_idx} mem lock poisoned"),
-            })?;
+            let mut mem = slot
+                .mem
+                .write()
+                .map_err(|_| KernelError::RknnLockPoisoned {
+                    lock: "slot mem",
+                    slot: Some(slot_idx),
+                })?;
             for &(name, data) in inputs {
                 let (_, mem_buf) =
                     mem.inputs
                         .iter_mut()
                         .find(|(n, _)| n == name)
-                        .ok_or_else(|| KernelError::Rknn {
-                            message: format!("input '{name}' not declared by slot"),
+                        .ok_or_else(|| KernelError::RknnUnknownTensor {
+                            what: "input",
+                            name: name.to_string(),
                         })?;
                 let cap = mem_buf.size() as usize;
                 // Require EXACT match between caller-supplied bytes and
@@ -458,13 +478,10 @@ impl RknnPipelinedPool {
                 // the previous frame's tail bytes in place — silent
                 // garbage. Over-size is obviously illegal.
                 if data.len() != cap {
-                    return Err(KernelError::Rknn {
-                        message: format!(
-                            "input '{name}': {} bytes but the model expects exactly {} \
-                             (check your pre-processing matches the .rknn's input shape/dtype)",
-                            data.len(),
-                            cap
-                        ),
+                    return Err(KernelError::RknnInputSize {
+                        name: name.to_string(),
+                        expected: cap,
+                        got: data.len(),
                     });
                 }
                 // SAFETY: the previous in-flight frame for this slot was
@@ -477,15 +494,20 @@ impl RknnPipelinedPool {
 
         // Fire the NPU.
         let frame = {
-            let ctx = slot.ctx.read().map_err(|_| KernelError::Rknn {
-                message: format!("slot {slot_idx} ctx lock poisoned"),
+            let ctx = slot.ctx.read().map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot ctx",
+                slot: Some(slot_idx),
             })?;
             ctx.run_async_bound(slot_idx as u64, 0)?
         };
 
-        *slot.in_flight.lock().map_err(|_| KernelError::Rknn {
-            message: format!("slot {slot_idx} in-flight lock poisoned"),
-        })? = Some(frame);
+        *slot
+            .in_flight
+            .lock()
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot in-flight",
+                slot: Some(slot_idx),
+            })? = Some(frame);
 
         Ok(RknnInferenceHandle { slot_idx })
     }
@@ -515,18 +537,15 @@ impl RknnPipelinedPool {
         let frame = slot
             .in_flight
             .lock()
-            .map_err(|_| KernelError::Rknn {
-                message: format!("slot {slot_idx} in-flight lock poisoned"),
+            .map_err(|_| KernelError::RknnLockPoisoned {
+                lock: "slot in-flight",
+                slot: Some(slot_idx),
             })?
             .take()
-            .ok_or_else(|| KernelError::Rknn {
-                message: format!(
-                    "slot {slot_idx} has no pending frame — handle already waited on \
-                     or slot was reused by a later submit"
-                ),
-            })?;
-        let ctx = slot.ctx.read().map_err(|_| KernelError::Rknn {
-            message: format!("slot {slot_idx} ctx lock poisoned"),
+            .ok_or(KernelError::RknnNoPendingFrame { slot: slot_idx })?;
+        let ctx = slot.ctx.read().map_err(|_| KernelError::RknnLockPoisoned {
+            lock: "slot ctx",
+            slot: Some(slot_idx),
         })?;
         ctx.wait(frame)
     }
@@ -545,15 +564,19 @@ impl RknnPipelinedPool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::rknn::consts::{
+        RKNN_ERR_CTX_INVALID, RKNN_ERR_DEVICE_UNAVAILABLE, RKNN_ERR_DEVICE_UNMATCH,
+        RKNN_ERR_INPUT_INVALID, RKNN_ERR_MODEL_INVALID, RKNN_ERR_TIMEOUT,
+    };
 
     #[test]
     fn pool_fails_on_empty_cores() {
         match RknnPipelinedPool::new(b"fake model bytes", &[]) {
             Ok(_) => panic!("pool should reject empty core list"),
-            Err(KernelError::Rknn { message }) => {
+            Err(KernelError::RknnInvalidCall { reason, .. }) => {
                 assert!(
-                    message.contains("cores list must be non-empty"),
-                    "unexpected error message: {message}"
+                    reason.contains("cores list must be non-empty"),
+                    "unexpected error reason: {reason}"
                 );
             }
             Err(other) => panic!("unexpected error variant: {other:?}"),
@@ -566,8 +589,8 @@ mod tests {
         // `RknnBackend::load_with_flags` propagates the dlopen failure.
         match RknnPipelinedPool::new(b"fake", &[NpuCoreMask::Core0]) {
             Ok(_) => panic!("pool should fail to load on non-Rockchip hosts"),
-            Err(KernelError::Rknn { .. }) => {}
-            Err(other) => panic!("expected Rknn error, got {other:?}"),
+            Err(KernelError::RknnLibraryUnavailable { .. } | KernelError::RknnCall { .. }) => {}
+            Err(other) => panic!("expected an RKNN load error, got {other:?}"),
         }
     }
 
@@ -579,21 +602,35 @@ mod tests {
 
     #[test]
     fn is_recoverable_rknn_error_classifies_known_codes() {
-        // Sanity check on the string contract used by `handle_error`.
-        assert!(is_recoverable_rknn_error(
-            "rknn_wait failed: TIMEOUT (-14) — frame 0 after 2000ms"
-        ));
-        assert!(is_recoverable_rknn_error(
-            "rknn_run failed: CTX_INVALID (-5)"
-        ));
-        assert!(is_recoverable_rknn_error(
-            "rknn_run failed: DEVICE_UNAVAILABLE (-3)"
-        ));
+        // Sanity check on the status contract used by `handle_error`.
+        let call = |func, status| KernelError::RknnCall { func, status };
+        assert!(is_recoverable_rknn_error(&KernelError::RknnWait {
+            status: RKNN_ERR_TIMEOUT,
+            frame_id: 0,
+            elapsed: std::time::Duration::from_millis(2000),
+        }));
+        assert!(is_recoverable_rknn_error(&call(
+            "rknn_run",
+            RKNN_ERR_CTX_INVALID
+        )));
+        assert!(is_recoverable_rknn_error(&call(
+            "rknn_run",
+            RKNN_ERR_DEVICE_UNAVAILABLE
+        )));
+        assert!(is_recoverable_rknn_error(&call(
+            "rknn_run",
+            RKNN_ERR_DEVICE_UNMATCH
+        )));
+        assert!(!is_recoverable_rknn_error(&call(
+            "rknn_inputs_set",
+            RKNN_ERR_INPUT_INVALID
+        )));
+        assert!(!is_recoverable_rknn_error(&call(
+            "rknn_init",
+            RKNN_ERR_MODEL_INVALID
+        )));
         assert!(!is_recoverable_rknn_error(
-            "rknn_inputs_set failed: INPUT_INVALID (-8)"
-        ));
-        assert!(!is_recoverable_rknn_error(
-            "rknn_init failed: MODEL_INVALID (-6)"
+            &KernelError::RknnNoPendingFrame { slot: 0 }
         ));
     }
 }

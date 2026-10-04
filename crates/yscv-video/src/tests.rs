@@ -37,7 +37,10 @@ fn frame_new_rejects_invalid_shape() {
         Tensor::from_vec(vec![4], vec![1.0, 2.0, 3.0, 4.0]).unwrap(),
     )
     .unwrap_err();
-    assert_eq!(err, VideoError::InvalidFrameShape { got: vec![4] });
+    assert!(
+        matches!(err, VideoError::InvalidFrameShape { ref got } if *got == vec![4]),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -85,7 +88,7 @@ struct FailingSource;
 
 impl FrameSource for FailingSource {
     fn next_frame(&mut self) -> Result<Option<Frame>, VideoError> {
-        Err(VideoError::Source("boom".to_string()))
+        Err(VideoError::Unavailable { what: "boom" })
     }
 }
 
@@ -93,7 +96,10 @@ impl FrameSource for FailingSource {
 fn frame_stream_propagates_source_errors() {
     let mut stream = FrameStream::new(FailingSource);
     let err = stream.try_next().unwrap_err();
-    assert_eq!(err, VideoError::Source("boom".to_string()));
+    assert!(
+        matches!(err, VideoError::Unavailable { what } if what == "boom"),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -106,12 +112,15 @@ fn camera_config_validation_rejects_invalid_values() {
     }
     .validate()
     .unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::InvalidCameraResolution {
-            width: 0,
-            height: 480
-        }
+    assert!(
+        matches!(
+            err,
+            VideoError::InvalidCameraResolution {
+                width: 0,
+                height: 480
+            }
+        ),
+        "{err:?}"
     );
 
     let err = CameraConfig {
@@ -122,7 +131,10 @@ fn camera_config_validation_rejects_invalid_values() {
     }
     .validate()
     .unwrap_err();
-    assert_eq!(err, VideoError::InvalidCameraFps { fps: 0 });
+    assert!(
+        matches!(err, VideoError::InvalidCameraFps { fps: 0 }),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -140,12 +152,15 @@ fn rgb8_bytes_to_frame_normalizes_values() {
 #[test]
 fn rgb8_bytes_to_frame_rejects_wrong_buffer_size() {
     let err = rgb8_bytes_to_frame(0, 0, 2, 2, &[1, 2, 3]).unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::RawFrameSizeMismatch {
-            expected: 12,
-            got: 3
-        }
+    assert!(
+        matches!(
+            err,
+            VideoError::RawFrameSizeMismatch {
+                expected: 12,
+                got: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -159,12 +174,15 @@ fn rgb8_frame_new_validates_raw_buffer_size() {
     assert_eq!(frame.data(), &[10, 20, 30, 40, 50, 60]);
 
     let err = Rgb8Frame::new(0, 0, 2, 2, vec![1, 2, 3]).unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::RawFrameSizeMismatch {
-            expected: 12,
-            got: 3
-        }
+    assert!(
+        matches!(
+            err,
+            VideoError::RawFrameSizeMismatch {
+                expected: 12,
+                got: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -196,12 +214,15 @@ fn rgb8_bytes_to_frame_handles_vectorized_and_tail_segments() {
 fn normalize_rgb8_to_f32_inplace_rejects_buffer_size_mismatch() {
     let mut out = vec![0.0f32; 2];
     let err = normalize_rgb8_to_f32_inplace(&[1, 2, 3], &mut out).unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::NormalizedBufferSizeMismatch {
-            expected: 3,
-            got: 2,
-        }
+    assert!(
+        matches!(
+            err,
+            VideoError::NormalizedBufferSizeMismatch {
+                expected: 3,
+                got: 2
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -269,15 +290,18 @@ fn select_camera_device_rejects_ambiguous_query() {
         },
     ];
     let err = select_camera_device(&devices, "sensor").unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::CameraDeviceAmbiguous {
-            query: "sensor".to_string(),
-            matches: vec![
-                "2: Front Sensor".to_string(),
-                "3: Studio Sensor".to_string(),
-            ],
-        }
+    assert!(
+        matches!(
+            err,
+            VideoError::CameraDeviceAmbiguous { ref query, ref matches }
+                if query == "sensor"
+                    && *matches
+                        == vec![
+                            "2: Front Sensor".to_string(),
+                            "3: Studio Sensor".to_string(),
+                        ]
+        ),
+        "{err:?}"
     );
 }
 
@@ -288,11 +312,9 @@ fn select_camera_device_rejects_unknown_query() {
         label: "Laptop Camera".to_string(),
     }];
     let err = select_camera_device(&devices, "external").unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::CameraDeviceNotFound {
-            query: "external".to_string()
-        }
+    assert!(
+        matches!(err, VideoError::CameraDeviceNotFound { ref query } if query == "external"),
+        "{err:?}"
     );
 }
 
@@ -303,11 +325,9 @@ fn select_camera_device_rejects_empty_query() {
         label: "Laptop Camera".to_string(),
     }];
     let err = select_camera_device(&devices, "   ").unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::InvalidCameraDeviceQuery {
-            query: "   ".to_string()
-        }
+    assert!(
+        matches!(err, VideoError::InvalidCameraDeviceQuery { ref query } if query == "   "),
+        "{err:?}"
     );
 }
 
@@ -383,11 +403,9 @@ fn filter_camera_devices_rejects_empty_query() {
         label: "Laptop Camera".to_string(),
     }];
     let err = filter_camera_devices(&devices, "   ").unwrap_err();
-    assert_eq!(
-        err,
-        VideoError::InvalidCameraDeviceQuery {
-            query: "   ".to_string(),
-        }
+    assert!(
+        matches!(err, VideoError::InvalidCameraDeviceQuery { ref query } if query == "   "),
+        "{err:?}"
     );
 }
 
@@ -427,11 +445,11 @@ fn filter_camera_devices_returns_sorted_unique_matches() {
 #[test]
 fn camera_source_returns_disabled_error_without_feature() {
     let err = CameraFrameSource::open(CameraConfig::default()).unwrap_err();
-    assert_eq!(err, VideoError::CameraBackendDisabled);
+    assert!(matches!(err, VideoError::CameraBackendDisabled), "{err:?}");
 
     let mut source = CameraFrameSource;
     let err = source.next_frame().unwrap_err();
-    assert_eq!(err, VideoError::CameraBackendDisabled);
+    assert!(matches!(err, VideoError::CameraBackendDisabled), "{err:?}");
 }
 
 // ── Raw video I/O tests ────────────────────────────────────────────

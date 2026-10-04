@@ -171,11 +171,14 @@ fn detect_people_from_rgb8_with_scratch_reuses_buffer_for_resized_frames() {
 #[test]
 fn detect_people_from_rgb8_rejects_invalid_buffer_size() {
     let err = detect_people_from_rgb8(2, 2, &[1, 2, 3], 0.5, 2, 0.4, 4).unwrap_err();
-    assert_eq!(
-        err,
-        DetectError::InvalidRgb8BufferSize {
-            expected: 12,
-            got: 3
-        }
+    assert!(
+        matches!(
+            err,
+            DetectError::InvalidRgb8BufferSize {
+                expected: 12,
+                got: 3
+            }
+        ),
+        "{err:?}"
     );
 }

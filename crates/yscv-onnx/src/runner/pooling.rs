@@ -20,10 +20,7 @@ pub(super) fn exec_max_pool(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
             pads[1] as usize,
             pads[2] as usize,
             pads[3] as usize,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
         env.insert(node.outputs[0].clone(), result);
         return Ok(());
     }
@@ -55,10 +52,7 @@ pub(super) fn exec_max_pool(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
         kernel_shape[1] as usize,
         strides[0] as usize,
         strides[1] as usize,
-    )
-    .map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    )?;
     env.insert(node.outputs[0].clone(), out_nhwc);
     env.mark_nhwc(&node.outputs[0]);
     Ok(())
@@ -83,10 +77,7 @@ pub(super) fn exec_avg_pool(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
             pads[1] as usize,
             pads[2] as usize,
             pads[3] as usize,
-        )
-        .map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+        )?;
         env.insert(node.outputs[0].clone(), result);
         return Ok(());
     }
@@ -117,10 +108,7 @@ pub(super) fn exec_avg_pool(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), 
         kernel_shape[1] as usize,
         strides[0] as usize,
         strides[1] as usize,
-    )
-    .map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    )?;
     env.insert(node.outputs[0].clone(), out_nhwc);
     env.mark_nhwc(&node.outputs[0]);
     Ok(())
@@ -144,10 +132,7 @@ pub(super) fn exec_global_avg_pool(node: &OnnxNode, env: &mut TensorEnv) -> Resu
                 out.push(sum / hw_f);
             }
         }
-        let result =
-            Tensor::from_vec(vec![n, c, 1, 1], out).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let result = Tensor::from_vec(vec![n, c, 1, 1], out)?;
         env.insert(node.outputs[0].clone(), result);
         // Output stays NCHW
         return Ok(());
@@ -165,10 +150,7 @@ pub(super) fn exec_global_avg_pool(node: &OnnxNode, env: &mut TensorEnv) -> Resu
         input_nhwc_owned = nchw_to_nhwc(input)?;
         &input_nhwc_owned
     };
-    let out_nhwc =
-        avg_pool2d_nhwc(input_nhwc, h, w, 1, 1).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
+    let out_nhwc = avg_pool2d_nhwc(input_nhwc, h, w, 1, 1)?;
     env.insert(node.outputs[0].clone(), out_nhwc);
     env.mark_nhwc(&node.outputs[0]);
     Ok(())

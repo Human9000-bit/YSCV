@@ -262,3 +262,48 @@ fn onnx_dynamic_quantize_linear() {
         assert!((0.0..=255.0).contains(&v));
     }
 }
+
+/// A CPU node failure comes back tagged with the failing node exactly once:
+/// `AtNode` around the op's own typed error, never `AtNode` around `AtNode`.
+#[test]
+fn node_error_is_tagged_with_its_node_once() {
+    let input = Tensor::from_vec(vec![2, 3], vec![0.0; 6]).unwrap();
+    let indices = Tensor::from_vec(vec![1], vec![0.0]).unwrap();
+    let axis = onnx::AttributeProto {
+        name: Some("axis".into()),
+        r#type: Some(2),
+        i: Some(5),
+        ..Default::default()
+    };
+    let node = onnx::NodeProto {
+        op_type: Some("Gather".into()),
+        name: Some("gather0".into()),
+        input: vec!["data".into(), "indices".into()],
+        output: vec!["y".into()],
+        attribute: vec![axis],
+        ..Default::default()
+    };
+    let bytes = build_minimal_onnx_model(vec![node], vec![], vec!["data", "indices"], vec!["y"]);
+    let model = load_onnx_model(&bytes).unwrap();
+    let mut feed = FxHashMap::default();
+    feed.insert("data".to_string(), input);
+    feed.insert("indices".to_string(), indices);
+    let err = run_onnx_model(&model, feed).unwrap_err();
+    assert!(
+        matches!(
+            &err,
+            crate::OnnxError::AtNode { node, op_type, source }
+                if node == "gather0"
+                    && op_type == "Gather"
+                    && matches!(
+                        **source,
+                        crate::OnnxError::AxisOutOfRange { op: "Gather", axis: 5, rank: 2 }
+                    )
+        ),
+        "{err:?}"
+    );
+    assert_eq!(
+        err.to_string(),
+        "node gather0 (Gather): Gather axis 5 out of range for a rank-2 input"
+    );
+}

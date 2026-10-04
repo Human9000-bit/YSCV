@@ -386,7 +386,7 @@ methodology + reproduction commands.
 
 ## Troubleshooting
 
-### "compile_mpsgraph_plan failed: unsupported op 'X'"
+### "node N (X): unsupported ONNX op type: X"
 
 MPSGraph doesn't support that op. Options:
 1. Check the op name in the error — sometimes it's a fixable metadata

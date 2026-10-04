@@ -90,7 +90,10 @@ fn tracking_rejects_invalid_iou_threshold() {
         },
     )
     .unwrap_err();
-    assert_eq!(err, EvalError::InvalidIouThreshold { value: -0.1 });
+    assert!(
+        matches!(err, EvalError::InvalidIouThreshold { value } if value == -0.1),
+        "{err:?}"
+    );
 }
 
 #[test]

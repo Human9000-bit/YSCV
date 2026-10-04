@@ -126,19 +126,24 @@ pub fn quantize_weights_int4(model: &mut OnnxModel) -> Result<(), OnnxError> {
         // Note: `pack_int4(&quantized_i8)` can be used for serialization to
         // ONNX files with packed INT4 format.
         let quant_data: Vec<f32> = quantized_i8.iter().map(|&v| v as f32).collect();
-        let quant_tensor =
-            Tensor::from_vec(shape.to_vec(), quant_data).map_err(|e| OnnxError::DecodeFailed {
-                message: format!("failed to create quantized tensor for {name}: {e}"),
-            })?;
+        let quant_tensor = Tensor::from_vec(shape.to_vec(), quant_data).map_err(|source| {
+            OnnxError::BuildTensor {
+                name: name.clone(),
+                what: "quantized",
+                source,
+            }
+        })?;
 
         let quant_name = format!("{name}_int4");
         new_initializers.insert(quant_name.clone(), quant_tensor);
 
         // Create per-channel scale tensor
         let scale_name = format!("{name}_scale");
-        let scale_tensor = Tensor::from_vec(vec![channels], scales.clone()).map_err(|e| {
-            OnnxError::DecodeFailed {
-                message: format!("failed to create scale tensor for {name}: {e}"),
+        let scale_tensor = Tensor::from_vec(vec![channels], scales.clone()).map_err(|source| {
+            OnnxError::BuildTensor {
+                name: name.clone(),
+                what: "scale",
+                source,
             }
         })?;
         new_initializers.insert(scale_name.clone(), scale_tensor);
@@ -147,8 +152,10 @@ pub fn quantize_weights_int4(model: &mut OnnxModel) -> Result<(), OnnxError> {
         let zp_name = format!("{name}_zero_point");
         let zp_data: Vec<f32> = zero_points.iter().map(|&v| v as f32).collect();
         let zp_tensor =
-            Tensor::from_vec(vec![channels], zp_data).map_err(|e| OnnxError::DecodeFailed {
-                message: format!("failed to create zero_point tensor for {name}: {e}"),
+            Tensor::from_vec(vec![channels], zp_data).map_err(|source| OnnxError::BuildTensor {
+                name: name.clone(),
+                what: "zero_point",
+                source,
             })?;
         new_initializers.insert(zp_name.clone(), zp_tensor);
 

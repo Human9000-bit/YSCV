@@ -17,7 +17,7 @@ use yscv_track::{TrackedDetection, Tracker, TrackerConfig};
 use yscv_video::FrameStream;
 
 use crate::benchmark::{BenchmarkCollector, format_benchmark_report, format_benchmark_violations};
-use crate::config::{CliConfig, CliError, DetectTarget, resolve_detect_config};
+use crate::config::{CliConfig, DetectTarget, resolve_detect_config};
 use crate::error::AppError;
 use crate::event_log::JsonlEventWriter;
 use crate::source::{build_source, open_camera_source};
@@ -381,7 +381,7 @@ fn finalize_benchmark(
                     path.display(),
                     format_benchmark_violations(&violations)
                 );
-                return Err(CliError::Message("benchmark regression detected".to_string()).into());
+                return Err(AppError::BenchmarkRegression);
             }
         }
         if let Some(path) = cli.benchmark_report_path.as_deref() {

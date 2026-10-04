@@ -8,6 +8,7 @@
 use rustc_hash::FxHashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::Arc;
 
 use crate::ModelError;
 use crate::load_state_dict;
@@ -211,9 +212,8 @@ impl ModelHub {
         let entry = self
             .registry
             .get(name)
-            .ok_or_else(|| ModelError::DownloadFailed {
-                url: name.to_string(),
-                reason: format!("model '{name}' is not in the hub registry"),
+            .ok_or_else(|| ModelError::UnknownHubModel {
+                name: name.to_string(),
             })?;
 
         let dest = self.cache_dir.join(&entry.filename);
@@ -225,12 +225,9 @@ impl ModelHub {
         }
 
         // Ensure cache directory exists.
-        std::fs::create_dir_all(&self.cache_dir).map_err(|e| ModelError::DownloadFailed {
-            url: entry.url.clone(),
-            reason: format!(
-                "failed to create cache dir {}: {e}",
-                self.cache_dir.display()
-            ),
+        std::fs::create_dir_all(&self.cache_dir).map_err(|source| ModelError::Io {
+            path: self.cache_dir.clone(),
+            source: Arc::new(source),
         })?;
 
         // Download with curl.
@@ -239,18 +236,18 @@ impl ModelHub {
             .arg(&dest)
             .arg(&entry.url)
             .output()
-            .map_err(|e| ModelError::DownloadFailed {
-                url: entry.url.clone(),
-                reason: format!("failed to run curl: {e}"),
+            .map_err(|source| ModelError::Io {
+                path: PathBuf::from("curl"),
+                source: Arc::new(source),
             })?;
 
         if !output.status.success() {
             // Clean up partial file.
             let _ = std::fs::remove_file(&dest);
-            let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(ModelError::DownloadFailed {
                 url: entry.url.clone(),
-                reason: format!("curl exited with {}: {stderr}", output.status),
+                status: output.status,
+                stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
             });
         }
 
@@ -277,15 +274,16 @@ impl Default for ModelHub {
 // ---------------------------------------------------------------------------
 
 fn validate_file_size(path: &Path, expected: u64) -> Result<(), ModelError> {
-    let meta = std::fs::metadata(path).map_err(|e| ModelError::DownloadFailed {
-        url: path.display().to_string(),
-        reason: format!("cannot stat downloaded file: {e}"),
+    let meta = std::fs::metadata(path).map_err(|source| ModelError::Io {
+        path: path.to_path_buf(),
+        source: Arc::new(source),
     })?;
     let actual = meta.len();
     if actual != expected {
-        return Err(ModelError::DownloadFailed {
-            url: path.display().to_string(),
-            reason: format!("file size mismatch: expected {expected} bytes, got {actual} bytes"),
+        return Err(ModelError::FileSizeMismatch {
+            path: path.to_path_buf(),
+            expected,
+            actual,
         });
     }
     Ok(())

@@ -18,26 +18,21 @@ fn detection_dataset_jsonl_parses_and_evaluates() {
 #[test]
 fn detection_dataset_jsonl_rejects_bad_line() {
     let err = parse_detection_dataset_jsonl("{bad json}").unwrap_err();
-    match err {
-        EvalError::InvalidDatasetEntry { line, message } => {
-            assert_eq!(line, 1);
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::InvalidDatasetEntry { line: 1, source } if source.is_syntax()),
+        "{err:?}"
+    );
 }
 
 #[test]
 fn load_detection_dataset_jsonl_reports_io_errors() {
     let missing = PathBuf::from("benchmarks/__missing_detection_dataset__.jsonl");
     let err = load_detection_dataset_jsonl_file(&missing).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -81,13 +76,16 @@ fn detection_dataset_coco_rejects_unknown_image_reference() {
         ]
     "#;
     let err = parse_detection_dataset_coco(ground_truth, predictions).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "coco");
-            assert!(message.contains("unknown image_id 99"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "coco",
+                source: DatasetFormatError::UnknownImageId { record: "prediction", index: 0, id },
+            } if id == "99"
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -100,13 +98,20 @@ fn detection_dataset_coco_rejects_negative_bbox_size() {
     "#;
     let predictions = "[]";
     let err = parse_detection_dataset_coco(ground_truth, predictions).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "coco");
-            assert!(message.contains("negative bbox size"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "coco",
+                source: DatasetFormatError::InvalidBox {
+                    record: "annotation",
+                    index: 0,
+                    reason: "negative bbox size"
+                },
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -114,13 +119,11 @@ fn load_detection_dataset_coco_reports_io_errors() {
     let missing_gt = PathBuf::from("benchmarks/__missing_detection_coco_gt__.json");
     let pred = PathBuf::from("benchmarks/eval-detection-coco-pred-sample.json");
     let err = load_detection_dataset_coco_files(&missing_gt, &pred).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_gt.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_gt && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -160,13 +163,20 @@ fn detection_dataset_openimages_csv_rejects_invalid_bbox() {
     let predictions =
         "ImageID,LabelName,Score,XMin,XMax,YMin,YMax\nframe0,/m/person,0.9,0.2,0.4,0.0,0.2\n";
     let err = parse_detection_dataset_openimages_csv(ground_truth, predictions).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "openimages");
-            assert!(message.contains("expected XMax>XMin and YMax>YMin"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "openimages",
+                source: DatasetFormatError::InvalidBox {
+                    record: "ground-truth row",
+                    index: 2,
+                    reason: "expected XMax>XMin and YMax>YMin"
+                },
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -174,13 +184,11 @@ fn load_detection_dataset_openimages_reports_io_errors() {
     let missing_gt = workspace_path("benchmarks/__missing_eval_detection_openimages_gt__.csv");
     let pred_path = workspace_path("benchmarks/eval-detection-openimages-pred-sample.csv");
     let err = load_detection_dataset_openimages_csv_files(&missing_gt, &pred_path).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_gt.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_gt && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -203,13 +211,21 @@ fn detection_dataset_yolo_label_dirs_rejects_invalid_manifest() {
     let gt_dir = workspace_path("benchmarks/eval-detection-yolo-gt");
     let pred_dir = workspace_path("benchmarks/eval-detection-yolo-pred");
     let err = load_detection_dataset_yolo_label_dirs(&manifest, &gt_dir, &pred_dir).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "yolo");
-            assert!(message.contains("must be > 0"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "yolo",
+                source: DatasetFormatError::OutOfRange {
+                    record: "manifest line",
+                    index: 1,
+                    field: "width",
+                    expected: "> 0"
+                },
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -220,13 +236,11 @@ fn detection_dataset_yolo_label_dirs_reports_manifest_io_error() {
     let pred_dir = workspace_path("benchmarks/eval-detection-yolo-pred");
     let err =
         load_detection_dataset_yolo_label_dirs(&missing_manifest, &gt_dir, &pred_dir).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_manifest.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_manifest && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -249,13 +263,17 @@ fn detection_dataset_voc_xml_dirs_rejects_invalid_bbox() {
     let gt_dir = workspace_path("benchmarks/eval-detection-voc-gt-invalid");
     let pred_dir = workspace_path("benchmarks/eval-detection-voc-pred");
     let err = load_detection_dataset_voc_xml_dirs(&manifest, &gt_dir, &pred_dir).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "voc");
-            assert!(message.contains("expected xmax>xmin and ymax>ymin"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFile {
+                format: "voc",
+                path,
+                source: DatasetFormatError::InvalidBox { record: "object", index: 0, reason: "expected xmax>xmin and ymax>ymin" },
+            } if path.ends_with("frame_bad.xml")
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -265,13 +283,11 @@ fn detection_dataset_voc_xml_dirs_reports_manifest_io_error() {
     let pred_dir = workspace_path("benchmarks/eval-detection-voc-pred");
     let err =
         load_detection_dataset_voc_xml_dirs(&missing_manifest, &gt_dir, &pred_dir).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_manifest.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_manifest && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -294,13 +310,17 @@ fn detection_dataset_kitti_label_dirs_rejects_invalid_bbox() {
     let gt_dir = workspace_path("benchmarks/eval-detection-kitti-gt-invalid");
     let pred_dir = workspace_path("benchmarks/eval-detection-kitti-pred");
     let err = load_detection_dataset_kitti_label_dirs(&manifest, &gt_dir, &pred_dir).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "kitti");
-            assert!(message.contains("expected bbox_right>bbox_left and bbox_bottom>bbox_top"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFile {
+                format: "kitti",
+                path,
+                source: DatasetFormatError::InvalidBox { record: "ground-truth line", index: 1, reason: "expected bbox_right>bbox_left and bbox_bottom>bbox_top" },
+            } if path.ends_with("frame_bad.txt")
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -311,13 +331,11 @@ fn detection_dataset_kitti_label_dirs_reports_manifest_io_error() {
     let pred_dir = workspace_path("benchmarks/eval-detection-kitti-pred");
     let err =
         load_detection_dataset_kitti_label_dirs(&missing_manifest, &gt_dir, &pred_dir).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_manifest.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_manifest && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -366,13 +384,16 @@ fn detection_dataset_widerface_rejects_unknown_prediction_image() {
     let ground_truth = "img_0.jpg\n0\n";
     let predictions = "img_1.jpg\n1\n1 1 1 1 0.9\n";
     let err = parse_detection_dataset_widerface(ground_truth, predictions).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "widerface");
-            assert!(message.contains("unknown image id"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "widerface",
+                source: DatasetFormatError::UnknownImageId { record: "prediction line", index: 1, id },
+            } if id == "img_1.jpg"
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -380,13 +401,20 @@ fn detection_dataset_widerface_rejects_invalid_bbox_size() {
     let ground_truth = "img_0.jpg\n1\n10 20 0 10 0 0 0 0 0 0\n";
     let predictions = "img_0.jpg\n0\n";
     let err = parse_detection_dataset_widerface(ground_truth, predictions).unwrap_err();
-    match err {
-        EvalError::InvalidDatasetFormat { format, message } => {
-            assert_eq!(format, "widerface");
-            assert!(message.contains("`w` and `h` must be > 0"));
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(
+            &err,
+            EvalError::InvalidDatasetFormat {
+                format: "widerface",
+                source: DatasetFormatError::InvalidBox {
+                    record: "ground-truth line",
+                    index: 3,
+                    reason: "`w` and `h` must be > 0"
+                },
+            }
+        ),
+        "{err:?}"
+    );
 }
 
 #[test]
@@ -394,11 +422,9 @@ fn load_detection_dataset_widerface_reports_io_errors() {
     let missing_gt = workspace_path("benchmarks/__missing_eval_detection_widerface_gt__.txt");
     let pred_path = workspace_path("benchmarks/eval-detection-widerface-pred-sample.txt");
     let err = load_detection_dataset_widerface_files(&missing_gt, &pred_path).unwrap_err();
-    match err {
-        EvalError::DatasetIo { path, message } => {
-            assert_eq!(path, missing_gt.display().to_string());
-            assert!(!message.is_empty());
-        }
-        other => panic!("unexpected error: {other:?}"),
-    }
+    assert!(
+        matches!(&err, EvalError::DatasetIo { path, source }
+            if *path == missing_gt && source.kind() == std::io::ErrorKind::NotFound),
+        "{err:?}"
+    );
 }

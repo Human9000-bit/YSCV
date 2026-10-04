@@ -262,7 +262,7 @@ impl ResidualBlock {
         for layer in &self.layers {
             current = layer.forward_inference(&current)?;
         }
-        current.add(input).map_err(ModelError::Tensor)
+        Ok(current.add(input)?)
     }
 
     /// Graph-mode forward: passes `input` through all inner layers, then adds skip connection.

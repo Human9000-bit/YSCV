@@ -56,6 +56,12 @@ This page defines currently supported training/evaluation dataset formats and th
   - API: `parse_detection_dataset_widerface`, `load_detection_dataset_widerface_files`
   - CLI: `--eval-detection-widerface-gt <path>` + `--eval-detection-widerface-pred <path>`
 
+## Evaluation Adapter Errors
+- Unreadable files: `EvalError::DatasetIo { path, source }`.
+- Malformed JSONL lines: `EvalError::InvalidDatasetEntry { line, source }`.
+- Every other validation failure is a typed `DatasetFormatError` (field count, parse failure, out-of-range value, invalid bbox, duplicate/unknown image id, missing header/field, CSV/XML/JSON syntax) wrapped in `EvalError::InvalidDatasetFormat { format, source }`, or in `EvalError::InvalidDatasetFile { format, path, source }` when it came from a per-image YOLO/VOC/KITTI label file.
+- Each record-level `DatasetFormatError` names the record kind (`"ground-truth line"`, `"prediction row"`, `"object"`, `"annotation"`, ...) and its `index` (1-based line/row, 0-based JSON entry or XML object).
+
 ## COCO Detection Mapping
 - Ground truth input: standard COCO object with `images[]` and `annotations[]`.
 - Prediction input: COCO detection results list (`[]`) with `image_id`, `category_id`, `bbox`, `score`.

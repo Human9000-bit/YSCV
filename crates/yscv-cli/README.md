@@ -46,6 +46,16 @@ native-camera = []  # Live camera input
 
 JSON-based config for thresholds, model paths, and pipeline options.
 
+## Errors
+
+`CliConfig::parse_from` returns a typed `CliError`: `UnknownArgument`,
+`MissingValue`, `ParseInt` / `ParseFloat` (holding the std parse error),
+`InvalidDetectTarget`, `Empty`, `NotPositive`, `OutOfRange { min, max }`,
+`Negative`, `Conflict` / `Requires` / `Incomplete` for flag combinations,
+plus `HelpRequested`. Flag names are `&'static str`. Run-time failures
+(`DeviceNotFound`, `DiagnosticsValidationFailed`, `BenchmarkRegression`,
+…) are `AppError` variants next to the wrapped library errors.
+
 ## Tests
 
 42 tests covering config parsing, pipeline setup, evaluation output.

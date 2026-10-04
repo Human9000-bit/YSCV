@@ -90,9 +90,7 @@ pub(super) fn convert_tensor_proto(tp: &onnx::TensorProto) -> Result<Tensor, Onn
     // scalar, not a 1-D tensor.  Many graph patterns (Gather with scalar
     // indices → Unsqueeze → Concat for reshape targets) depend on correct
     // rank propagation.
-    Tensor::from_vec(shape, data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })
+    Tensor::from_vec(shape, data).map_err(OnnxError::from)
 }
 
 fn raw_bytes_to_f32(raw: &[u8]) -> Vec<f32> {

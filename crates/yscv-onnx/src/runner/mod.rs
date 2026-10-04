@@ -162,8 +162,8 @@ fn cached_pool(threads: usize) -> Result<std::sync::Arc<rayon::ThreadPool>, Onnx
             rayon::ThreadPoolBuilder::new()
                 .num_threads(threads)
                 .build()
-                .map_err(|e| OnnxError::DecodeFailed {
-                    message: format!("failed to create thread pool: {e}"),
+                .map_err(|e| OnnxError::ThreadPool {
+                    source: std::sync::Arc::new(e),
                 })?,
         );
         c.push((threads, p.clone()));

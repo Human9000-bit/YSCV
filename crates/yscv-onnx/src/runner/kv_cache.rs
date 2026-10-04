@@ -188,20 +188,17 @@ impl KvCache {
         new_v: &Tensor,
     ) -> Result<(), OnnxError> {
         if layer >= self.num_layers {
-            return Err(OnnxError::ShapeMismatch {
-                detail: format!(
-                    "KV-cache layer {layer} out of range (max {})",
-                    self.num_layers
-                ),
+            return Err(OnnxError::KvCacheLayerOutOfRange {
+                layer,
+                num_layers: self.num_layers,
             });
         }
         let new_tokens = new_k.shape()[0];
         if self.seq_len + new_tokens > self.max_seq_len {
-            return Err(OnnxError::ShapeMismatch {
-                detail: format!(
-                    "KV-cache overflow: {} + {} > {}",
-                    self.seq_len, new_tokens, self.max_seq_len
-                ),
+            return Err(OnnxError::KvCacheOverflow {
+                seq_len: self.seq_len,
+                new_tokens,
+                max_seq_len: self.max_seq_len,
             });
         }
 
@@ -222,22 +219,15 @@ impl KvCache {
     /// int8 storage the values are dequantised on the fly.
     pub fn get(&self, layer: usize) -> Result<(Tensor, Tensor), OnnxError> {
         if layer >= self.num_layers {
-            return Err(OnnxError::ShapeMismatch {
-                detail: format!("KV-cache layer {layer} out of range"),
+            return Err(OnnxError::KvCacheLayerOutOfRange {
+                layer,
+                num_layers: self.num_layers,
             });
         }
         let k_data = self.k[layer].dequantise_to_vec(self.kv_dim);
         let v_data = self.v[layer].dequantise_to_vec(self.kv_dim);
-        let k = Tensor::from_vec(vec![self.seq_len, self.kv_dim], k_data).map_err(|e| {
-            OnnxError::ShapeMismatch {
-                detail: format!("KV-cache key tensor: {e}"),
-            }
-        })?;
-        let v = Tensor::from_vec(vec![self.seq_len, self.kv_dim], v_data).map_err(|e| {
-            OnnxError::ShapeMismatch {
-                detail: format!("KV-cache value tensor: {e}"),
-            }
-        })?;
+        let k = Tensor::from_vec(vec![self.seq_len, self.kv_dim], k_data)?;
+        let v = Tensor::from_vec(vec![self.seq_len, self.kv_dim], v_data)?;
         Ok((k, v))
     }
 
@@ -303,7 +293,18 @@ mod tests {
         let mut cache = KvCache::new(1, 2, 2);
         let k = Tensor::from_vec(vec![3, 2], vec![0.0; 6]).expect("valid");
         let v = Tensor::from_vec(vec![3, 2], vec![0.0; 6]).expect("valid");
-        assert!(cache.append(0, &k, &v).is_err());
+        let result = cache.append(0, &k, &v);
+        assert!(
+            matches!(
+                result,
+                Err(OnnxError::KvCacheOverflow {
+                    seq_len: 0,
+                    new_tokens: 3,
+                    max_seq_len: 2
+                })
+            ),
+            "{result:?}"
+        );
     }
 
     #[test]

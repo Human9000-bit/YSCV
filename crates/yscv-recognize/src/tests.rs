@@ -74,11 +74,9 @@ fn enroll_rejects_duplicate_identity() {
     let err = recognizer
         .enroll("alice", Tensor::from_vec(vec![2], vec![0.0, 1.0]).unwrap())
         .unwrap_err();
-    assert_eq!(
-        err,
-        RecognizeError::DuplicateIdentity {
-            id: "alice".to_string()
-        }
+    assert!(
+        matches!(err, RecognizeError::DuplicateIdentity { ref id } if id == "alice"),
+        "{err:?}"
     );
 }
 
@@ -91,12 +89,15 @@ fn recognize_rejects_dimension_mismatch() {
     let err = recognizer
         .recognize(&Tensor::from_vec(vec![3], vec![1.0, 0.0, 0.0]).unwrap())
         .unwrap_err();
-    assert_eq!(
-        err,
-        RecognizeError::EmbeddingDimMismatch {
-            expected: 2,
-            got: 3
-        }
+    assert!(
+        matches!(
+            err,
+            RecognizeError::EmbeddingDimMismatch {
+                expected: 2,
+                got: 3
+            }
+        ),
+        "{err:?}"
     );
 }
 
@@ -107,7 +108,10 @@ fn recognize_slice_rejects_non_finite_embedding() {
         .enroll("alice", Tensor::from_vec(vec![2], vec![1.0, 0.0]).unwrap())
         .unwrap();
     let err = recognizer.recognize_slice(&[1.0, f32::NAN]).unwrap_err();
-    assert_eq!(err, RecognizeError::NonFiniteEmbeddingValue { index: 1 });
+    assert!(
+        matches!(err, RecognizeError::NonFiniteEmbeddingValue { index: 1 }),
+        "{err:?}"
+    );
 }
 
 #[test]

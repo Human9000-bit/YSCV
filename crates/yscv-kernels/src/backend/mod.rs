@@ -1,5 +1,5 @@
 use std::num::NonZeroUsize;
-use std::sync::OnceLock;
+use std::sync::{Arc, OnceLock};
 
 use rayon::{ThreadPool, ThreadPoolBuilder};
 use yscv_tensor::Tensor;
@@ -719,19 +719,21 @@ pub trait BackwardOps: Backend {
     ) -> Result<Tensor, KernelError> {
         let in_shape = forward_input.shape();
         if in_shape.len() != 2 {
-            return Err(KernelError::UnsupportedOperation(format!(
-                "rnn/lstm/gru backward requires rank-2 input, got rank {}",
-                in_shape.len()
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "rnn_backward",
+                expected: "rank-2 [seq_len, input_size]",
+                got: in_shape.to_vec(),
+            });
         }
         let seq_len = in_shape[0];
         let input_size = in_shape[1];
         let hidden_size = weights_ih.shape().get(1).copied().unwrap_or(0);
         if hidden_size == 0 {
-            return Err(KernelError::UnsupportedOperation(format!(
-                "rnn_backward: weights_ih second dim must be > 0, got shape {:?}",
-                weights_ih.shape()
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "rnn_backward",
+                expected: "weights_ih [input_size, hidden_size > 0]",
+                got: weights_ih.shape().to_vec(),
+            });
         }
 
         let _in_data = forward_input.data();
@@ -798,20 +800,22 @@ pub trait BackwardOps: Backend {
     ) -> Result<Tensor, KernelError> {
         let in_shape = forward_input.shape();
         if in_shape.len() != 2 {
-            return Err(KernelError::UnsupportedOperation(format!(
-                "rnn/lstm/gru backward requires rank-2 input, got rank {}",
-                in_shape.len()
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "lstm_backward",
+                expected: "rank-2 [seq_len, input_size]",
+                got: in_shape.to_vec(),
+            });
         }
         let seq_len = in_shape[0];
         let input_size = in_shape[1];
         let h4 = weights_ih.shape().get(1).copied().unwrap_or(0);
         let hidden_size = h4 / 4;
         if hidden_size == 0 || h4 % 4 != 0 {
-            return Err(KernelError::UnsupportedOperation(format!(
-                "lstm_backward: weights_ih second dim must be divisible by 4, got shape {:?}",
-                weights_ih.shape()
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "lstm_backward",
+                expected: "weights_ih [input_size, 4 * hidden_size > 0]",
+                got: weights_ih.shape().to_vec(),
+            });
         }
 
         let in_data = forward_input.data();
@@ -954,20 +958,22 @@ pub trait BackwardOps: Backend {
     ) -> Result<Tensor, KernelError> {
         let in_shape = forward_input.shape();
         if in_shape.len() != 2 {
-            return Err(KernelError::UnsupportedOperation(format!(
-                "rnn/lstm/gru backward requires rank-2 input, got rank {}",
-                in_shape.len()
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "gru_backward",
+                expected: "rank-2 [seq_len, input_size]",
+                got: in_shape.to_vec(),
+            });
         }
         let seq_len = in_shape[0];
         let input_size = in_shape[1];
         let h3 = weights_ih.shape().get(1).copied().unwrap_or(0);
         let hidden_size = h3 / 3;
         if hidden_size == 0 || h3 % 3 != 0 {
-            return Err(KernelError::UnsupportedOperation(format!(
-                "gru_backward: weights_ih second dim must be divisible by 3, got shape {:?}",
-                weights_ih.shape()
-            )));
+            return Err(KernelError::UnexpectedShape {
+                op: "gru_backward",
+                expected: "weights_ih [input_size, 3 * hidden_size > 0]",
+                got: weights_ih.shape().to_vec(),
+            });
         }
 
         let in_data = forward_input.data();
@@ -1436,7 +1442,7 @@ impl ThreadedCpuBackend {
             .num_threads(num_threads.get())
             .build()
             .map_err(|error| KernelError::ThreadPoolBuild {
-                message: error.to_string(),
+                source: Arc::new(error),
             })?;
         Ok(Self {
             matmul_config: config.matmul,

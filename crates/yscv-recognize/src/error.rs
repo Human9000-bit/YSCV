@@ -1,6 +1,10 @@
-use thiserror::Error;
+use std::path::PathBuf;
+use std::sync::Arc;
 
-#[derive(Debug, Clone, PartialEq, Error)]
+use thiserror::Error;
+use yscv_tensor::TensorError;
+
+#[derive(Debug, Clone, Error)]
 pub enum RecognizeError {
     #[error("invalid embedding shape: expected rank-1, got {got:?}")]
     InvalidEmbeddingShape { got: Vec<usize> },
@@ -14,8 +18,17 @@ pub enum RecognizeError {
     DuplicateIdentity { id: String },
     #[error("embedding dim mismatch: expected {expected}, got {got}")]
     EmbeddingDimMismatch { expected: usize, got: usize },
-    #[error("recognizer serialization error: {message}")]
-    Serialization { message: String },
-    #[error("recognizer IO error: {message}")]
-    Io { message: String },
+    #[error("recognizer serialization error: {source}")]
+    Serialization {
+        #[from]
+        source: Arc<serde_json::Error>,
+    },
+    #[error("recognizer IO error for {path:?}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+    #[error(transparent)]
+    Tensor(#[from] TensorError),
 }

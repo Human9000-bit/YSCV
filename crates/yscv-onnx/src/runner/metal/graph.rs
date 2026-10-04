@@ -104,18 +104,16 @@ pub fn compile_mpsgraph_plan(
     inputs: &[(&str, &Tensor)],
 ) -> Result<MpsGraphPlan, OnnxError> {
     if inputs.is_empty() {
-        return Err(OnnxError::DecodeFailed {
-            message: "compile_mpsgraph_plan: at least one input required".to_string(),
+        return Err(OnnxError::MpsGraph {
+            reason: "at least one input required",
         });
     }
 
-    let graph = MpsGraph::new().ok_or_else(|| OnnxError::DecodeFailed {
-        message: "Failed to create MPSGraph".to_string(),
+    let graph = MpsGraph::new().ok_or(OnnxError::MpsGraph {
+        reason: "failed to create graph",
     })?;
 
-    let device = Device::system_default().ok_or_else(|| OnnxError::DecodeFailed {
-        message: "No Metal device available".to_string(),
-    })?;
+    let device = Device::system_default().ok_or(OnnxError::MetalUnavailable)?;
     let queue = device.new_command_queue();
 
     let mut tensors: FxHashMap<String, MpsGraphTensorRef> = FxHashMap::default();
@@ -345,11 +343,9 @@ pub fn compile_mpsgraph_plan(
                     let n = v.len();
                     (v.iter().map(|&i| i as f32).collect(), vec![n])
                 } else {
-                    return Err(OnnxError::DecodeFailed {
-                        message: format!(
-                            "Constant node '{}' has no recognized value attribute",
-                            node.name
-                        ),
+                    return Err(OnnxError::MissingAttribute {
+                        node: node.name.clone(),
+                        attr: "value",
                     });
                 };
                 const_values.insert(node.outputs[0].clone(), data.clone());
@@ -415,11 +411,12 @@ pub fn compile_mpsgraph_plan(
                         node.op_type, node.name
                     );
                 }
-                return Err(OnnxError::DecodeFailed {
-                    message: format!(
-                        "MPSGraph: unsupported op '{}' (node '{}')",
-                        node.op_type, node.name
-                    ),
+                return Err(OnnxError::AtNode {
+                    node: node.name.clone(),
+                    op_type: node.op_type.clone(),
+                    source: Box::new(OnnxError::UnsupportedOpType {
+                        op_type: node.op_type.clone(),
+                    }),
                 });
             }
         }
@@ -456,8 +453,8 @@ pub fn compile_mpsgraph_plan(
 
     let executable = graph
         .compile(&device, &feeds, &target_refs)?
-        .ok_or_else(|| OnnxError::DecodeFailed {
-            message: "Failed to compile MPSGraph".to_string(),
+        .ok_or(OnnxError::MpsGraph {
+            reason: "failed to compile graph",
         })?;
 
     // --- Build N pipeline slots ---
@@ -557,12 +554,9 @@ pub fn submit_mpsgraph_plan(
     inputs: &[(&str, &[f32])],
 ) -> Result<InferenceHandle, OnnxError> {
     if inputs.len() != plan.input_descs.len() {
-        return Err(OnnxError::DecodeFailed {
-            message: format!(
-                "submit_mpsgraph_plan: expected {} inputs, got {}",
-                plan.input_descs.len(),
-                inputs.len()
-            ),
+        return Err(OnnxError::InputCountMismatch {
+            expected: plan.input_descs.len(),
+            got: inputs.len(),
         });
     }
 
@@ -585,17 +579,15 @@ pub fn submit_mpsgraph_plan(
             .iter()
             .find(|(n, _)| *n == desc.name.as_str())
             .map(|(_, d)| *d)
-            .ok_or_else(|| OnnxError::DecodeFailed {
-                message: format!("submit_mpsgraph_plan: missing input '{}'", desc.name),
+            .ok_or_else(|| OnnxError::MissingInput {
+                node: "mpsgraph_plan".to_string(),
+                input: desc.name.clone(),
             })?;
         if data.len() != desc.elems {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "submit_mpsgraph_plan: input '{}' expects {} f32s, got {}",
-                    desc.name,
-                    desc.elems,
-                    data.len()
-                ),
+            return Err(OnnxError::InputLenMismatch {
+                input: desc.name.clone(),
+                expected: desc.elems,
+                got: data.len(),
             });
         }
         // SAFETY: `in_slot.buf` is StorageModeShared, sized `desc.elems*4`;
@@ -653,10 +645,7 @@ pub fn wait_mpsgraph_plan(
         #[allow(unsafe_code)]
         let f16_slice = unsafe { std::slice::from_raw_parts(buf.contents() as *const u16, n) };
         let data = f16_slice_to_f32_vec(f16_slice);
-        let tensor =
-            Tensor::from_vec(shape.clone(), data).map_err(|e| OnnxError::DecodeFailed {
-                message: e.to_string(),
-            })?;
+        let tensor = Tensor::from_vec(shape.clone(), data)?;
         result.insert(name.clone(), tensor);
     }
 

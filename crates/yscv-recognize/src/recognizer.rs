@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 
 use yscv_tensor::Tensor;
 
@@ -157,41 +158,35 @@ impl Recognizer {
     pub fn from_snapshot(snapshot: RecognizerSnapshot) -> Result<Self, RecognizeError> {
         let mut recognizer = Self::new(snapshot.threshold)?;
         for entry in snapshot.identities {
-            let embedding = Tensor::from_vec(vec![entry.embedding.len()], entry.embedding)
-                .map_err(|err| RecognizeError::Serialization {
-                    message: err.to_string(),
-                })?;
+            let embedding = Tensor::from_vec(vec![entry.embedding.len()], entry.embedding)?;
             recognizer.enroll(entry.id, embedding)?;
         }
         Ok(recognizer)
     }
 
     pub fn to_json_pretty(&self) -> Result<String, RecognizeError> {
-        serde_json::to_string_pretty(&self.to_snapshot()).map_err(|err| {
-            RecognizeError::Serialization {
-                message: err.to_string(),
-            }
-        })
+        Ok(serde_json::to_string_pretty(&self.to_snapshot()).map_err(Arc::new)?)
     }
 
     pub fn from_json(json: &str) -> Result<Self, RecognizeError> {
-        let snapshot: RecognizerSnapshot =
-            serde_json::from_str(json).map_err(|err| RecognizeError::Serialization {
-                message: err.to_string(),
-            })?;
+        let snapshot: RecognizerSnapshot = serde_json::from_str(json).map_err(Arc::new)?;
         Self::from_snapshot(snapshot)
     }
 
     pub fn save_json_file(&self, path: impl AsRef<Path>) -> Result<(), RecognizeError> {
+        let path = path.as_ref();
         let json = self.to_json_pretty()?;
         fs::write(path, json).map_err(|err| RecognizeError::Io {
-            message: err.to_string(),
+            path: path.to_path_buf(),
+            source: Arc::new(err),
         })
     }
 
     pub fn load_json_file(path: impl AsRef<Path>) -> Result<Self, RecognizeError> {
+        let path = path.as_ref();
         let json = fs::read_to_string(path).map_err(|err| RecognizeError::Io {
-            message: err.to_string(),
+            path: path.to_path_buf(),
+            source: Arc::new(err),
         })?;
         Self::from_json(&json)
     }

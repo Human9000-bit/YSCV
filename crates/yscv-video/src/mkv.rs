@@ -4,6 +4,7 @@
 //! Only video track extraction is supported — audio tracks are skipped.
 
 use crate::VideoError;
+use std::sync::Arc;
 
 // ---------------------------------------------------------------------------
 // EBML element IDs (subset needed for video extraction)
@@ -64,21 +65,27 @@ impl MkvDemuxer {
     /// A streaming MKV parser could reduce memory usage for large files.
     pub fn open(path: &std::path::Path) -> Result<Self, VideoError> {
         // Check file size to prevent OOM
-        let meta = std::fs::metadata(path)
-            .map_err(|e| VideoError::Codec(format!("failed to stat MKV: {e}")))?;
+        let meta = std::fs::metadata(path).map_err(|e| VideoError::Io {
+            op: "stat",
+            path: Some(path.to_path_buf()),
+            source: Arc::new(e),
+        })?;
         if meta.len() > 512 * 1024 * 1024 {
-            return Err(VideoError::Codec(format!(
-                "MKV file too large for in-memory parsing ({:.0}MB > 512MB limit). \
-                 Use Mp4VideoReader for large files.",
-                meta.len() as f64 / 1024.0 / 1024.0,
-            )));
+            return Err(VideoError::FileTooLarge {
+                path: path.to_path_buf(),
+                size: meta.len(),
+                limit: 512 * 1024 * 1024,
+            });
         }
 
-        let data = std::fs::read(path)
-            .map_err(|e| VideoError::Codec(format!("failed to read MKV: {e}")))?;
+        let data = std::fs::read(path).map_err(|e| VideoError::Io {
+            op: "read",
+            path: Some(path.to_path_buf()),
+            source: Arc::new(e),
+        })?;
 
         if data.len() < 4 {
-            return Err(VideoError::Codec("MKV file too short".into()));
+            return Err(VideoError::Truncated { what: "MKV file" });
         }
 
         let mut demuxer = MkvDemuxer {
@@ -148,7 +155,9 @@ impl MkvDemuxer {
 
         // Parse EBML header
         if pos + 4 > len {
-            return Err(VideoError::Codec("MKV: truncated EBML header".into()));
+            return Err(VideoError::Truncated {
+                what: "MKV EBML header",
+            });
         }
 
         while pos < len {
@@ -204,7 +213,9 @@ impl MkvDemuxer {
             pos += size_len;
             let el_end = pos
                 .checked_add(el_size as usize)
-                .ok_or_else(|| VideoError::Codec("MKV element size overflow".into()))?;
+                .ok_or(VideoError::Malformed {
+                    what: "MKV element size (overflows usize)",
+                })?;
 
             if id == TRACK_ENTRY {
                 self.parse_track_entry(pos, el_size as usize)?;
@@ -228,7 +239,9 @@ impl MkvDemuxer {
             pos += size_len;
             let el_end = pos
                 .checked_add(el_size as usize)
-                .ok_or_else(|| VideoError::Codec("MKV element size overflow".into()))?;
+                .ok_or(VideoError::Malformed {
+                    what: "MKV element size (overflows usize)",
+                })?;
             let el_end = el_end.min(end);
 
             match id {
@@ -287,7 +300,9 @@ impl MkvDemuxer {
             pos += size_len;
             let el_end = pos
                 .checked_add(el_size as usize)
-                .ok_or_else(|| VideoError::Codec("MKV element size overflow".into()))?
+                .ok_or(VideoError::Malformed {
+                    what: "MKV element size (overflows usize)",
+                })?
                 .min(end);
 
             match id {
@@ -370,9 +385,9 @@ impl MkvDemuxer {
 /// Read a variable-length EBML element ID. Returns (id, bytes_consumed).
 fn read_ebml_id(data: &[u8]) -> Result<(u32, usize), VideoError> {
     if data.is_empty() {
-        return Err(VideoError::Codec(
-            "MKV: unexpected EOF reading EBML ID".into(),
-        ));
+        return Err(VideoError::Truncated {
+            what: "MKV EBML ID",
+        });
     }
     let first = data[0];
     let (len, mask) = if first & 0x80 != 0 {
@@ -384,12 +399,15 @@ fn read_ebml_id(data: &[u8]) -> Result<(u32, usize), VideoError> {
     } else if first & 0x10 != 0 {
         (4, 0x1000_0000u32)
     } else {
-        return Err(VideoError::Codec(
-            "MKV: invalid EBML ID leading byte".into(),
-        ));
+        return Err(VideoError::FieldOutOfRange {
+            field: "MKV EBML ID leading byte",
+            value: first.into(),
+        });
     };
     if data.len() < len {
-        return Err(VideoError::Codec("MKV: truncated EBML ID".into()));
+        return Err(VideoError::Truncated {
+            what: "MKV EBML ID",
+        });
     }
     let mut id = 0u32;
     for i in 0..len {
@@ -403,9 +421,9 @@ fn read_ebml_id(data: &[u8]) -> Result<(u32, usize), VideoError> {
 /// Read a variable-length EBML size. Returns (size, bytes_consumed).
 fn read_ebml_size(data: &[u8]) -> Result<(u64, usize), VideoError> {
     if data.is_empty() {
-        return Err(VideoError::Codec(
-            "MKV: unexpected EOF reading EBML size".into(),
-        ));
+        return Err(VideoError::Truncated {
+            what: "MKV EBML size",
+        });
     }
     let first = data[0];
     let (len, mask) = if first & 0x80 != 0 {
@@ -425,12 +443,15 @@ fn read_ebml_size(data: &[u8]) -> Result<(u64, usize), VideoError> {
     } else if first & 0x01 != 0 {
         (8, 0x00u8)
     } else {
-        return Err(VideoError::Codec(
-            "MKV: invalid EBML size leading byte".into(),
-        ));
+        return Err(VideoError::FieldOutOfRange {
+            field: "MKV EBML size leading byte",
+            value: first.into(),
+        });
     };
     if data.len() < len {
-        return Err(VideoError::Codec("MKV: truncated EBML size".into()));
+        return Err(VideoError::Truncated {
+            what: "MKV EBML size",
+        });
     }
     let mut size = (first & mask) as u64;
     for i in 1..len {

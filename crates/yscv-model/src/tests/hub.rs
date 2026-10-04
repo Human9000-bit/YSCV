@@ -1,4 +1,4 @@
-use crate::{ModelHub, default_cache_dir};
+use crate::{ModelError, ModelHub, default_cache_dir};
 
 #[test]
 fn test_default_cache_dir() {
@@ -37,12 +37,10 @@ fn test_hub_entry_registry_has_known_models() {
 #[test]
 fn test_download_missing_model_returns_error() {
     let hub = ModelHub::new();
-    let result = hub.download_if_missing("nonexistent_model");
-    assert!(result.is_err());
-    let err_msg = format!("{}", result.unwrap_err());
+    let err = hub.download_if_missing("nonexistent_model").unwrap_err();
     assert!(
-        err_msg.contains("not in the hub registry"),
-        "error should mention registry, got: {err_msg}"
+        matches!(err, ModelError::UnknownHubModel { ref name } if name == "nonexistent_model"),
+        "{err:?}"
     );
 }
 

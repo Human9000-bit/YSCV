@@ -49,9 +49,7 @@ pub fn compile_metal_plan(
     input_name: &str,
     input_tensor: &yscv_tensor::Tensor,
 ) -> Result<MetalPlan, OnnxError> {
-    let inf = MetalInference::new().ok_or_else(|| OnnxError::DecodeFailed {
-        message: "Metal device not available".to_string(),
-    })?;
+    let inf = MetalInference::new().ok_or(OnnxError::MetalUnavailable)?;
 
     // Run on CPU to get all tensor shapes and intermediate data
     #[cfg(feature = "profile")]

@@ -82,9 +82,7 @@ where
     if axes.is_empty() {
         let val = op(input.data());
         let out_shape = if keepdims { vec![1; rank] } else { vec![1] };
-        return Tensor::from_vec(out_shape, vec![val]).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        });
+        return Tensor::from_vec(out_shape, vec![val]).map_err(OnnxError::from);
     }
 
     let norm_axes: Vec<usize> = axes
@@ -142,9 +140,7 @@ where
         out_data.push(op(&vals));
     }
 
-    Tensor::from_vec(out_shape, out_data).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })
+    Tensor::from_vec(out_shape, out_data).map_err(OnnxError::from)
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -250,9 +246,7 @@ pub(super) fn exec_argmax(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
     } else {
         out_shape.remove(ax);
     }
-    let t = Tensor::from_vec(out_shape, result).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let t = Tensor::from_vec(out_shape, result)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -296,9 +290,7 @@ pub(super) fn exec_argmin(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), On
     } else {
         out_shape.remove(ax);
     }
-    let t = Tensor::from_vec(out_shape, result).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let t = Tensor::from_vec(out_shape, result)?;
     env.insert(node.outputs[0].clone(), t);
     Ok(())
 }
@@ -344,13 +336,8 @@ pub(super) fn exec_topk(node: &OnnxNode, env: &mut TensorEnv) -> Result<(), Onnx
 
     let mut out_shape = shape.to_vec();
     out_shape[ax] = k;
-    let val_tensor =
-        Tensor::from_vec(out_shape.clone(), values).map_err(|e| OnnxError::DecodeFailed {
-            message: e.to_string(),
-        })?;
-    let idx_tensor = Tensor::from_vec(out_shape, indices).map_err(|e| OnnxError::DecodeFailed {
-        message: e.to_string(),
-    })?;
+    let val_tensor = Tensor::from_vec(out_shape.clone(), values)?;
+    let idx_tensor = Tensor::from_vec(out_shape, indices)?;
     env.insert(node.outputs[0].clone(), val_tensor);
     if node.outputs.len() > 1 {
         env.insert(node.outputs[1].clone(), idx_tensor);

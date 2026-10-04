@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use yscv_tensor::Tensor;
 
 use crate::ModelError;
@@ -122,13 +123,15 @@ pub struct SequentialCheckpoint {
 }
 
 pub fn checkpoint_to_json(checkpoint: &SequentialCheckpoint) -> Result<String, ModelError> {
-    serde_json::to_string_pretty(checkpoint).map_err(|err| ModelError::CheckpointSerialization {
-        message: err.to_string(),
+    serde_json::to_string_pretty(checkpoint).map_err(|source| ModelError::Json {
+        what: "checkpoint",
+        source: Arc::new(source),
     })
 }
 
 pub fn checkpoint_from_json(json: &str) -> Result<SequentialCheckpoint, ModelError> {
-    serde_json::from_str(json).map_err(|err| ModelError::CheckpointSerialization {
-        message: err.to_string(),
+    serde_json::from_str(json).map_err(|source| ModelError::Json {
+        what: "checkpoint",
+        source: Arc::new(source),
     })
 }

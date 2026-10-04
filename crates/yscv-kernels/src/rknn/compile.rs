@@ -2,7 +2,7 @@ use super::backend::RknnBackend;
 #[cfg(target_os = "linux")]
 use super::consts::RKNN_SUCC;
 #[cfg(target_os = "linux")]
-use super::ffi::{RknnContext, rknn_error_name};
+use super::ffi::RknnContext;
 use crate::KernelError;
 
 // ══════════════════════════════════════════════════════════════════════
@@ -43,7 +43,7 @@ pub struct RknnCompileConfig {
 /// concurrent invocation from multiple threads.
 ///
 /// Requires `librknn_api.so` on the device (ships with rknn-toolkit2-lite).
-/// Returns `Err(KernelError::Rknn { ... })` on non-Linux hosts since the
+/// Returns `Err(KernelError::RknnCompilerUnsupportedPlatform)` on non-Linux hosts since the
 /// toolkit2 runtime library is Linux-only.
 pub fn compile_onnx_to_rknn(
     onnx_data: &[u8],
@@ -52,15 +52,14 @@ pub fn compile_onnx_to_rknn(
     #[cfg(not(target_os = "linux"))]
     {
         let _ = (onnx_data, config);
-        Err(KernelError::Rknn {
-            message: "RKNN compiler only available on Linux".into(),
-        })
+        Err(KernelError::RknnCompilerUnsupportedPlatform)
     }
 
     #[cfg(target_os = "linux")]
     {
         use std::ffi::CString;
         use std::os::unix::ffi::OsStrExt as _;
+        use std::sync::Arc;
 
         type RknnCompilerInit = unsafe extern "C" fn(*mut RknnContext, *const u8, u32, u32) -> i32;
         type RknnCompilerBuild = unsafe extern "C" fn(RknnContext, u32, *const u8) -> i32;
@@ -70,25 +69,28 @@ pub fn compile_onnx_to_rknn(
         // Validate calibration dataset path (if any) before we touch the SDK.
         let dataset_cstr: Option<CString> = if let Some(path) = &config.dataset_path {
             if !path.exists() {
-                return Err(KernelError::Rknn {
-                    message: format!("calibration dataset not found: {}", path.display()),
+                return Err(KernelError::RknnCalibrationDataset {
+                    path: path.clone(),
+                    reason: "not found",
                 });
             }
             let len = path
                 .metadata()
                 .map(|m| m.len())
-                .map_err(|e| KernelError::Rknn {
-                    message: format!("cannot stat calibration dataset {}: {e}", path.display()),
+                .map_err(|e| KernelError::RknnIo {
+                    what: "cannot stat calibration dataset",
+                    path: path.clone(),
+                    source: Arc::new(e),
                 })?;
             if len == 0 {
-                return Err(KernelError::Rknn {
-                    message: format!("calibration dataset is empty: {}", path.display()),
+                return Err(KernelError::RknnCalibrationDataset {
+                    path: path.clone(),
+                    reason: "empty",
                 });
             }
             Some(
-                CString::new(path.as_os_str().as_bytes()).map_err(|_| KernelError::Rknn {
-                    message: "calibration dataset path contains interior NUL byte".into(),
-                })?,
+                CString::new(path.as_os_str().as_bytes())
+                    .map_err(|_| KernelError::RknnPathContainsNul { path: path.clone() })?,
             )
         } else {
             None
@@ -97,10 +99,8 @@ pub fn compile_onnx_to_rknn(
         // SAFETY: dlopen probes without constructors.
         let handle = unsafe { libc::dlopen(c"librknn_api.so".as_ptr(), libc::RTLD_LAZY) };
         if handle.is_null() {
-            return Err(KernelError::Rknn {
-                message:
-                    "librknn_api.so not found — install rknn-toolkit2-lite for model compilation"
-                        .into(),
+            return Err(KernelError::RknnLibraryUnavailable {
+                library: "librknn_api.so (install rknn-toolkit2-lite for model compilation)",
             });
         }
 
@@ -111,11 +111,9 @@ pub fn compile_onnx_to_rknn(
                 if ptr.is_null() {
                     // SAFETY: handle valid.
                     unsafe { libc::dlclose(handle) };
-                    return Err(KernelError::Rknn {
-                        message: format!(
-                            "symbol {} not found in librknn_api.so",
-                            String::from_utf8_lossy($name)
-                        ),
+                    return Err(KernelError::RknnSymbolMissing {
+                        symbol: std::str::from_utf8(&$name[..$name.len() - 1])
+                            .unwrap_or("<invalid>"),
                     });
                 }
                 // SAFETY: ptr non-null, transmuted to matching function type.
@@ -141,11 +139,9 @@ pub fn compile_onnx_to_rknn(
         if ret != RKNN_SUCC {
             // SAFETY: handle valid.
             unsafe { libc::dlclose(handle) };
-            return Err(KernelError::Rknn {
-                message: format!(
-                    "rknn_init (compiler) failed: {} ({ret})",
-                    rknn_error_name(ret)
-                ),
+            return Err(KernelError::RknnCall {
+                func: "rknn_init (compiler)",
+                status: ret,
             });
         }
 
@@ -165,8 +161,9 @@ pub fn compile_onnx_to_rknn(
                 fn_destroy(ctx);
                 libc::dlclose(handle);
             }
-            return Err(KernelError::Rknn {
-                message: format!("rknn_build failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_build",
+                status: ret,
             });
         }
 
@@ -176,13 +173,16 @@ pub fn compile_onnx_to_rknn(
             .prefix("yscv-rknn-")
             .suffix(".rknn")
             .tempfile()
-            .map_err(|e| KernelError::Rknn {
-                message: format!("failed to create temp file for compiled model: {e}"),
+            .map_err(|e| KernelError::RknnIo {
+                what: "failed to create temp file for compiled model in",
+                path: std::env::temp_dir(),
+                source: Arc::new(e),
             })?;
-        let tmp_path_cstr =
-            CString::new(tmp.path().as_os_str().as_bytes()).map_err(|_| KernelError::Rknn {
-                message: "temp path contains interior NUL byte".into(),
-            })?;
+        let tmp_path_cstr = CString::new(tmp.path().as_os_str().as_bytes()).map_err(|_| {
+            KernelError::RknnPathContainsNul {
+                path: tmp.path().to_path_buf(),
+            }
+        })?;
 
         // SAFETY: tmp_path_cstr is null-terminated; ctx valid.
         let ret = unsafe { fn_export(ctx, tmp_path_cstr.as_ptr().cast()) };
@@ -194,13 +194,16 @@ pub fn compile_onnx_to_rknn(
         }
 
         if ret != RKNN_SUCC {
-            return Err(KernelError::Rknn {
-                message: format!("rknn_export_rknn failed: {} ({ret})", rknn_error_name(ret)),
+            return Err(KernelError::RknnCall {
+                func: "rknn_export_rknn",
+                status: ret,
             });
         }
 
-        let bytes = std::fs::read(tmp.path()).map_err(|e| KernelError::Rknn {
-            message: format!("failed to read exported .rknn at {:?}: {e}", tmp.path()),
+        let bytes = std::fs::read(tmp.path()).map_err(|e| KernelError::RknnIo {
+            what: "failed to read exported .rknn at",
+            path: tmp.path().to_path_buf(),
+            source: Arc::new(e),
         })?;
         // tmp dropped here → file removed.
         Ok(bytes)
@@ -270,14 +273,10 @@ mod tests {
     fn compile_returns_error_off_linux() {
         let cfg = RknnCompileConfig::default();
         let err = compile_onnx_to_rknn(b"not a model", &cfg).unwrap_err();
-        match err {
-            KernelError::Rknn { message } => {
-                assert!(
-                    message.contains("only available on Linux"),
-                    "got: {message}"
-                )
-            }
-            _ => panic!("expected Rknn error"),
-        }
+        assert!(
+            matches!(err, KernelError::RknnCompilerUnsupportedPlatform),
+            "{err:?}"
+        );
+        assert!(err.to_string().contains("only available on Linux"), "{err}");
     }
 }

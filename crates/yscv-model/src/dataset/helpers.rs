@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
 use yscv_tensor::{Tensor, TensorError};
 
 use crate::ModelError;
@@ -29,9 +30,9 @@ pub(super) fn build_supervised_dataset_from_flat_values(
 
 pub(super) fn load_dataset_text_file<P: AsRef<Path>>(path: P) -> Result<String, ModelError> {
     let path_ref = path.as_ref();
-    fs::read_to_string(path_ref).map_err(|error| ModelError::DatasetLoadIo {
-        path: path_ref.display().to_string(),
-        message: error.to_string(),
+    fs::read_to_string(path_ref).map_err(|source| ModelError::Io {
+        path: path_ref.to_path_buf(),
+        source: Arc::new(source),
     })
 }
 
@@ -39,11 +40,10 @@ pub(super) fn validate_adapter_sample_shape(
     field: &'static str,
     shape: &[usize],
 ) -> Result<(), ModelError> {
-    if let Some((index, _)) = shape.iter().enumerate().find(|(_, dim)| **dim == 0) {
+    if shape.contains(&0) {
         return Err(ModelError::InvalidDatasetAdapterShape {
             field,
             shape: shape.to_vec(),
-            message: format!("dimension at index {index} must be > 0"),
         });
     }
     adapter_sample_len(field, shape).map(|_| ())
@@ -55,10 +55,9 @@ pub(super) fn adapter_sample_len(
 ) -> Result<usize, ModelError> {
     shape.iter().try_fold(1usize, |acc, dim| {
         acc.checked_mul(*dim)
-            .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
+            .ok_or_else(|| ModelError::DatasetSizeOverflow {
                 field,
                 shape: shape.to_vec(),
-                message: "shape product overflow".to_string(),
             })
     })
 }

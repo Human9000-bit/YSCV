@@ -29,6 +29,7 @@ pub use exporter::{
     export_onnx_model_to_file, onnx_model_to_export_graph, save_onnx_model_to_file,
 };
 pub use generate::{GenerateConfig, generate};
+pub use ir::IrError;
 pub use loader::{
     OnnxAttribute, OnnxModel, OnnxNode, OnnxTensor, load_onnx_model, load_onnx_model_from_file,
     load_onnx_model_unoptimized,

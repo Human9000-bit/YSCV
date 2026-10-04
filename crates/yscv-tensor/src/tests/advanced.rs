@@ -1,4 +1,4 @@
-use crate::Tensor;
+use crate::{Tensor, TensorError};
 
 #[test]
 fn where_cond_selects_correctly() {
@@ -321,5 +321,8 @@ fn einsum_frobenius() {
 fn einsum_unsupported_returns_error() {
     let a = Tensor::from_vec(vec![2, 3], vec![1.0; 6]).unwrap();
     let result = Tensor::einsum("ijk->ij", &[&a]);
-    assert!(result.is_err());
+    assert!(
+        matches!(&result, Err(TensorError::UnsupportedEinsum { equation }) if equation == "ijk->ij"),
+        "{result:?}"
+    );
 }

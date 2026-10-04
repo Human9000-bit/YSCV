@@ -1,6 +1,7 @@
 use rustc_hash::FxHashMap;
 use std::io::{Read, Write};
 use std::path::Path;
+use std::sync::Arc;
 
 use super::codec::VideoDecoder as _;
 use super::error::VideoError;
@@ -31,19 +32,31 @@ const MAGIC: &[u8; 8] = b"RCVVIDEO";
 impl RawVideoReader {
     /// Opens a raw video file for reading.
     pub fn open(path: &Path) -> Result<Self, VideoError> {
-        let mut file = std::fs::File::open(path)
-            .map_err(|e| VideoError::Source(format!("{}: {e}", path.display())))?;
+        let mut file = std::fs::File::open(path).map_err(|e| VideoError::Io {
+            op: "open",
+            path: Some(path.to_path_buf()),
+            source: Arc::new(e),
+        })?;
         // Prevent OOM on large files
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
         if file_size > 2 * 1024 * 1024 * 1024 {
-            return Err(VideoError::Source("raw video file too large (>2GB)".into()));
+            return Err(VideoError::FileTooLarge {
+                path: path.to_path_buf(),
+                size: file_size,
+                limit: 2 * 1024 * 1024 * 1024,
+            });
         }
         let mut data = Vec::new();
-        file.read_to_end(&mut data)
-            .map_err(|e| VideoError::Source(e.to_string()))?;
+        file.read_to_end(&mut data).map_err(|e| VideoError::Io {
+            op: "read",
+            path: Some(path.to_path_buf()),
+            source: Arc::new(e),
+        })?;
 
         if data.len() < 24 || &data[..8] != MAGIC {
-            return Err(VideoError::Source("invalid raw video file header".into()));
+            return Err(VideoError::Malformed {
+                what: "raw video file header",
+            });
         }
 
         let width = u32::from_le_bytes([data[8], data[9], data[10], data[11]]);
@@ -124,10 +137,10 @@ impl RawVideoWriter {
     pub fn push_frame(&mut self, rgb8_data: &[u8]) -> Result<(), VideoError> {
         let expected = self.width as usize * self.height as usize * 3;
         if rgb8_data.len() != expected {
-            return Err(VideoError::Source(format!(
-                "frame size mismatch: expected {expected}, got {}",
-                rgb8_data.len()
-            )));
+            return Err(VideoError::RawFrameSizeMismatch {
+                expected,
+                got: rgb8_data.len(),
+            });
         }
         self.frames.push(rgb8_data.to_vec());
         Ok(())
@@ -135,12 +148,18 @@ impl RawVideoWriter {
 
     /// Writes the video to a file.
     pub fn save(&self, path: &Path) -> Result<(), VideoError> {
-        let mut file = std::fs::File::create(path)
-            .map_err(|e| VideoError::Source(format!("{}: {e}", path.display())))?;
+        let mut file = std::fs::File::create(path).map_err(|e| VideoError::Io {
+            op: "create",
+            path: Some(path.to_path_buf()),
+            source: Arc::new(e),
+        })?;
 
         let wr = |f: &mut std::fs::File, d: &[u8]| -> Result<(), VideoError> {
-            f.write_all(d)
-                .map_err(|e| VideoError::Source(e.to_string()))
+            f.write_all(d).map_err(|e| VideoError::Io {
+                op: "write",
+                path: Some(path.to_path_buf()),
+                source: Arc::new(e),
+            })
         };
         wr(&mut file, MAGIC)?;
         wr(&mut file, &self.width.to_le_bytes())?;
@@ -275,8 +294,11 @@ impl Mp4VideoReader {
         use std::io::{Read as _, Seek, SeekFrom};
 
         // Step 1: Read only enough to find moov box (scan box headers, not mdat)
-        let mut file = std::fs::File::open(path)
-            .map_err(|e| VideoError::Source(format!("{}: {e}", path.display())))?;
+        let mut file = std::fs::File::open(path).map_err(|e| VideoError::Io {
+            op: "open",
+            path: Some(path.to_path_buf()),
+            source: Arc::new(e),
+        })?;
         let file_size = file.metadata().map(|m| m.len()).unwrap_or(0);
 
         // Read moov box: scan for it by reading box headers
@@ -289,7 +311,11 @@ impl Mp4VideoReader {
 
         while pos < file_size {
             file.seek(SeekFrom::Start(pos))
-                .map_err(|e| VideoError::Source(format!("seek: {e}")))?;
+                .map_err(|e| VideoError::Io {
+                    op: "seek",
+                    path: Some(path.to_path_buf()),
+                    source: Arc::new(e),
+                })?;
             if file.read_exact(&mut header_buf).is_err() {
                 break;
             }
@@ -318,7 +344,9 @@ impl Mp4VideoReader {
         }
 
         if moov_data.is_empty() {
-            return Err(VideoError::ContainerParse("no moov box found".into()));
+            return Err(VideoError::Missing {
+                what: "MP4 moov box",
+            });
         }
 
         // Detect codec from moov
@@ -335,7 +363,9 @@ impl Mp4VideoReader {
         let sample_table = build_sample_table(&moov_data)?;
 
         if sample_table.is_empty() {
-            return Err(VideoError::ContainerParse("no video samples found".into()));
+            return Err(VideoError::Missing {
+                what: "MP4 video samples",
+            });
         }
 
         // Step 3: Extract parameter sets (tiny — SPS/PPS/VPS < 1KB)
@@ -433,15 +463,21 @@ impl Mp4VideoReader {
     fn read_sample(&mut self, idx: usize) -> Result<Vec<u8>, VideoError> {
         use std::io::{Read as _, Seek, SeekFrom};
         let (offset, size) = self.sample_table[idx];
-        let file = self
-            .file
-            .as_mut()
-            .ok_or_else(|| VideoError::Source("file handle closed".into()))?;
+        let file = self.file.as_mut().ok_or(VideoError::Unavailable {
+            what: "MP4 file handle (closed)",
+        })?;
         file.seek(SeekFrom::Start(offset))
-            .map_err(|e| VideoError::Source(format!("seek: {e}")))?;
+            .map_err(|e| VideoError::Io {
+                op: "seek",
+                path: None,
+                source: Arc::new(e),
+            })?;
         let mut buf = vec![0u8; size as usize];
-        file.read_exact(&mut buf)
-            .map_err(|e| VideoError::Source(format!("read sample: {e}")))?;
+        file.read_exact(&mut buf).map_err(|e| VideoError::Io {
+            op: "read sample",
+            path: None,
+            source: Arc::new(e),
+        })?;
         Ok(buf)
     }
 
@@ -892,21 +928,26 @@ fn parse_stsc(box_data: &[u8]) -> Vec<(u32, u32, u32)> {
 /// Build sample table: Vec<(file_offset, size)> without reading sample data.
 /// Only reads metadata from moov — O(1) memory relative to file size.
 fn build_sample_table(moov_data: &[u8]) -> Result<Vec<(u64, u32)>, VideoError> {
-    let video_trak = find_video_trak(moov_data)
-        .ok_or_else(|| VideoError::ContainerParse("no video trak found".into()))?;
+    let video_trak = find_video_trak(moov_data).ok_or(VideoError::Missing {
+        what: "MP4 video trak",
+    })?;
 
     let chunk_offsets = if let Some(co64_data) = find_box_data(video_trak, b"co64") {
         parse_co64(co64_data)
     } else if let Some(stco_data) = find_box_data(video_trak, b"stco") {
         parse_stco(stco_data)
     } else {
-        return Err(VideoError::ContainerParse("no stco/co64".into()));
+        return Err(VideoError::Missing {
+            what: "MP4 stco/co64 box",
+        });
     };
 
     let sample_sizes = if let Some(stsz_data) = find_box_data(video_trak, b"stsz") {
         parse_stsz(stsz_data)
     } else {
-        return Err(VideoError::ContainerParse("no stsz".into()));
+        return Err(VideoError::Missing {
+            what: "MP4 stsz box",
+        });
     };
 
     let stsc_entries = if let Some(stsc_data) = find_box_data(video_trak, b"stsc") {

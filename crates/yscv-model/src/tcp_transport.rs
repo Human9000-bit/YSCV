@@ -64,14 +64,20 @@ impl TcpTransport {
     /// The coordinator is always rank 0.
     pub fn coordinator(bind_addr: &str, world_size: usize) -> Result<Self, ModelError> {
         if world_size == 0 {
-            return Err(ModelError::TransportError(
-                "world_size must be > 0".to_string(),
-            ));
+            return Err(ModelError::InvalidArgument {
+                op: "tcp coordinator",
+                param: "world_size",
+                value: 0.0,
+                expected: "> 0",
+            });
         }
 
-        let listener = TcpListener::bind(bind_addr).map_err(|e| {
-            ModelError::TransportError(format!("coordinator failed to bind {bind_addr}: {e}"))
-        })?;
+        let listener =
+            TcpListener::bind(bind_addr).map_err(|source| ModelError::TransportAddress {
+                op: "bind",
+                addr: bind_addr.to_string(),
+                source: Arc::new(source),
+            })?;
 
         let mut peers = Vec::with_capacity(world_size);
         // Slot 0 is unused (self), but we keep it to index by rank.
@@ -84,25 +90,33 @@ impl TcpTransport {
             (0..world_size).map(|_| None).collect();
 
         for _ in 1..world_size {
-            let (mut stream, _addr) = listener.accept().map_err(|e| {
-                ModelError::TransportError(format!("coordinator accept failed: {e}"))
-            })?;
+            let (mut stream, _addr) =
+                listener
+                    .accept()
+                    .map_err(|source| ModelError::TransportIo {
+                        op: "accept",
+                        source: Arc::new(source),
+                    })?;
 
             stream
                 .set_nodelay(true)
-                .map_err(|e| ModelError::TransportError(format!("set_nodelay failed: {e}")))?;
+                .map_err(|source| ModelError::TransportIo {
+                    op: "set_nodelay",
+                    source: Arc::new(source),
+                })?;
 
             // Read the worker's rank.
             let mut rank_buf = [0u8; 4];
-            stream.read_exact(&mut rank_buf).map_err(|e| {
-                ModelError::TransportError(format!("failed to read worker rank: {e}"))
-            })?;
+            stream
+                .read_exact(&mut rank_buf)
+                .map_err(|source| ModelError::TransportIo {
+                    op: "read worker rank",
+                    source: Arc::new(source),
+                })?;
             let worker_rank = u32::from_le_bytes(rank_buf) as usize;
 
             if worker_rank == 0 || worker_rank >= world_size {
-                return Err(ModelError::TransportError(format!(
-                    "invalid worker rank {worker_rank}"
-                )));
+                return Err(ModelError::InvalidWorkerRank { rank: worker_rank });
             }
 
             peer_slots[worker_rank] = Some(Arc::new(Mutex::new(stream)));
@@ -128,25 +142,31 @@ impl TcpTransport {
     /// Create a worker node that connects to the coordinator.
     pub fn worker(coordinator_addr: &str, rank: usize) -> Result<Self, ModelError> {
         if rank == 0 {
-            return Err(ModelError::TransportError(
-                "worker rank must be > 0; use coordinator() for rank 0".to_string(),
-            ));
+            return Err(ModelError::InvalidWorkerRank { rank });
         }
 
-        let mut stream = TcpStream::connect(coordinator_addr).map_err(|e| {
-            ModelError::TransportError(format!(
-                "worker rank {rank} failed to connect to {coordinator_addr}: {e}"
-            ))
+        let mut stream = TcpStream::connect(coordinator_addr).map_err(|source| {
+            ModelError::TransportAddress {
+                op: "connect to",
+                addr: coordinator_addr.to_string(),
+                source: Arc::new(source),
+            }
         })?;
 
         stream
             .set_nodelay(true)
-            .map_err(|e| ModelError::TransportError(format!("set_nodelay failed: {e}")))?;
+            .map_err(|source| ModelError::TransportIo {
+                op: "set_nodelay",
+                source: Arc::new(source),
+            })?;
 
         // Announce our rank.
         stream
             .write_all(&(rank as u32).to_le_bytes())
-            .map_err(|e| ModelError::TransportError(format!("failed to send rank: {e}")))?;
+            .map_err(|source| ModelError::TransportIo {
+                op: "send rank",
+                source: Arc::new(source),
+            })?;
 
         let peers = vec![Arc::new(Mutex::new(stream))];
 
@@ -165,23 +185,29 @@ impl TcpTransport {
     /// `peer` is an index into the peers list (0-based).
     pub fn send(&self, peer: usize, data: &[f32]) -> Result<(), ModelError> {
         if peer >= self.peers.len() {
-            return Err(ModelError::TransportError(format!(
-                "peer index {peer} out of range (have {} peers)",
-                self.peers.len()
-            )));
+            return Err(ModelError::PeerOutOfRange {
+                peer,
+                peers: self.peers.len(),
+            });
         }
         let stream = &self.peers[peer];
-        let mut stream = stream
-            .lock()
-            .map_err(|_| ModelError::TransportError("lock poisoned".into()))?;
+        let mut stream = stream.lock().map_err(|_| ModelError::LockPoisoned {
+            lock: "peer stream",
+        })?;
         let len = data.len() as u32;
         stream
             .write_all(&len.to_le_bytes())
-            .map_err(|e| ModelError::TransportError(e.to_string()))?;
+            .map_err(|source| ModelError::TransportIo {
+                op: "write",
+                source: Arc::new(source),
+            })?;
         let bytes: Vec<u8> = data.iter().flat_map(|f| f.to_le_bytes()).collect();
         stream
             .write_all(&bytes)
-            .map_err(|e| ModelError::TransportError(e.to_string()))?;
+            .map_err(|source| ModelError::TransportIo {
+                op: "write",
+                source: Arc::new(source),
+            })?;
         Ok(())
     }
 
@@ -190,24 +216,30 @@ impl TcpTransport {
     /// `peer` is an index into the peers list (0-based).
     pub fn recv(&self, peer: usize) -> Result<Vec<f32>, ModelError> {
         if peer >= self.peers.len() {
-            return Err(ModelError::TransportError(format!(
-                "peer index {peer} out of range (have {} peers)",
-                self.peers.len()
-            )));
+            return Err(ModelError::PeerOutOfRange {
+                peer,
+                peers: self.peers.len(),
+            });
         }
         let stream = &self.peers[peer];
-        let mut stream = stream
-            .lock()
-            .map_err(|_| ModelError::TransportError("lock poisoned".into()))?;
+        let mut stream = stream.lock().map_err(|_| ModelError::LockPoisoned {
+            lock: "peer stream",
+        })?;
         let mut len_buf = [0u8; 4];
         stream
             .read_exact(&mut len_buf)
-            .map_err(|e| ModelError::TransportError(e.to_string()))?;
+            .map_err(|source| ModelError::TransportIo {
+                op: "read",
+                source: Arc::new(source),
+            })?;
         let len = u32::from_le_bytes(len_buf) as usize;
         let mut buf = vec![0u8; len * 4];
         stream
             .read_exact(&mut buf)
-            .map_err(|e| ModelError::TransportError(e.to_string()))?;
+            .map_err(|source| ModelError::TransportIo {
+                op: "read",
+                source: Arc::new(source),
+            })?;
         let data: Vec<f32> = buf
             .chunks(4)
             .map(|c| f32::from_le_bytes([c[0], c[1], c[2], c[3]]))
@@ -232,11 +264,11 @@ impl TcpTransport {
             for peer_idx in 0..self.peers.len() {
                 let remote = self.recv(peer_idx)?;
                 if remote.len() != acc.len() {
-                    return Err(ModelError::TransportError(format!(
-                        "allreduce length mismatch: expected {}, got {}",
-                        acc.len(),
-                        remote.len()
-                    )));
+                    return Err(ModelError::LengthMismatch {
+                        what: "allreduce",
+                        expected: acc.len(),
+                        got: remote.len(),
+                    });
                 }
                 for (a, r) in acc.iter_mut().zip(remote.iter()) {
                     *a += r;
@@ -253,11 +285,11 @@ impl TcpTransport {
             self.send(0, data)?;
             let result = self.recv(0)?;
             if result.len() != data.len() {
-                return Err(ModelError::TransportError(format!(
-                    "allreduce length mismatch: expected {}, got {}",
-                    data.len(),
-                    result.len()
-                )));
+                return Err(ModelError::LengthMismatch {
+                    what: "allreduce",
+                    expected: data.len(),
+                    got: result.len(),
+                });
             }
             data.copy_from_slice(&result);
         }
@@ -305,12 +337,18 @@ impl TcpAllReduceAggregator {
 /// worker to it. Returns `(coordinator, worker)`.
 pub fn loopback_pair() -> Result<(TcpTransport, TcpTransport), ModelError> {
     // Bind to port 0 to get a random available port.
-    let listener = TcpListener::bind("127.0.0.1:0").map_err(|e| {
-        ModelError::TransportError(format!("failed to bind loopback listener: {e}"))
-    })?;
+    let listener =
+        TcpListener::bind("127.0.0.1:0").map_err(|source| ModelError::TransportAddress {
+            op: "bind",
+            addr: "127.0.0.1:0".to_string(),
+            source: Arc::new(source),
+        })?;
     let port = listener
         .local_addr()
-        .map_err(|e| ModelError::TransportError(format!("failed to get local addr: {e}")))?
+        .map_err(|source| ModelError::TransportIo {
+            op: "local_addr",
+            source: Arc::new(source),
+        })?
         .port();
 
     // We need to accept in a separate thread because coordinator() blocks.
@@ -327,16 +365,25 @@ pub fn loopback_pair() -> Result<(TcpTransport, TcpTransport), ModelError> {
     // Build coordinator manually from the existing listener.
     let (mut stream, _) = listener
         .accept()
-        .map_err(|e| ModelError::TransportError(format!("loopback accept failed: {e}")))?;
+        .map_err(|source| ModelError::TransportIo {
+            op: "accept",
+            source: Arc::new(source),
+        })?;
     stream
         .set_nodelay(true)
-        .map_err(|e| ModelError::TransportError(format!("set_nodelay failed: {e}")))?;
+        .map_err(|source| ModelError::TransportIo {
+            op: "set_nodelay",
+            source: Arc::new(source),
+        })?;
 
     // Read the worker's rank announcement.
     let mut rank_buf = [0u8; 4];
     stream
         .read_exact(&mut rank_buf)
-        .map_err(|e| ModelError::TransportError(format!("failed to read worker rank: {e}")))?;
+        .map_err(|source| ModelError::TransportIo {
+            op: "read worker rank",
+            source: Arc::new(source),
+        })?;
 
     let coordinator = TcpTransport {
         role: NodeRole::Coordinator { bind_addr: addr },
@@ -347,7 +394,9 @@ pub fn loopback_pair() -> Result<(TcpTransport, TcpTransport), ModelError> {
 
     let worker = worker_handle
         .join()
-        .map_err(|_| ModelError::TransportError("worker thread panicked".to_string()))??;
+        .map_err(|_| ModelError::ThreadPanicked {
+            thread: "loopback worker",
+        })??;
 
     Ok((coordinator, worker))
 }

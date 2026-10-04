@@ -3,7 +3,7 @@ use std::path::Path;
 
 use yscv_detect::{BoundingBox, Detection};
 
-use crate::{DetectionDatasetFrame, EvalError, LabeledBox};
+use crate::{DatasetFormatError, DetectionDatasetFrame, EvalError, LabeledBox};
 
 use super::helpers::{parse_image_id_manifest, read_optional_text_file};
 
@@ -12,7 +12,12 @@ pub(crate) fn load_kitti_label_dirs(
     ground_truth_labels_dir: &Path,
     prediction_labels_dir: &Path,
 ) -> Result<Vec<DetectionDatasetFrame>, EvalError> {
-    let image_ids = parse_image_id_manifest(manifest_text, "kitti")?;
+    let image_ids = parse_image_id_manifest(manifest_text).map_err(|source| {
+        EvalError::InvalidDatasetFormat {
+            format: "kitti",
+            source,
+        }
+    })?;
     let mut frames = Vec::with_capacity(image_ids.len());
     let mut class_map = FxHashMap::default();
 
@@ -21,17 +26,25 @@ pub(crate) fn load_kitti_label_dirs(
         let pred_path = kitti_label_path(prediction_labels_dir, &image_id);
 
         let ground_truth = match read_optional_text_file(&gt_path)? {
-            Some(text) => parse_kitti_ground_truth_labels(
-                &text,
-                &gt_path.display().to_string(),
-                &mut class_map,
-            )?,
+            Some(text) => {
+                parse_kitti_ground_truth_labels(&text, &mut class_map).map_err(|source| {
+                    EvalError::InvalidDatasetFile {
+                        format: "kitti",
+                        path: gt_path,
+                        source,
+                    }
+                })?
+            }
             None => Vec::new(),
         };
         let predictions = match read_optional_text_file(&pred_path)? {
-            Some(text) => {
-                parse_kitti_predictions(&text, &pred_path.display().to_string(), &mut class_map)?
-            }
+            Some(text) => parse_kitti_predictions(&text, &mut class_map).map_err(|source| {
+                EvalError::InvalidDatasetFile {
+                    format: "kitti",
+                    path: pred_path,
+                    source,
+                }
+            })?,
             None => Vec::new(),
         };
 
@@ -50,9 +63,9 @@ fn kitti_label_path(labels_dir: &Path, image_id: &str) -> std::path::PathBuf {
 
 fn parse_kitti_ground_truth_labels(
     text: &str,
-    source: &str,
     class_map: &mut FxHashMap<String, usize>,
-) -> Result<Vec<LabeledBox>, EvalError> {
+) -> Result<Vec<LabeledBox>, DatasetFormatError> {
+    const RECORD: &str = "ground-truth line";
     let mut boxes = Vec::new();
     for (line_idx, raw_line) in text.lines().enumerate() {
         let line_no = line_idx + 1;
@@ -62,11 +75,10 @@ fn parse_kitti_ground_truth_labels(
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
         if tokens.len() < 8 {
-            return Err(EvalError::InvalidDatasetFormat {
-                format: "kitti",
-                message: format!(
-                    "invalid ground-truth label `{source}` line {line_no}: expected at least 8 fields"
-                ),
+            return Err(DatasetFormatError::FieldCount {
+                record: RECORD,
+                index: line_no,
+                expected: "at least 8 fields",
             });
         }
         if is_kitti_dont_care(tokens[0]) {
@@ -74,7 +86,7 @@ fn parse_kitti_ground_truth_labels(
         }
 
         let class_id = resolve_kitti_class_id(tokens[0], class_map);
-        let bbox = parse_kitti_bbox_tokens(&tokens[4..8], source, line_no)?;
+        let bbox = parse_kitti_bbox_tokens(&tokens[4..8], RECORD, line_no)?;
         boxes.push(LabeledBox { bbox, class_id });
     }
     Ok(boxes)
@@ -82,9 +94,9 @@ fn parse_kitti_ground_truth_labels(
 
 fn parse_kitti_predictions(
     text: &str,
-    source: &str,
     class_map: &mut FxHashMap<String, usize>,
-) -> Result<Vec<Detection>, EvalError> {
+) -> Result<Vec<Detection>, DatasetFormatError> {
+    const RECORD: &str = "prediction line";
     let mut detections = Vec::new();
     for (line_idx, raw_line) in text.lines().enumerate() {
         let line_no = line_idx + 1;
@@ -94,11 +106,10 @@ fn parse_kitti_predictions(
         }
         let tokens = line.split_whitespace().collect::<Vec<_>>();
         if tokens.len() < 8 {
-            return Err(EvalError::InvalidDatasetFormat {
-                format: "kitti",
-                message: format!(
-                    "invalid prediction label `{source}` line {line_no}: expected at least 8 fields"
-                ),
+            return Err(DatasetFormatError::FieldCount {
+                record: RECORD,
+                index: line_no,
+                expected: "at least 8 fields",
             });
         }
         if is_kitti_dont_care(tokens[0]) {
@@ -106,9 +117,9 @@ fn parse_kitti_predictions(
         }
 
         let class_id = resolve_kitti_class_id(tokens[0], class_map);
-        let bbox = parse_kitti_bbox_tokens(&tokens[4..8], source, line_no)?;
+        let bbox = parse_kitti_bbox_tokens(&tokens[4..8], RECORD, line_no)?;
         let score = match tokens.get(15).copied() {
-            Some(raw) => parse_kitti_score(raw, source, line_no)?,
+            Some(raw) => parse_kitti_score(raw, RECORD, line_no)?,
             None => 1.0,
         };
         detections.push(Detection {
@@ -122,19 +133,18 @@ fn parse_kitti_predictions(
 
 fn parse_kitti_bbox_tokens(
     tokens: &[&str],
-    source: &str,
+    record: &'static str,
     line_no: usize,
-) -> Result<BoundingBox, EvalError> {
-    let x1 = parse_kitti_f32(tokens[0], "bbox_left", source, line_no)?;
-    let y1 = parse_kitti_f32(tokens[1], "bbox_top", source, line_no)?;
-    let x2 = parse_kitti_f32(tokens[2], "bbox_right", source, line_no)?;
-    let y2 = parse_kitti_f32(tokens[3], "bbox_bottom", source, line_no)?;
+) -> Result<BoundingBox, DatasetFormatError> {
+    let x1 = parse_kitti_f32(tokens[0], "bbox_left", record, line_no)?;
+    let y1 = parse_kitti_f32(tokens[1], "bbox_top", record, line_no)?;
+    let x2 = parse_kitti_f32(tokens[2], "bbox_right", record, line_no)?;
+    let y2 = parse_kitti_f32(tokens[3], "bbox_bottom", record, line_no)?;
     if x2 <= x1 || y2 <= y1 {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "kitti",
-            message: format!(
-                "invalid label `{source}` line {line_no}: expected bbox_right>bbox_left and bbox_bottom>bbox_top"
-            ),
+        return Err(DatasetFormatError::InvalidBox {
+            record,
+            index: line_no,
+            reason: "expected bbox_right>bbox_left and bbox_bottom>bbox_top",
         });
     }
     Ok(BoundingBox { x1, y1, x2, y2 })
@@ -143,32 +153,41 @@ fn parse_kitti_bbox_tokens(
 fn parse_kitti_f32(
     token: &str,
     field: &'static str,
-    source: &str,
+    record: &'static str,
     line_no: usize,
-) -> Result<f32, EvalError> {
+) -> Result<f32, DatasetFormatError> {
     let value = token
         .parse::<f32>()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "kitti",
-            message: format!(
-                "invalid label `{source}` line {line_no} `{field}` value `{token}`: {err}"
-            ),
+        .map_err(|source| DatasetFormatError::ParseFloat {
+            record,
+            index: line_no,
+            field,
+            value: token.to_string(),
+            source,
         })?;
     if !value.is_finite() {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "kitti",
-            message: format!("invalid label `{source}` line {line_no}: `{field}` must be finite"),
+        return Err(DatasetFormatError::OutOfRange {
+            record,
+            index: line_no,
+            field,
+            expected: "finite",
         });
     }
     Ok(value)
 }
 
-fn parse_kitti_score(token: &str, source: &str, line_no: usize) -> Result<f32, EvalError> {
-    let score = parse_kitti_f32(token, "score", source, line_no)?;
+fn parse_kitti_score(
+    token: &str,
+    record: &'static str,
+    line_no: usize,
+) -> Result<f32, DatasetFormatError> {
+    let score = parse_kitti_f32(token, "score", record, line_no)?;
     if score < 0.0 {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "kitti",
-            message: format!("invalid label `{source}` line {line_no}: `score` must be >= 0"),
+        return Err(DatasetFormatError::OutOfRange {
+            record,
+            index: line_no,
+            field: "score",
+            expected: ">= 0",
         });
     }
     Ok(score)

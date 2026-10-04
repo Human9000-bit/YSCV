@@ -106,7 +106,7 @@ impl LinearLayer {
             });
         }
         let projected = yscv_kernels::matmul_2d(input, &self.weight_tensor)?;
-        projected.add(&self.bias_tensor).map_err(ModelError::Tensor)
+        Ok(projected.add(&self.bias_tensor)?)
     }
 
     pub const fn in_features(&self) -> usize {

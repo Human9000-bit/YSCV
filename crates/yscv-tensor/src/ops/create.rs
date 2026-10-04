@@ -372,9 +372,7 @@ impl Tensor {
     /// Create a tensor filled with random integers in [low, high).
     pub fn randint(shape: Vec<usize>, low: i64, high: i64, seed: u64) -> Result<Self, TensorError> {
         if high <= low {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("randint requires high > low, got low={low}, high={high}"),
-            });
+            return Err(TensorError::EmptyRandintRange { low, high });
         }
         let range = (high - low) as u64;
         let n: usize = shape.iter().product();

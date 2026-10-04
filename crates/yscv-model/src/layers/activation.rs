@@ -214,6 +214,6 @@ impl PReLULayer {
             }
             result
         };
-        Tensor::from_vec(input.shape().to_vec(), out).map_err(ModelError::Tensor)
+        Ok(Tensor::from_vec(input.shape().to_vec(), out)?)
     }
 }

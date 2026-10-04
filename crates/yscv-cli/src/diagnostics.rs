@@ -7,7 +7,7 @@ use yscv_video::{
     resolve_camera_device,
 };
 
-use crate::config::{CliConfig, CliError};
+use crate::config::CliConfig;
 use crate::error::AppError;
 use crate::util::{duration_to_ms, ensure_parent_dir};
 
@@ -108,11 +108,9 @@ pub fn run_camera_diagnostics(cli: &CliConfig) -> Result<(), AppError> {
     {
         found.clone()
     } else {
-        return Err(CliError::Message(format!(
-            "diagnostics: requested device index {} was not found in discovery list",
-            cli.device_index
-        ))
-        .into());
+        return Err(AppError::DeviceNotFound {
+            index: cli.device_index,
+        });
     };
 
     let mut source = CameraFrameSource::open(CameraConfig {

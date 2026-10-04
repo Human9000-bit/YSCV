@@ -1147,21 +1147,12 @@ pub(crate) fn find_task(
 }
 
 /// Errors returned by [`YscvPool::new`].
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum PoolError {
     /// `nthreads == 0`.
+    #[error("thread count must be > 0")]
     ZeroThreads,
 }
-
-impl std::fmt::Display for PoolError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PoolError::ZeroThreads => write!(f, "thread count must be > 0"),
-        }
-    }
-}
-
-impl std::error::Error for PoolError {}
 
 #[cfg(test)]
 mod tests;

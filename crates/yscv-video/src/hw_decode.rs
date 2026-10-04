@@ -364,9 +364,11 @@ pub mod videotoolbox {
                         &mut fmt,
                     );
                     if status != 0 {
-                        return Err(VideoError::Codec(format!(
-                            "VT: failed to create H264 format description: {status}"
-                        )));
+                        return Err(VideoError::HwDecode {
+                            backend: HwBackend::VideoToolbox,
+                            op: "CMVideoFormatDescriptionCreateFromH264ParameterSets",
+                            status,
+                        });
                     }
                     fmt
                 }
@@ -384,13 +386,20 @@ pub mod videotoolbox {
                         &mut fmt,
                     );
                     if status != 0 {
-                        return Err(VideoError::Codec(format!(
-                            "VT: failed to create HEVC format description: {status}"
-                        )));
+                        return Err(VideoError::HwDecode {
+                            backend: HwBackend::VideoToolbox,
+                            op: "CMVideoFormatDescriptionCreateFromHEVCParameterSets",
+                            status,
+                        });
                     }
                     fmt
                 }
-                _ => return Err(VideoError::Codec("VT: unsupported codec".into())),
+                _ => {
+                    return Err(VideoError::UnsupportedCodec {
+                        backend: HwBackend::VideoToolbox,
+                        codec: self.codec,
+                    });
+                }
             };
 
             // Pixel buffer attributes: request BGRA output
@@ -428,9 +437,11 @@ pub mod videotoolbox {
             CFRelease(attrs as *const c_void);
 
             if status != 0 {
-                return Err(VideoError::Codec(format!(
-                    "VT: failed to create decompression session: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::VideoToolbox,
+                    op: "VTDecompressionSessionCreate",
+                    status,
+                });
             }
             self.session = session;
             self.initialized = true;
@@ -1097,7 +1108,12 @@ pub mod vaapi {
                 let sw: Box<dyn VideoDecoder> = match codec {
                     VideoCodec::H264 => Box::new(super::super::h264_decoder::H264Decoder::new()),
                     VideoCodec::H265 => Box::new(super::super::hevc_decoder::HevcDecoder::new()),
-                    _ => return Err(VideoError::Codec("Unsupported codec".into())),
+                    _ => {
+                        return Err(VideoError::UnsupportedCodec {
+                            backend: HwBackend::Vaapi,
+                            codec,
+                        });
+                    }
                 };
                 return Ok(VaapiDecoder {
                     codec,
@@ -1144,7 +1160,12 @@ pub mod vaapi {
                 let profile = match codec {
                     VideoCodec::H264 => VA_PROFILE_H264_HIGH,
                     VideoCodec::H265 => VA_PROFILE_HEVC_MAIN,
-                    _ => return Err(VideoError::Codec("Unsupported codec".into())),
+                    _ => {
+                        return Err(VideoError::UnsupportedCodec {
+                            backend: HwBackend::Vaapi,
+                            codec,
+                        });
+                    }
                 };
 
                 let mut config_id: VAConfigID = 0;
@@ -1214,9 +1235,11 @@ pub mod vaapi {
                 )
             };
             if status != VA_STATUS_SUCCESS {
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaCreateSurfaces failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaCreateSurfaces",
+                    status,
+                });
             }
             let mut ctx: VAContextID = 0;
             // SAFETY: display/config and surfaces are valid VA handles from the
@@ -1234,9 +1257,11 @@ pub mod vaapi {
                 )
             };
             if status != VA_STATUS_SUCCESS {
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaCreateContext failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaCreateContext",
+                    status,
+                });
             }
             self.context = ctx;
             self.surfaces_created = true;
@@ -1256,9 +1281,11 @@ pub mod vaapi {
             // the returned status is checked before any dependent call.
             let status = unsafe { vaBeginPicture(self.display, self.context, surface) };
             if status != VA_STATUS_SUCCESS {
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaBeginPicture failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaBeginPicture",
+                    status,
+                });
             }
 
             // Create and render slice data buffer
@@ -1282,9 +1309,11 @@ pub mod vaapi {
                 unsafe {
                     vaEndPicture(self.display, self.context);
                 }
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaCreateBuffer(SliceData) failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaCreateBuffer(SliceData)",
+                    status,
+                });
             }
 
             // SAFETY: slice_buf is a VA buffer handle produced by vaCreateBuffer,
@@ -1297,9 +1326,11 @@ pub mod vaapi {
                     vaDestroyBuffer(self.display, slice_buf);
                     vaEndPicture(self.display, self.context);
                 }
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaRenderPicture failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaRenderPicture",
+                    status,
+                });
             }
 
             // End picture
@@ -1311,9 +1342,11 @@ pub mod vaapi {
                 unsafe {
                     vaDestroyBuffer(self.display, slice_buf);
                 }
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaEndPicture failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaEndPicture",
+                    status,
+                });
             }
 
             // Sync
@@ -1325,9 +1358,11 @@ pub mod vaapi {
                 unsafe {
                     vaDestroyBuffer(self.display, slice_buf);
                 }
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaSyncSurface failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaSyncSurface",
+                    status,
+                });
             }
 
             // Derive image and readback NV12
@@ -1341,9 +1376,11 @@ pub mod vaapi {
                 unsafe {
                     vaDestroyBuffer(self.display, slice_buf);
                 }
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaDeriveImage failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaDeriveImage",
+                    status,
+                });
             }
 
             let mut buf_ptr: *mut c_void = ptr::null_mut();
@@ -1356,9 +1393,11 @@ pub mod vaapi {
                     vaDestroyImage(self.display, image.image_id);
                     vaDestroyBuffer(self.display, slice_buf);
                 }
-                return Err(VideoError::Codec(format!(
-                    "VA-API: vaMapBuffer failed: {status}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::Vaapi,
+                    op: "vaMapBuffer",
+                    status,
+                });
             }
 
             let w = image.width as usize;
@@ -1674,7 +1713,7 @@ pub mod nvdec {
         frames: Vec<DecodedFrame>,
         decoder_created: bool,
         /// Callback error propagation: set inside parser callbacks, checked after parse.
-        last_error: Option<String>,
+        last_error: Option<VideoError>,
     }
 
     // Parser callbacks
@@ -1703,7 +1742,11 @@ pub mod nvdec {
             if status == CUDA_SUCCESS {
                 state.decoder_created = true;
             } else {
-                state.last_error = Some(format!("NVDEC: cuvidCreateDecoder failed: {status}"));
+                state.last_error = Some(VideoError::HwDecode {
+                    backend: HwBackend::Nvdec,
+                    op: "cuvidCreateDecoder",
+                    status,
+                });
             }
         }
         (*fmt).min_num_decode_surfaces as i32
@@ -1721,7 +1764,11 @@ pub mod nvdec {
         }
         let status = cuvidDecodePicture(state.decoder, pic_params);
         if status != CUDA_SUCCESS {
-            state.last_error = Some(format!("NVDEC: cuvidDecodePicture failed: {status}"));
+            state.last_error = Some(VideoError::HwDecode {
+                backend: HwBackend::Nvdec,
+                op: "cuvidDecodePicture",
+                status,
+            });
             0
         } else {
             1
@@ -1757,7 +1804,11 @@ pub mod nvdec {
             &mut proc_params,
         );
         if status != CUDA_SUCCESS {
-            state.last_error = Some(format!("NVDEC: cuvidMapVideoFrame64 failed: {status}"));
+            state.last_error = Some(VideoError::HwDecode {
+                backend: HwBackend::Nvdec,
+                op: "cuvidMapVideoFrame64",
+                status,
+            });
             return 0;
         }
 
@@ -1841,7 +1892,12 @@ pub mod nvdec {
                 let nvcodec = match codec {
                     VideoCodec::H264 => cudaVideoCodec_H264,
                     VideoCodec::H265 => cudaVideoCodec_HEVC,
-                    _ => return Err(VideoError::Codec("NVDEC: unsupported codec".into())),
+                    _ => {
+                        return Err(VideoError::UnsupportedCodec {
+                            backend: HwBackend::Nvdec,
+                            codec,
+                        });
+                    }
                 };
 
                 let mut params = CUVIDPARSERPARAMS {
@@ -1926,15 +1982,17 @@ pub mod nvdec {
 
                 let status = cuvidParseVideoData(self.parser, &mut packet);
                 if status != CUDA_SUCCESS {
-                    return Err(VideoError::Codec(format!(
-                        "NVDEC: cuvidParseVideoData failed: {status}"
-                    )));
+                    return Err(VideoError::HwDecode {
+                        backend: HwBackend::Nvdec,
+                        op: "cuvidParseVideoData",
+                        status,
+                    });
                 }
             }
 
             // Check for errors propagated from callbacks
             if let Some(err) = self.state.last_error.take() {
-                return Err(VideoError::Codec(err));
+                return Err(err);
             }
 
             // Return last decoded frame from callback
@@ -2208,7 +2266,12 @@ pub mod media_foundation {
                 let subtype = match codec {
                     VideoCodec::H264 => MFVideoFormat_H264,
                     VideoCodec::H265 => MFVideoFormat_HEVC,
-                    _ => return Err(VideoError::Codec("MF: unsupported codec".into())),
+                    _ => {
+                        return Err(VideoError::UnsupportedCodec {
+                            backend: HwBackend::MediaFoundation,
+                            codec,
+                        });
+                    }
                 };
 
                 let input_info = MFT_REGISTER_TYPE_INFO {
@@ -2280,16 +2343,20 @@ pub mod media_foundation {
             timestamp_us: u64,
         ) -> Result<Option<DecodedFrame>, VideoError> {
             if self.transform.is_null() {
-                return Err(VideoError::Codec("MF: transform not initialized".into()));
+                return Err(VideoError::Unavailable {
+                    what: "MediaFoundation transform (not initialized)",
+                });
             }
 
             // Create IMFMediaBuffer, lock, copy NAL data, unlock
             let mut media_buf: *mut c_void = ptr::null_mut();
             let hr = MFCreateMemoryBuffer(data.len() as u32, &mut media_buf);
             if hr != S_OK || media_buf.is_null() {
-                return Err(VideoError::Codec(format!(
-                    "MF: MFCreateMemoryBuffer failed: {hr:#X}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::MediaFoundation,
+                    op: "MFCreateMemoryBuffer",
+                    status: hr,
+                });
             }
 
             let mut buf_ptr: *mut u8 = ptr::null_mut();
@@ -2298,9 +2365,11 @@ pub mod media_foundation {
             let hr = media_buffer_lock(media_buf, &mut buf_ptr, &mut max_len, &mut cur_len);
             if hr != S_OK {
                 com_release(media_buf);
-                return Err(VideoError::Codec(format!(
-                    "MF: IMFMediaBuffer::Lock failed: {hr:#X}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::MediaFoundation,
+                    op: "IMFMediaBuffer::Lock",
+                    status: hr,
+                });
             }
             std::ptr::copy_nonoverlapping(data.as_ptr(), buf_ptr, data.len());
             media_buffer_unlock(media_buf);
@@ -2311,17 +2380,21 @@ pub mod media_foundation {
             let hr = MFCreateSample(&mut sample);
             if hr != S_OK || sample.is_null() {
                 com_release(media_buf);
-                return Err(VideoError::Codec(format!(
-                    "MF: MFCreateSample failed: {hr:#X}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::MediaFoundation,
+                    op: "MFCreateSample",
+                    status: hr,
+                });
             }
             let hr = sample_add_buffer(sample, media_buf);
             if hr != S_OK {
                 com_release(sample);
                 com_release(media_buf);
-                return Err(VideoError::Codec(format!(
-                    "MF: IMFSample::AddBuffer failed: {hr:#X}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::MediaFoundation,
+                    op: "IMFSample::AddBuffer",
+                    status: hr,
+                });
             }
 
             // ProcessInput
@@ -2329,9 +2402,11 @@ pub mod media_foundation {
             com_release(sample);
             com_release(media_buf);
             if hr != S_OK {
-                return Err(VideoError::Codec(format!(
-                    "MF: ProcessInput failed: {hr:#X}"
-                )));
+                return Err(VideoError::HwDecode {
+                    backend: HwBackend::MediaFoundation,
+                    op: "ProcessInput",
+                    status: hr,
+                });
             }
 
             // ProcessOutput — try to drain one frame
@@ -2490,7 +2565,9 @@ impl HwVideoDecoder {
             HwBackend::MediaFoundation => media_foundation::MediaFoundationDecoder::new(codec)
                 .map(|d| Box::new(d) as Box<dyn VideoDecoder>),
 
-            _ => Err(VideoError::Codec("No hardware backend available".into())),
+            _ => Err(VideoError::Unavailable {
+                what: "hardware decode backend",
+            }),
         };
 
         match hw_result {
@@ -2502,7 +2579,12 @@ impl HwVideoDecoder {
                 let sw: Box<dyn VideoDecoder> = match codec {
                     VideoCodec::H264 => Box::new(super::h264_decoder::H264Decoder::new()),
                     VideoCodec::H265 => Box::new(super::hevc_decoder::HevcDecoder::new()),
-                    _ => return Err(VideoError::Codec(format!("Unsupported codec: {codec:?}"))),
+                    _ => {
+                        return Err(VideoError::UnsupportedCodec {
+                            backend: HwBackend::Software,
+                            codec,
+                        });
+                    }
                 };
                 Ok(HwVideoDecoder {
                     backend: HwBackend::Software,

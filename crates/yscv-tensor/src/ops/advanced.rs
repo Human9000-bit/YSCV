@@ -21,8 +21,9 @@ impl Tensor {
             return Err(TensorError::InvalidAxis { axis: dim, rank });
         }
         if step == 0 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: "step must be > 0".to_string(),
+            return Err(TensorError::ZeroArgument {
+                op: "step_slice",
+                arg: "step",
             });
         }
         let shape = self.shape();
@@ -70,21 +71,16 @@ impl Tensor {
         let equation = equation.replace(' ', "");
         let parts: Vec<&str> = equation.split("->").collect();
         if parts.len() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("invalid einsum equation: {equation}"),
-            });
+            return Err(TensorError::UnsupportedEinsum { equation });
         }
         let inputs_str = parts[0];
         let output_str = parts[1];
         let input_parts: Vec<&str> = inputs_str.split(',').collect();
 
         if input_parts.len() != tensors.len() {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!(
-                    "einsum equation has {} inputs but {} tensors provided",
-                    input_parts.len(),
-                    tensors.len()
-                ),
+            return Err(TensorError::EinsumOperandCount {
+                inputs: input_parts.len(),
+                tensors: tensors.len(),
             });
         }
 
@@ -104,9 +100,11 @@ impl Tensor {
             "ij,jk->ik" => {
                 let a = tensors[0];
                 let b = tensors[1];
-                if a.rank() != 2 || b.rank() != 2 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ij,jk->ik requires 2D tensors".to_string(),
+                if let Some(got) = [a.rank(), b.rank()].into_iter().find(|&r| r != 2) {
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ij,jk->ik",
+                        expected: 2,
+                        got,
                     });
                 }
                 let (m, k1) = (a.shape()[0], a.shape()[1]);
@@ -135,8 +133,10 @@ impl Tensor {
             "ij->ji" => {
                 let a = tensors[0];
                 if a.rank() != 2 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ij->ji requires a 2D tensor".to_string(),
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ij->ji",
+                        expected: 2,
+                        got: a.rank(),
                     });
                 }
                 let (rows, cols) = (a.shape()[0], a.shape()[1]);
@@ -152,9 +152,17 @@ impl Tensor {
             // diagonal: ii->i
             "ii->i" => {
                 let a = tensors[0];
-                if a.rank() != 2 || a.shape()[0] != a.shape()[1] {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ii->i requires a square 2D tensor".to_string(),
+                if a.rank() != 2 {
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ii->i",
+                        expected: 2,
+                        got: a.rank(),
+                    });
+                }
+                if a.shape()[0] != a.shape()[1] {
+                    return Err(TensorError::ShapeMismatch {
+                        left: a.shape().to_vec(),
+                        right: vec![a.shape()[0], a.shape()[0]],
                     });
                 }
                 let n = a.shape()[0];
@@ -166,8 +174,10 @@ impl Tensor {
             "ij->i" => {
                 let a = tensors[0];
                 if a.rank() != 2 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ij->i requires a 2D tensor".to_string(),
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ij->i",
+                        expected: 2,
+                        got: a.rank(),
                     });
                 }
                 let (rows, cols) = (a.shape()[0], a.shape()[1]);
@@ -181,8 +191,10 @@ impl Tensor {
             "ij->j" => {
                 let a = tensors[0];
                 if a.rank() != 2 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ij->j requires a 2D tensor".to_string(),
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ij->j",
+                        expected: 2,
+                        got: a.rank(),
                     });
                 }
                 let (rows, cols) = (a.shape()[0], a.shape()[1]);
@@ -199,8 +211,10 @@ impl Tensor {
             "ij->" => {
                 let a = tensors[0];
                 if a.rank() != 2 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ij-> requires a 2D tensor".to_string(),
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ij->",
+                        expected: 2,
+                        got: a.rank(),
                     });
                 }
                 let sum: f32 = a.data().iter().sum();
@@ -210,9 +224,11 @@ impl Tensor {
             "i,i->" => {
                 let a = tensors[0];
                 let b = tensors[1];
-                if a.rank() != 1 || b.rank() != 1 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "i,i-> requires 1D tensors".to_string(),
+                if let Some(got) = [a.rank(), b.rank()].into_iter().find(|&r| r != 1) {
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum i,i->",
+                        expected: 1,
+                        got,
                     });
                 }
                 if a.shape()[0] != b.shape()[0] {
@@ -233,9 +249,11 @@ impl Tensor {
             "ij,ij->" => {
                 let a = tensors[0];
                 let b = tensors[1];
-                if a.rank() != 2 || b.rank() != 2 {
-                    return Err(TensorError::UnsupportedOperation {
-                        msg: "ij,ij-> requires 2D tensors".to_string(),
+                if let Some(got) = [a.rank(), b.rank()].into_iter().find(|&r| r != 2) {
+                    return Err(TensorError::InvalidRank {
+                        op: "einsum ij,ij->",
+                        expected: 2,
+                        got,
                     });
                 }
                 if a.shape() != b.shape() {
@@ -252,9 +270,7 @@ impl Tensor {
                     .sum();
                 Ok(Tensor::scalar(sum))
             }
-            _ => Err(TensorError::UnsupportedOperation {
-                msg: format!("unsupported einsum pattern: {pattern}"),
-            }),
+            _ => Err(TensorError::UnsupportedEinsum { equation: pattern }),
         }
     }
 
@@ -269,8 +285,9 @@ impl Tensor {
             });
         }
         if n_chunks == 0 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: "n_chunks must be > 0".to_string(),
+            return Err(TensorError::ZeroArgument {
+                op: "chunk",
+                arg: "n_chunks",
             });
         }
         let dim = self.shape()[axis];

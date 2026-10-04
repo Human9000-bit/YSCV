@@ -43,7 +43,7 @@ use yscv_onnx::{
     CalibrationCollector, OnnxRunner, load_onnx_model_from_file, prune_unused_initializers,
     rewrite_to_qdq, rewrite_to_qlinear, save_onnx_model_to_file, strip_qdq_within_fusion_chains,
 };
-use yscv_tensor::Tensor;
+use yscv_tensor::{Tensor, TensorError};
 
 #[derive(Debug, thiserror::Error)]
 enum CliError {
@@ -53,16 +53,61 @@ enum CliError {
     Usage,
     #[error("missing required argument: {0}")]
     MissingArg(&'static str),
-    #[error("invalid argument: {0}")]
-    InvalidArg(String),
+    #[error("invalid argument: {flag}")]
+    UnknownFlag { flag: String },
+    #[error("invalid argument: unexpected positional `{arg}` (input.onnx already set)")]
+    UnexpectedPositional { arg: String },
+    #[error("invalid argument: --format must be `qdq` or `qlinear`, got `{value}`")]
+    InvalidFormat { value: String },
+    #[error("invalid argument: paired calibration entry `{entry}` must be NAME=PATH")]
+    BadStreamEntry { entry: String },
+    #[error(
+        "invalid argument: paired calibration stream `{name}` has {got} samples, expected {expected}"
+    )]
+    StreamLengthMismatch {
+        name: String,
+        expected: usize,
+        got: usize,
+    },
     #[error("io: {path}: {source}")]
     Io {
         path: PathBuf,
         #[source]
         source: std::io::Error,
     },
-    #[error("calibration sample {line}: {message}")]
-    BadSample { line: usize, message: String },
+    #[error("calibration sample {line}: {source}")]
+    SampleJson {
+        line: usize,
+        #[source]
+        source: serde_json::Error,
+    },
+    #[error(
+        "calibration sample {line}: tensor `{name}`: shape {shape:?} expects {expected} values, got {got}"
+    )]
+    SampleShape {
+        line: usize,
+        name: String,
+        shape: Vec<usize>,
+        expected: usize,
+        got: usize,
+    },
+    #[error("calibration sample {line}: tensor `{name}`: {source}")]
+    SampleTensor {
+        line: usize,
+        name: String,
+        #[source]
+        source: TensorError,
+    },
+    #[error("calibration sample {line}: wrapped sample does not contain `{name}`")]
+    SampleMissingInput { line: usize, name: String },
+    #[error("calibration file produced 0 samples")]
+    NoSamples,
+    #[error("sample {sample}: inference failed: {source}")]
+    Inference {
+        sample: usize,
+        #[source]
+        source: yscv_onnx::OnnxError,
+    },
     #[error("yscv-onnx: {0}")]
     Onnx(#[from] yscv_onnx::OnnxError),
 }
@@ -114,9 +159,7 @@ fn parse_args() -> Result<Args, CliError> {
                     "qdq" => QuantFormat::Qdq,
                     "qlinear" => QuantFormat::QLinear,
                     _ => {
-                        return Err(CliError::InvalidArg(format!(
-                            "--format must be `qdq` or `qlinear`, got `{value}`"
-                        )));
+                        return Err(CliError::InvalidFormat { value });
                     }
                 };
             }
@@ -134,13 +177,15 @@ fn parse_args() -> Result<Args, CliError> {
                 );
             }
             other if other.starts_with('-') => {
-                return Err(CliError::InvalidArg(other.to_string()));
+                return Err(CliError::UnknownFlag {
+                    flag: other.to_string(),
+                });
             }
             other => {
                 if input.is_some() {
-                    return Err(CliError::InvalidArg(format!(
-                        "unexpected positional `{other}` (input.onnx already set)"
-                    )));
+                    return Err(CliError::UnexpectedPositional {
+                        arg: other.to_string(),
+                    });
                 }
                 input = Some(PathBuf::from(other));
             }
@@ -178,33 +223,37 @@ fn read_calibration(path: &PathBuf) -> Result<Vec<FxHashMap<String, Tensor>>, Cl
             continue;
         }
         let parsed: FxHashMap<String, SampleTensor> =
-            serde_json::from_str(line).map_err(|e| CliError::BadSample {
+            serde_json::from_str(line).map_err(|source| CliError::SampleJson {
                 line: idx + 1,
-                message: e.to_string(),
+                source,
             })?;
         let mut sample = FxHashMap::default();
         for (name, st) in parsed {
-            let expected: usize = st.shape.iter().product();
-            if expected != st.values.len() {
-                return Err(CliError::BadSample {
-                    line: idx + 1,
-                    message: format!(
-                        "tensor `{name}`: shape {:?} expects {expected} values, got {}",
-                        st.shape,
-                        st.values.len()
-                    ),
-                });
-            }
-            let tensor =
-                Tensor::from_vec(st.shape, st.values).map_err(|e| CliError::BadSample {
-                    line: idx + 1,
-                    message: format!("tensor `{name}`: {e}"),
-                })?;
+            let tensor = sample_tensor(idx + 1, &name, st)?;
             sample.insert(name, tensor);
         }
         samples.push(sample);
     }
     Ok(samples)
+}
+
+/// Check a sample's value count against its shape and build the tensor.
+fn sample_tensor(line: usize, name: &str, st: SampleTensor) -> Result<Tensor, CliError> {
+    let expected: usize = st.shape.iter().product();
+    if expected != st.values.len() {
+        return Err(CliError::SampleShape {
+            line,
+            name: name.to_string(),
+            expected,
+            got: st.values.len(),
+            shape: st.shape,
+        });
+    }
+    Tensor::from_vec(st.shape, st.values).map_err(|source| CliError::SampleTensor {
+        line,
+        name: name.to_string(),
+        source,
+    })
 }
 
 fn read_calibration_spec(spec: &str) -> Result<Vec<FxHashMap<String, Tensor>>, CliError> {
@@ -218,25 +267,15 @@ fn read_calibration_spec(spec: &str) -> Result<Vec<FxHashMap<String, Tensor>>, C
 fn read_paired_calibration(spec: &str) -> Result<Vec<FxHashMap<String, Tensor>>, CliError> {
     let streams: Vec<(String, PathBuf)> = spec
         .split(',')
-        .map(|pair| {
-            let (name, path) = pair.split_once('=').ok_or_else(|| {
-                CliError::InvalidArg(format!(
-                    "paired calibration entry `{pair}` must be NAME=PATH"
-                ))
-            })?;
-            if name.is_empty() || path.is_empty() {
-                return Err(CliError::InvalidArg(format!(
-                    "paired calibration entry `{pair}` must be NAME=PATH"
-                )));
+        .map(|pair| match pair.split_once('=') {
+            Some((name, path)) if !name.is_empty() && !path.is_empty() => {
+                Ok((name.to_string(), PathBuf::from(path)))
             }
-            Ok((name.to_string(), PathBuf::from(path)))
+            _ => Err(CliError::BadStreamEntry {
+                entry: pair.to_string(),
+            }),
         })
         .collect::<Result<_, _>>()?;
-    if streams.is_empty() {
-        return Err(CliError::InvalidArg(
-            "paired calibration spec must contain at least one stream".to_string(),
-        ));
-    }
 
     let mut parsed: Vec<(String, Vec<Tensor>)> = Vec::with_capacity(streams.len());
     for (name, path) in streams {
@@ -245,10 +284,11 @@ fn read_paired_calibration(spec: &str) -> Result<Vec<FxHashMap<String, Tensor>>,
     let expected_len = parsed[0].1.len();
     for (name, tensors) in &parsed {
         if tensors.len() != expected_len {
-            return Err(CliError::InvalidArg(format!(
-                "paired calibration stream `{name}` has {} samples, expected {expected_len}",
-                tensors.len()
-            )));
+            return Err(CliError::StreamLengthMismatch {
+                name: name.clone(),
+                expected: expected_len,
+                got: tensors.len(),
+            });
         }
     }
 
@@ -278,37 +318,21 @@ fn read_single_tensor_stream(name: &str, path: &PathBuf) -> Result<Vec<Tensor>, 
             Ok(st) => st,
             Err(_) => {
                 let wrapped: FxHashMap<String, SampleTensor> =
-                    serde_json::from_str(line).map_err(|e| CliError::BadSample {
+                    serde_json::from_str(line).map_err(|source| CliError::SampleJson {
                         line: idx + 1,
-                        message: e.to_string(),
+                        source,
                     })?;
                 wrapped
                     .into_iter()
                     .find(|(k, _)| k == name)
                     .map(|(_, v)| v)
-                    .ok_or_else(|| CliError::BadSample {
+                    .ok_or_else(|| CliError::SampleMissingInput {
                         line: idx + 1,
-                        message: format!("wrapped sample does not contain `{name}`"),
+                        name: name.to_string(),
                     })?
             }
         };
-        let expected: usize = st.shape.iter().product();
-        if expected != st.values.len() {
-            return Err(CliError::BadSample {
-                line: idx + 1,
-                message: format!(
-                    "tensor `{name}`: shape {:?} expects {expected} values, got {}",
-                    st.shape,
-                    st.values.len()
-                ),
-            });
-        }
-        tensors.push(
-            Tensor::from_vec(st.shape, st.values).map_err(|e| CliError::BadSample {
-                line: idx + 1,
-                message: format!("tensor `{name}`: {e}"),
-            })?,
-        );
+        tensors.push(sample_tensor(idx + 1, name, st)?);
     }
     Ok(tensors)
 }
@@ -326,10 +350,7 @@ fn run(args: Args) -> Result<(), CliError> {
         eprintln!("loading calibration samples from {cal_path}…");
         let samples = read_calibration_spec(cal_path)?;
         if samples.is_empty() {
-            return Err(CliError::BadSample {
-                line: 0,
-                message: "calibration file produced 0 samples".to_string(),
-            });
+            return Err(CliError::NoSamples);
         }
         eprintln!(
             "running {} sample(s) through the model to collect activation stats…",
@@ -342,9 +363,9 @@ fn run(args: Args) -> Result<(), CliError> {
             for (idx, sample) in samples.iter().enumerate() {
                 let feed: Vec<(&str, &Tensor)> =
                     sample.iter().map(|(k, v)| (k.as_str(), v)).collect();
-                runner.run(&feed).map_err(|e| {
-                    eprintln!("sample {idx}: inference failed: {e}");
-                    CliError::Onnx(e)
+                runner.run(&feed).map_err(|source| CliError::Inference {
+                    sample: idx,
+                    source,
                 })?;
             }
         }
@@ -430,8 +451,14 @@ mod tests {
         let bad = r#"{"x": {"shape": [2, 3], "values": [1, 2, 3]}}"#;
         let path = write_temp(bad, "yscv_quantize_test_shape_mismatch.jsonl");
         let err = read_calibration(&path).unwrap_err();
-        let msg = format!("{err}");
-        assert!(msg.contains("expects 6 values"), "unexpected msg: {msg}");
+        assert!(
+            matches!(
+                &err,
+                CliError::SampleShape { line: 1, name, shape, expected: 6, got: 3 }
+                    if name == "x" && shape == &[2, 3]
+            ),
+            "{err:?}"
+        );
     }
 
     #[test]
@@ -498,8 +525,11 @@ mod tests {
         let spec = format!("a={},b={}", a_path.display(), b_path.display());
         let err = read_calibration_spec(&spec).unwrap_err();
         assert!(
-            format!("{err}").contains("has 1 samples, expected 2"),
-            "unexpected err: {err}"
+            matches!(
+                &err,
+                CliError::StreamLengthMismatch { name, expected: 2, got: 1 } if name == "b"
+            ),
+            "{err:?}"
         );
     }
 }

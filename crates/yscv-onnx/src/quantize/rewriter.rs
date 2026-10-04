@@ -392,20 +392,26 @@ fn quantize_weight_into(
 
     new_initializers.insert(
         q_name.clone(),
-        Tensor::from_vec(shape.to_vec(), quant_data).map_err(|e| OnnxError::DecodeFailed {
-            message: format!("quantized tensor for {weight_name}: {e}"),
+        Tensor::from_vec(shape.to_vec(), quant_data).map_err(|source| OnnxError::BuildTensor {
+            name: weight_name.to_string(),
+            what: "quantized",
+            source,
         })?,
     );
     new_initializers.insert(
         scale_name.clone(),
-        Tensor::from_vec(vec![channels], scales).map_err(|e| OnnxError::DecodeFailed {
-            message: format!("scale tensor for {weight_name}: {e}"),
+        Tensor::from_vec(vec![channels], scales).map_err(|source| OnnxError::BuildTensor {
+            name: weight_name.to_string(),
+            what: "scale",
+            source,
         })?,
     );
     new_initializers.insert(
         zp_name.clone(),
-        Tensor::from_vec(vec![channels], zps).map_err(|e| OnnxError::DecodeFailed {
-            message: format!("zp tensor for {weight_name}: {e}"),
+        Tensor::from_vec(vec![channels], zps).map_err(|source| OnnxError::BuildTensor {
+            name: weight_name.to_string(),
+            what: "zero_point",
+            source,
         })?,
     );
 
@@ -422,8 +428,10 @@ fn quantize_weight_into(
 }
 
 fn scalar_tensor(value: f32, ctx: &str) -> Result<Tensor, OnnxError> {
-    Tensor::from_vec(vec![1], vec![value]).map_err(|e| OnnxError::DecodeFailed {
-        message: format!("scalar tensor for {ctx}: {e}"),
+    Tensor::from_vec(vec![1], vec![value]).map_err(|source| OnnxError::BuildTensor {
+        name: ctx.to_string(),
+        what: "scalar",
+        source,
     })
 }
 
@@ -699,15 +707,18 @@ fn quantize_tensor_symmetric(tensor: &Tensor, scale: f32, ctx: &str) -> Result<T
         .iter()
         .map(|&v| (v * inv_s).round().clamp(-128.0, 127.0))
         .collect();
-    Tensor::from_vec(tensor.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-        message: format!("quantized tensor for {ctx}: {e}"),
+    Tensor::from_vec(tensor.shape().to_vec(), data).map_err(|source| OnnxError::BuildTensor {
+        name: ctx.to_string(),
+        what: "quantized",
+        source,
     })
 }
 
 fn quantize_bias_to_i32_storage(bias: &Tensor, scale: f32, ctx: &str) -> Result<Tensor, OnnxError> {
     if !qparams_usable(scale) {
-        return Err(OnnxError::DecodeFailed {
-            message: format!("bias scale for {ctx} is not usable: {scale}"),
+        return Err(OnnxError::UnusableBiasScale {
+            name: ctx.to_string(),
+            scale,
         });
     }
     let inv_s = 1.0 / scale;
@@ -716,8 +727,10 @@ fn quantize_bias_to_i32_storage(bias: &Tensor, scale: f32, ctx: &str) -> Result<
         .iter()
         .map(|&v| (v * inv_s).round().clamp(i32::MIN as f32, i32::MAX as f32))
         .collect();
-    Tensor::from_vec(bias.shape().to_vec(), data).map_err(|e| OnnxError::DecodeFailed {
-        message: format!("quantized bias for {ctx}: {e}"),
+    Tensor::from_vec(bias.shape().to_vec(), data).map_err(|source| OnnxError::BuildTensor {
+        name: ctx.to_string(),
+        what: "quantized bias",
+        source,
     })
 }
 
@@ -745,13 +758,11 @@ fn dequantize_initializer(
             axis as usize
         };
         if axis >= q_shape.len() || q_shape[axis] != scale_data.len() {
-            return Err(OnnxError::DecodeFailed {
-                message: format!(
-                    "fold weight DQ `{}`: scale len {} does not match axis {axis} in shape {:?}",
-                    node.name,
-                    scale_data.len(),
-                    q_shape
-                ),
+            return Err(OnnxError::ScaleLenMismatch {
+                node: node.name.clone(),
+                len: scale_data.len(),
+                axis,
+                shape: q_shape.to_vec(),
             });
         }
         let outer = q_shape[..axis].iter().product::<usize>();
@@ -769,8 +780,10 @@ fn dequantize_initializer(
         }
         out
     };
-    Tensor::from_vec(q_shape.to_vec(), out).map_err(|e| OnnxError::DecodeFailed {
-        message: format!("fold weight DQ `{}`: {e}", node.name),
+    Tensor::from_vec(q_shape.to_vec(), out).map_err(|source| OnnxError::BuildTensor {
+        name: node.name.clone(),
+        what: "dequantized weight",
+        source,
     })
 }
 

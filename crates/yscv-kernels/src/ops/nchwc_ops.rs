@@ -29,9 +29,7 @@ use super::{elementwise, layout, norm, pool};
 fn nchwc_block(input: &Tensor) -> Result<usize, KernelError> {
     match input.layout() {
         Layout::NCHWc { block } => Ok(block as usize),
-        other => Err(KernelError::LayoutConversion(format!(
-            "expected NCHWc-tagged tensor, got {other:?}"
-        ))),
+        layout => Err(KernelError::NotNchwc { layout }),
     }
 }
 
@@ -115,16 +113,17 @@ pub fn add_nchwc(
     let block = nchwc_block(a)?;
     let block_b = nchwc_block(b)?;
     if block != block_b {
-        return Err(KernelError::LayoutConversion(format!(
-            "add_nchwc: block size mismatch a={block} b={block_b}"
-        )));
+        return Err(KernelError::NchwcBlockMismatch {
+            left: block,
+            right: block_b,
+        });
     }
     if a.shape() != b.shape() {
-        return Err(KernelError::LayoutConversion(format!(
-            "add_nchwc: shape mismatch a={:?} b={:?}",
-            a.shape(),
-            b.shape()
-        )));
+        return Err(KernelError::NchwcShapeMismatch {
+            op: "add_nchwc",
+            expected: a.shape().to_vec(),
+            got: b.shape().to_vec(),
+        });
     }
     let a_flat = a.clone().with_layout(Layout::NHWC);
     let b_flat = b.clone().with_layout(Layout::NHWC);
@@ -147,9 +146,9 @@ pub fn sigmoid_nchwc(
 /// Elementwise SiLU (swish) over NCHWc. Layout-agnostic.
 pub fn silu_nchwc(input: &Tensor) -> Result<Tensor, KernelError> {
     let block = nchwc_block(input)?;
-    let data = input.try_data().map_err(KernelError::from)?;
+    let data = input.try_data()?;
     let mut out_data = data.to_vec();
     super::simd::silu_inplace(&mut out_data);
-    let out = Tensor::from_vec(input.shape().to_vec(), out_data).map_err(KernelError::from)?;
+    let out = Tensor::from_vec(input.shape().to_vec(), out_data)?;
     Ok(out.with_layout(Layout::NCHWc { block: block as u8 }))
 }

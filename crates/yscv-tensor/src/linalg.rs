@@ -5,8 +5,10 @@ impl Tensor {
     /// Sum of diagonal elements of a 2D square matrix.
     pub fn trace(&self) -> Result<f32, TensorError> {
         if self.rank() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("trace requires a 2D tensor, got rank {}", self.rank()),
+            return Err(TensorError::InvalidRank {
+                op: "trace",
+                expected: 2,
+                got: self.rank(),
             });
         }
         let (rows, cols) = (self.shape()[0], self.shape()[1]);
@@ -26,13 +28,11 @@ impl Tensor {
 
     /// Dot product of two 1D tensors.
     pub fn dot(&self, rhs: &Self) -> Result<f32, TensorError> {
-        if self.rank() != 1 || rhs.rank() != 1 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!(
-                    "dot requires two 1D tensors, got ranks {} and {}",
-                    self.rank(),
-                    rhs.rank()
-                ),
+        if let Some(got) = [self.rank(), rhs.rank()].into_iter().find(|&r| r != 1) {
+            return Err(TensorError::InvalidRank {
+                op: "dot",
+                expected: 1,
+                got,
             });
         }
         if self.shape() != rhs.shape() {
@@ -52,9 +52,11 @@ impl Tensor {
 
     /// Cross product of two 3-element 1D tensors.
     pub fn cross(&self, rhs: &Self) -> Result<Self, TensorError> {
-        if self.rank() != 1 || rhs.rank() != 1 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: "cross requires two 1D tensors".into(),
+        if let Some(got) = [self.rank(), rhs.rank()].into_iter().find(|&r| r != 1) {
+            return Err(TensorError::InvalidRank {
+                op: "cross",
+                expected: 1,
+                got,
             });
         }
         if self.shape()[0] != 3 || rhs.shape()[0] != 3 {
@@ -91,8 +93,10 @@ impl Tensor {
     /// Determinant of a square matrix (LU-based).
     pub fn det(&self) -> Result<f32, TensorError> {
         if self.rank() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("det requires a 2D tensor, got rank {}", self.rank()),
+            return Err(TensorError::InvalidRank {
+                op: "det",
+                expected: 2,
+                got: self.rank(),
             });
         }
         let n = self.shape()[0];
@@ -148,8 +152,10 @@ impl Tensor {
     /// Inverse of a square matrix (Gauss-Jordan elimination).
     pub fn inv(&self) -> Result<Self, TensorError> {
         if self.rank() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("inv requires a 2D tensor, got rank {}", self.rank()),
+            return Err(TensorError::InvalidRank {
+                op: "inv",
+                expected: 2,
+                got: self.rank(),
             });
         }
         let n = self.shape()[0];
@@ -184,9 +190,7 @@ impl Tensor {
                 }
             }
             if max_val < 1e-12 {
-                return Err(TensorError::UnsupportedOperation {
-                    msg: "matrix is singular".into(),
-                });
+                return Err(TensorError::SingularMatrix);
             }
             if max_row != col {
                 for j in 0..nn {
@@ -226,8 +230,10 @@ impl Tensor {
     /// Solve linear system Ax = b. self is A, rhs is b.
     pub fn solve(&self, b: &Self) -> Result<Self, TensorError> {
         if self.rank() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("solve requires A to be 2D, got rank {}", self.rank()),
+            return Err(TensorError::InvalidRank {
+                op: "solve",
+                expected: 2,
+                got: self.rank(),
             });
         }
         let n = self.shape()[0];
@@ -261,9 +267,7 @@ impl Tensor {
                 }
             }
             if max_val < 1e-12 {
-                return Err(TensorError::UnsupportedOperation {
-                    msg: "matrix is singular".into(),
-                });
+                return Err(TensorError::SingularMatrix);
             }
             if max_row != col {
                 for j in 0..n {
@@ -314,8 +318,10 @@ impl Tensor {
     /// QR decomposition via Householder reflections. Returns (Q, R).
     pub fn qr(&self) -> Result<(Self, Self), TensorError> {
         if self.rank() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("qr requires a 2D tensor, got rank {}", self.rank()),
+            return Err(TensorError::InvalidRank {
+                op: "qr",
+                expected: 2,
+                got: self.rank(),
             });
         }
         let m = self.shape()[0];
@@ -387,8 +393,10 @@ impl Tensor {
     /// Cholesky decomposition of a symmetric positive-definite matrix. Returns lower triangular L.
     pub fn cholesky(&self) -> Result<Self, TensorError> {
         if self.rank() != 2 {
-            return Err(TensorError::UnsupportedOperation {
-                msg: format!("cholesky requires a 2D tensor, got rank {}", self.rank()),
+            return Err(TensorError::InvalidRank {
+                op: "cholesky",
+                expected: 2,
+                got: self.rank(),
             });
         }
         let n = self.shape()[0];
@@ -410,9 +418,7 @@ impl Tensor {
                 if i == j {
                     let diag = data[i * n + i] - sum;
                     if diag <= 0.0 {
-                        return Err(TensorError::UnsupportedOperation {
-                            msg: "matrix is not positive definite".into(),
-                        });
+                        return Err(TensorError::NotPositiveDefinite);
                     }
                     l[i * n + j] = diag.sqrt();
                 } else {

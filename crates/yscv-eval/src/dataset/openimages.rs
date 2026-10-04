@@ -1,17 +1,13 @@
+use std::sync::Arc;
+
 use rustc_hash::FxHashMap;
 
 use csv::StringRecord;
 use yscv_detect::{BoundingBox, Detection};
 
-use crate::{DetectionDatasetFrame, EvalError, LabeledBox};
+use crate::{DatasetFormatError, DetectionDatasetFrame, LabeledBox};
 
 use super::helpers::ensure_detection_frame_index;
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum OpenImagesCsvKind {
-    GroundTruth,
-    Prediction,
-}
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct OpenImagesColumns {
@@ -21,69 +17,21 @@ struct OpenImagesColumns {
     x_max: usize,
     y_min: usize,
     y_max: usize,
-    score_idx: Option<usize>,
 }
 
 impl OpenImagesColumns {
-    fn from_headers(headers: &StringRecord, kind: OpenImagesCsvKind) -> Result<Self, EvalError> {
-        let image_id = find_openimages_header(headers, "ImageID").ok_or_else(|| {
-            EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing required header `ImageID`".to_string(),
-            }
-        })?;
-        let label_name = find_openimages_header(headers, "LabelName").ok_or_else(|| {
-            EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing required header `LabelName`".to_string(),
-            }
-        })?;
-        let x_min = find_openimages_header(headers, "XMin").ok_or_else(|| {
-            EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing required header `XMin`".to_string(),
-            }
-        })?;
-        let x_max = find_openimages_header(headers, "XMax").ok_or_else(|| {
-            EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing required header `XMax`".to_string(),
-            }
-        })?;
-        let y_min = find_openimages_header(headers, "YMin").ok_or_else(|| {
-            EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing required header `YMin`".to_string(),
-            }
-        })?;
-        let y_max = find_openimages_header(headers, "YMax").ok_or_else(|| {
-            EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing required header `YMax`".to_string(),
-            }
-        })?;
-
-        let score_idx = match kind {
-            OpenImagesCsvKind::GroundTruth => None,
-            OpenImagesCsvKind::Prediction => find_openimages_header(headers, "Score")
-                .or_else(|| find_openimages_header(headers, "Confidence"))
-                .or_else(|| find_openimages_header(headers, "Conf"))
-                .ok_or_else(|| EvalError::InvalidDatasetFormat {
-                    format: "openimages",
-                    message: "missing required prediction score header (`Score` or `Confidence`)"
-                        .to_string(),
-                })
-                .map(Some)?,
+    fn from_headers(headers: &StringRecord) -> Result<Self, DatasetFormatError> {
+        let required = |header: &'static str| {
+            find_openimages_header(headers, header)
+                .ok_or(DatasetFormatError::MissingHeader { header })
         };
-
         Ok(Self {
-            image_id,
-            label_name,
-            x_min,
-            x_max,
-            y_min,
-            y_max,
-            score_idx,
+            image_id: required("ImageID")?,
+            label_name: required("LabelName")?,
+            x_min: required("XMin")?,
+            x_max: required("XMax")?,
+            y_min: required("YMin")?,
+            y_max: required("YMax")?,
         })
     }
 }
@@ -112,7 +60,7 @@ struct OpenImagesPredictionEntry {
 pub(crate) fn parse_and_build_openimages(
     ground_truth_csv: &str,
     predictions_csv: &str,
-) -> Result<Vec<DetectionDatasetFrame>, EvalError> {
+) -> Result<Vec<DetectionDatasetFrame>, DatasetFormatError> {
     let ground_truth = parse_openimages_ground_truth(ground_truth_csv)?;
     let predictions = parse_openimages_predictions(predictions_csv)?;
 
@@ -166,41 +114,39 @@ fn resolve_openimages_class_id(
 
 fn parse_openimages_ground_truth(
     csv_text: &str,
-) -> Result<Vec<OpenImagesGroundTruthEntry>, EvalError> {
+) -> Result<Vec<OpenImagesGroundTruthEntry>, DatasetFormatError> {
+    const RECORD: &str = "ground-truth row";
     let mut reader = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(csv_text.as_bytes());
     let headers = reader
         .headers()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("failed to read ground-truth CSV headers: {err}"),
+        .map_err(|err| DatasetFormatError::Csv {
+            record: RECORD,
+            index: 1,
+            source: Arc::new(err),
         })?
         .clone();
-    let columns = OpenImagesColumns::from_headers(&headers, OpenImagesCsvKind::GroundTruth)?;
+    let columns = OpenImagesColumns::from_headers(&headers)?;
 
     let mut rows = Vec::new();
     for (row_idx, record_result) in reader.records().enumerate() {
         let row_no = row_idx + 2;
-        let record = record_result.map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("failed to read ground-truth CSV row {row_no}: {err}"),
+        let record = record_result.map_err(|err| DatasetFormatError::Csv {
+            record: RECORD,
+            index: row_no,
+            source: Arc::new(err),
         })?;
-        let image_id = parse_openimages_non_empty_field(
-            &record,
-            columns.image_id,
-            "ImageID",
-            row_no,
-            "ground-truth",
-        )?;
+        let image_id =
+            parse_openimages_non_empty_field(&record, columns.image_id, "ImageID", RECORD, row_no)?;
         let label_name = parse_openimages_non_empty_field(
             &record,
             columns.label_name,
             "LabelName",
+            RECORD,
             row_no,
-            "ground-truth",
         )?;
-        let bbox = parse_openimages_bbox(&record, &columns, row_no, "ground-truth")?;
+        let bbox = parse_openimages_bbox(&record, &columns, RECORD, row_no)?;
         rows.push(OpenImagesGroundTruthEntry {
             image_id: image_id.to_string(),
             label_name: label_name.to_string(),
@@ -212,55 +158,53 @@ fn parse_openimages_ground_truth(
 
 fn parse_openimages_predictions(
     csv_text: &str,
-) -> Result<Vec<OpenImagesPredictionEntry>, EvalError> {
+) -> Result<Vec<OpenImagesPredictionEntry>, DatasetFormatError> {
+    const RECORD: &str = "prediction row";
     let mut reader = csv::ReaderBuilder::new()
         .trim(csv::Trim::All)
         .from_reader(csv_text.as_bytes());
     let headers = reader
         .headers()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("failed to read prediction CSV headers: {err}"),
+        .map_err(|err| DatasetFormatError::Csv {
+            record: RECORD,
+            index: 1,
+            source: Arc::new(err),
         })?
         .clone();
-    let columns = OpenImagesColumns::from_headers(&headers, OpenImagesCsvKind::Prediction)?;
+    let columns = OpenImagesColumns::from_headers(&headers)?;
+    let score_idx = find_openimages_header(&headers, "Score")
+        .or_else(|| find_openimages_header(&headers, "Confidence"))
+        .or_else(|| find_openimages_header(&headers, "Conf"))
+        .ok_or(DatasetFormatError::MissingHeader {
+            header: "Score/Confidence",
+        })?;
 
     let mut rows = Vec::new();
     for (row_idx, record_result) in reader.records().enumerate() {
         let row_no = row_idx + 2;
-        let record = record_result.map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("failed to read prediction CSV row {row_no}: {err}"),
+        let record = record_result.map_err(|err| DatasetFormatError::Csv {
+            record: RECORD,
+            index: row_no,
+            source: Arc::new(err),
         })?;
-        let image_id = parse_openimages_non_empty_field(
-            &record,
-            columns.image_id,
-            "ImageID",
-            row_no,
-            "prediction",
-        )?;
+        let image_id =
+            parse_openimages_non_empty_field(&record, columns.image_id, "ImageID", RECORD, row_no)?;
         let label_name = parse_openimages_non_empty_field(
             &record,
             columns.label_name,
             "LabelName",
+            RECORD,
             row_no,
-            "prediction",
         )?;
-        let bbox = parse_openimages_bbox(&record, &columns, row_no, "prediction")?;
-        let score_idx = columns
-            .score_idx
-            .ok_or_else(|| EvalError::InvalidDatasetFormat {
-                format: "openimages",
-                message: "missing score column index in prediction parser".to_string(),
-            })?;
+        let bbox = parse_openimages_bbox(&record, &columns, RECORD, row_no)?;
         let score_raw = parse_openimages_non_empty_field(
             &record,
             score_idx,
             "Score/Confidence",
+            RECORD,
             row_no,
-            "prediction",
         )?;
-        let score = parse_openimages_unit_f32(score_raw, "Score/Confidence", row_no, "prediction")?;
+        let score = parse_openimages_unit_f32(score_raw, "Score/Confidence", RECORD, row_no)?;
 
         rows.push(OpenImagesPredictionEntry {
             image_id: image_id.to_string(),
@@ -274,45 +218,40 @@ fn parse_openimages_predictions(
 
 fn parse_openimages_non_empty_field<'a>(
     record: &'a StringRecord,
-    index: usize,
+    column: usize,
     field: &'static str,
+    at: &'static str,
     row_no: usize,
-    source: &'static str,
-) -> Result<&'a str, EvalError> {
-    let Some(raw) = record.get(index) else {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("missing `{field}` in {source} CSV row {row_no}"),
-        });
-    };
-    let value = raw.trim();
-    if value.is_empty() {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("empty `{field}` in {source} CSV row {row_no}"),
-        });
+) -> Result<&'a str, DatasetFormatError> {
+    match record.get(column).map(str::trim) {
+        Some(value) if !value.is_empty() => Ok(value),
+        _ => Err(DatasetFormatError::MissingField {
+            record: at,
+            index: row_no,
+            field,
+        }),
     }
-    Ok(value)
 }
 
 fn parse_openimages_bbox(
     record: &StringRecord,
     columns: &OpenImagesColumns,
+    at: &'static str,
     row_no: usize,
-    source: &'static str,
-) -> Result<BoundingBox, EvalError> {
-    let x1_raw = parse_openimages_non_empty_field(record, columns.x_min, "XMin", row_no, source)?;
-    let x2_raw = parse_openimages_non_empty_field(record, columns.x_max, "XMax", row_no, source)?;
-    let y1_raw = parse_openimages_non_empty_field(record, columns.y_min, "YMin", row_no, source)?;
-    let y2_raw = parse_openimages_non_empty_field(record, columns.y_max, "YMax", row_no, source)?;
-    let x1 = parse_openimages_unit_f32(x1_raw, "XMin", row_no, source)?;
-    let x2 = parse_openimages_unit_f32(x2_raw, "XMax", row_no, source)?;
-    let y1 = parse_openimages_unit_f32(y1_raw, "YMin", row_no, source)?;
-    let y2 = parse_openimages_unit_f32(y2_raw, "YMax", row_no, source)?;
+) -> Result<BoundingBox, DatasetFormatError> {
+    let x1_raw = parse_openimages_non_empty_field(record, columns.x_min, "XMin", at, row_no)?;
+    let x2_raw = parse_openimages_non_empty_field(record, columns.x_max, "XMax", at, row_no)?;
+    let y1_raw = parse_openimages_non_empty_field(record, columns.y_min, "YMin", at, row_no)?;
+    let y2_raw = parse_openimages_non_empty_field(record, columns.y_max, "YMax", at, row_no)?;
+    let x1 = parse_openimages_unit_f32(x1_raw, "XMin", at, row_no)?;
+    let x2 = parse_openimages_unit_f32(x2_raw, "XMax", at, row_no)?;
+    let y1 = parse_openimages_unit_f32(y1_raw, "YMin", at, row_no)?;
+    let y2 = parse_openimages_unit_f32(y2_raw, "YMax", at, row_no)?;
     if x2 <= x1 || y2 <= y1 {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("invalid {source} CSV row {row_no}: expected XMax>XMin and YMax>YMin"),
+        return Err(DatasetFormatError::InvalidBox {
+            record: at,
+            index: row_no,
+            reason: "expected XMax>XMin and YMax>YMin",
         });
     }
     Ok(BoundingBox { x1, y1, x2, y2 })
@@ -321,21 +260,24 @@ fn parse_openimages_bbox(
 fn parse_openimages_unit_f32(
     token: &str,
     field: &'static str,
+    record: &'static str,
     row_no: usize,
-    source: &'static str,
-) -> Result<f32, EvalError> {
+) -> Result<f32, DatasetFormatError> {
     let value = token
         .parse::<f32>()
-        .map_err(|err| EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!("invalid {source} CSV row {row_no} `{field}` value `{token}`: {err}"),
+        .map_err(|source| DatasetFormatError::ParseFloat {
+            record,
+            index: row_no,
+            field,
+            value: token.to_string(),
+            source,
         })?;
     if !value.is_finite() || !(0.0..=1.0).contains(&value) {
-        return Err(EvalError::InvalidDatasetFormat {
-            format: "openimages",
-            message: format!(
-                "invalid {source} CSV row {row_no}: `{field}` must be finite and in [0, 1]"
-            ),
+        return Err(DatasetFormatError::OutOfRange {
+            record,
+            index: row_no,
+            field,
+            expected: "finite and in [0, 1]",
         });
     }
     Ok(value)

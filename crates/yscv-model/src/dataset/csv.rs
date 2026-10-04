@@ -68,10 +68,9 @@ pub fn parse_supervised_dataset_csv(
     let input_row_len = adapter_sample_len("input_shape", config.input_shape())?;
     let target_row_len = adapter_sample_len("target_shape", config.target_shape())?;
     let expected_columns = input_row_len.checked_add(target_row_len).ok_or_else(|| {
-        ModelError::InvalidDatasetAdapterShape {
+        ModelError::DatasetSizeOverflow {
             field: "row_columns",
             shape: vec![input_row_len, target_row_len],
-            message: "column count overflow".to_string(),
         }
     })?;
 
@@ -108,10 +107,10 @@ pub fn parse_supervised_dataset_csv(
         for (column_idx, value_str) in columns.iter().enumerate() {
             let value = value_str
                 .parse::<f32>()
-                .map_err(|error| ModelError::DatasetCsvParse {
+                .map_err(|source| ModelError::DatasetCsvParse {
                     line: line_number,
                     column: column_idx + 1,
-                    message: error.to_string(),
+                    source,
                 })?;
             row_values.push(value);
         }
@@ -125,10 +124,9 @@ pub fn parse_supervised_dataset_csv(
         sample_count =
             sample_count
                 .checked_add(1)
-                .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
+                .ok_or_else(|| ModelError::DatasetSizeOverflow {
                     field: "sample_count",
                     shape: vec![sample_count],
-                    message: "sample count overflow".to_string(),
                 })?;
     }
 

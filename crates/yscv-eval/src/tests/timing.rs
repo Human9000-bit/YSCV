@@ -23,7 +23,7 @@ fn summarize_durations_computes_expected_stats() {
 #[test]
 fn summarize_durations_rejects_empty_input() {
     let err = summarize_durations(&[]).unwrap_err();
-    assert_eq!(err, EvalError::EmptyDurationSeries);
+    assert!(matches!(err, EvalError::EmptyDurationSeries), "{err:?}");
 }
 
 #[test]
@@ -40,13 +40,16 @@ fn summarize_pipeline_rejects_length_mismatch() {
         end_to_end: &end_to_end,
     })
     .unwrap_err();
-    assert_eq!(
-        err,
-        EvalError::DurationSeriesLengthMismatch {
-            expected: 2,
-            got: 1,
-            series: "track",
-        }
+    assert!(
+        matches!(
+            err,
+            EvalError::DurationSeriesLengthMismatch {
+                expected: 2,
+                got: 1,
+                series: "track"
+            }
+        ),
+        "{err:?}"
     );
 }
 

@@ -33,14 +33,12 @@ impl SupervisedImageManifestConfig {
             return Err(ModelError::InvalidDatasetAdapterShape {
                 field: "output_height",
                 shape: vec![output_height],
-                message: "output_height must be > 0".to_string(),
             });
         }
         if output_width == 0 {
             return Err(ModelError::InvalidDatasetAdapterShape {
                 field: "output_width",
                 shape: vec![output_width],
-                message: "output_width must be > 0".to_string(),
             });
         }
 
@@ -116,10 +114,9 @@ pub fn parse_supervised_image_manifest_csv(
     let expected_columns =
         target_row_len
             .checked_add(1)
-            .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
+            .ok_or_else(|| ModelError::DatasetSizeOverflow {
                 field: "manifest_columns",
                 shape: vec![target_row_len],
-                message: "column count overflow".to_string(),
             })?;
 
     let mut input_values = Vec::new();
@@ -153,10 +150,7 @@ pub fn parse_supervised_image_manifest_csv(
 
         let image_field = columns[0];
         if image_field.is_empty() {
-            return Err(ModelError::InvalidDatasetRecordPath {
-                line: line_number,
-                message: "image path is empty".to_string(),
-            });
+            return Err(ModelError::InvalidDatasetRecordPath { line: line_number });
         }
 
         let image_path = resolve_manifest_image_path(config.image_root(), image_field);
@@ -169,13 +163,14 @@ pub fn parse_supervised_image_manifest_csv(
 
         target_row.clear();
         for (target_idx, target_str) in columns[1..].iter().enumerate() {
-            let value = target_str
-                .parse::<f32>()
-                .map_err(|error| ModelError::DatasetCsvParse {
-                    line: line_number,
-                    column: target_idx + 2,
-                    message: error.to_string(),
-                })?;
+            let value =
+                target_str
+                    .parse::<f32>()
+                    .map_err(|source| ModelError::DatasetCsvParse {
+                        line: line_number,
+                        column: target_idx + 2,
+                        source,
+                    })?;
             target_row.push(value);
         }
         validate_finite_values(line_number, "target", &target_row)?;
@@ -184,10 +179,9 @@ pub fn parse_supervised_image_manifest_csv(
         sample_count =
             sample_count
                 .checked_add(1)
-                .ok_or_else(|| ModelError::InvalidDatasetAdapterShape {
+                .ok_or_else(|| ModelError::DatasetSizeOverflow {
                     field: "sample_count",
                     shape: vec![sample_count],
-                    message: "sample count overflow".to_string(),
                 })?;
     }
 

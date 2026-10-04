@@ -107,9 +107,7 @@ impl GpuBackend {
             power_preference: wgpu::PowerPreference::HighPerformance,
             ..Default::default()
         }))
-        .map_err(|_| KernelError::Gpu {
-            message: "no GPU adapter found".into(),
-        })?;
+        .map_err(|_| KernelError::GpuNoAdapter)?;
 
         let adapter_name = adapter.get_info().name;
         let adapter_features = adapter.features();
@@ -126,17 +124,15 @@ impl GpuBackend {
             required_features |= wgpu::Features::SHADER_F16;
         }
 
-        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
-            label: Some("yscv-gpu"),
-            required_features,
-            required_limits: wgpu::Limits::default(),
-            memory_hints: wgpu::MemoryHints::Performance,
-            trace: Default::default(),
-            experimental_features: Default::default(),
-        }))
-        .map_err(|e| KernelError::Gpu {
-            message: format!("device request failed: {e}"),
-        })?;
+        let (device, queue) =
+            pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor {
+                label: Some("yscv-gpu"),
+                required_features,
+                required_limits: wgpu::Limits::default(),
+                memory_hints: wgpu::MemoryHints::Performance,
+                trace: Default::default(),
+                experimental_features: Default::default(),
+            }))?;
 
         let mk = |src: &str| -> wgpu::ShaderModule {
             device.create_shader_module(wgpu::ShaderModuleDescriptor {
@@ -703,12 +699,8 @@ impl GpuBackend {
             timeout: None,
         });
         rx.recv()
-            .map_err(|_| KernelError::Gpu {
-                message: "GPU channel closed during f16 read-back".into(),
-            })?
-            .map_err(|e| KernelError::Gpu {
-                message: format!("GPU map failed during f16 read-back: {e}"),
-            })?;
+            .map_err(|_| KernelError::GpuReadbackChannelClosed)?
+            .map_err(|_| KernelError::GpuBufferMapFailed)?;
 
         let mapped = slice.get_mapped_range();
         let u16_data: &[u16] = bytemuck::cast_slice(&mapped);
@@ -922,13 +914,11 @@ impl GpuBackend {
         len: usize,
         op: u32,
     ) -> Result<wgpu::Buffer, KernelError> {
-        let pipeline = self
-            .pipelines
-            .elementwise_f16
-            .as_ref()
-            .ok_or_else(|| KernelError::Gpu {
-                message: "f16 elementwise pipeline not available on this device".into(),
-            })?;
+        let pipeline = self.pipelines.elementwise_f16.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 elementwise",
+            }
+        })?;
         let len4 = len.div_ceil(4);
         let buf_out = self.output_buf_f16(len4 * 4);
         let params: [u32; 2] = [len4 as u32, op];
@@ -969,13 +959,11 @@ impl GpuBackend {
         len: usize,
         op: u32,
     ) -> Result<wgpu::Buffer, KernelError> {
-        let pipeline = self
-            .pipelines
-            .unary_f16
-            .as_ref()
-            .ok_or_else(|| KernelError::Gpu {
-                message: "f16 unary pipeline not available on this device".into(),
-            })?;
+        let pipeline = self.pipelines.unary_f16.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 unary",
+            }
+        })?;
         let len4 = len.div_ceil(4);
         let buf_out = self.output_buf_f16(len4 * 4);
         let params: [u32; 2] = [len4 as u32, op];
@@ -1010,13 +998,11 @@ impl GpuBackend {
         &self,
         input: &GpuBuffer,
     ) -> Result<GpuBuffer, KernelError> {
-        let pipeline =
-            self.pipelines
-                .convert_f32_to_f16
-                .as_ref()
-                .ok_or_else(|| KernelError::Gpu {
-                    message: "f16 conversion pipeline not available on this device".into(),
-                })?;
+        let pipeline = self.pipelines.convert_f32_to_f16.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 conversion",
+            }
+        })?;
         let len = input.size;
         let buf_out = self.output_buf_f16(len);
         let params: [u32; 2] = [len as u32, 0];
@@ -1055,13 +1041,11 @@ impl GpuBackend {
         &self,
         input: &GpuBuffer,
     ) -> Result<GpuBuffer, KernelError> {
-        let pipeline =
-            self.pipelines
-                .convert_f16_to_f32
-                .as_ref()
-                .ok_or_else(|| KernelError::Gpu {
-                    message: "f16 conversion pipeline not available on this device".into(),
-                })?;
+        let pipeline = self.pipelines.convert_f16_to_f32.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 conversion",
+            }
+        })?;
         let len = input.size;
         let buf_out = self.output_buf(len); // f32 output = 4 bytes/elem
         let params: [u32; 2] = [len as u32, 0];
@@ -1128,12 +1112,8 @@ impl GpuBackend {
             timeout: None,
         });
         rx.recv()
-            .map_err(|_| KernelError::Gpu {
-                message: "GPU channel closed during read-back".into(),
-            })?
-            .map_err(|e| KernelError::Gpu {
-                message: format!("GPU map failed during read-back: {e}"),
-            })?;
+            .map_err(|_| KernelError::GpuReadbackChannelClosed)?
+            .map_err(|_| KernelError::GpuBufferMapFailed)?;
 
         let mapped = slice.get_mapped_range();
         let result: Vec<f32> = bytemuck::cast_slice(&mapped).to_vec();
@@ -1554,22 +1534,20 @@ impl GpuBackend {
         let use_n32 = oc <= 48;
         let (pipeline, bn) = if use_n32 {
             (
-                self.pipelines
-                    .conv_gemm_f16_io_n32
-                    .as_ref()
-                    .ok_or_else(|| KernelError::Gpu {
-                        message: "f16 I/O conv pipeline (n32) not available on this device".into(),
-                    })?,
+                self.pipelines.conv_gemm_f16_io_n32.as_ref().ok_or(
+                    KernelError::GpuPipelineUnavailable {
+                        pipeline: "f16 I/O conv (n32)",
+                    },
+                )?,
                 32u32,
             )
         } else {
             (
-                self.pipelines
-                    .conv_gemm_f16_io
-                    .as_ref()
-                    .ok_or_else(|| KernelError::Gpu {
-                        message: "f16 I/O conv pipeline not available on this device".into(),
-                    })?,
+                self.pipelines.conv_gemm_f16_io.as_ref().ok_or({
+                    KernelError::GpuPipelineUnavailable {
+                        pipeline: "f16 I/O conv",
+                    }
+                })?,
                 64u32,
             )
         };
@@ -1616,31 +1594,29 @@ impl GpuBackend {
         &self,
         inputs: &[&GpuBuffer],
     ) -> Result<GpuBuffer, KernelError> {
-        let pipeline =
-            self.pipelines
-                .channel_concat_f16
-                .as_ref()
-                .ok_or_else(|| KernelError::Gpu {
-                    message: "f16 channel concat pipeline not available on this device".into(),
-                })?;
+        let pipeline = self.pipelines.channel_concat_f16.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 channel concat",
+            }
+        })?;
         if inputs.is_empty() {
-            return Err(KernelError::Gpu {
-                message: "empty inputs".into(),
-            });
+            return Err(KernelError::GpuEmpty { what: "inputs" });
         }
         let c_out: usize = {
             let mut sum = 0usize;
             for b in inputs {
-                sum += *b.shape.last().ok_or_else(|| KernelError::Gpu {
-                    message: "empty shape".into(),
-                })?;
+                sum += *b
+                    .shape
+                    .last()
+                    .ok_or(KernelError::GpuEmpty { what: "shape" })?;
             }
             sum
         };
         let spatial: usize = inputs[0].size
-            / *inputs[0].shape.last().ok_or_else(|| KernelError::Gpu {
-                message: "empty shape".into(),
-            })?;
+            / *inputs[0]
+                .shape
+                .last()
+                .ok_or(KernelError::GpuEmpty { what: "shape" })?;
         let total = spatial * c_out;
         let buf_out = self.output_buf_f16(total);
 
@@ -1650,9 +1626,10 @@ impl GpuBackend {
 
         let mut ch_offset = 0usize;
         for inp in inputs {
-            let c_in = *inp.shape.last().ok_or_else(|| KernelError::Gpu {
-                message: "empty shape".into(),
-            })?;
+            let c_in = *inp
+                .shape
+                .last()
+                .ok_or(KernelError::GpuEmpty { what: "shape" })?;
             #[repr(C)]
             #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
             struct P {
@@ -1695,9 +1672,9 @@ impl GpuBackend {
         self.record_compute_batch(pipeline, &bind_groups, &wg_sizes);
 
         let mut out_shape = inputs[0].shape.clone();
-        *out_shape.last_mut().ok_or_else(|| KernelError::Gpu {
-            message: "empty shape".into(),
-        })? = c_out;
+        *out_shape
+            .last_mut()
+            .ok_or(KernelError::GpuEmpty { what: "shape" })? = c_out;
         Ok(GpuBuffer {
             buffer: buf_out,
             size: total,
@@ -1711,16 +1688,15 @@ impl GpuBackend {
         input: &GpuBuffer,
         split_sizes: &[usize],
     ) -> Result<Vec<GpuBuffer>, KernelError> {
-        let pipeline =
-            self.pipelines
-                .channel_split_f16
-                .as_ref()
-                .ok_or_else(|| KernelError::Gpu {
-                    message: "f16 channel split pipeline not available on this device".into(),
-                })?;
-        let c_in = *input.shape.last().ok_or_else(|| KernelError::Gpu {
-            message: "empty shape".into(),
+        let pipeline = self.pipelines.channel_split_f16.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 channel split",
+            }
         })?;
+        let c_in = *input
+            .shape
+            .last()
+            .ok_or(KernelError::GpuEmpty { what: "shape" })?;
         let spatial: usize = input.size / c_in;
 
         let bgl = pipeline.get_bind_group_layout(0);
@@ -1771,9 +1747,9 @@ impl GpuBackend {
             wg_sizes.push((div_ceil(total as u32, 256), 1u32, 1u32));
 
             let mut out_shape = input.shape.clone();
-            *out_shape.last_mut().ok_or_else(|| KernelError::Gpu {
-                message: "empty shape".into(),
-            })? = c_out;
+            *out_shape
+                .last_mut()
+                .ok_or(KernelError::GpuEmpty { what: "shape" })? = c_out;
             results.push(GpuBuffer {
                 buffer: buf_out,
                 size: total,
@@ -1793,13 +1769,11 @@ impl GpuBackend {
         oh: usize,
         ow: usize,
     ) -> Result<GpuBuffer, KernelError> {
-        let pipeline =
-            self.pipelines
-                .resize_nearest_f16
-                .as_ref()
-                .ok_or_else(|| KernelError::Gpu {
-                    message: "f16 resize nearest pipeline not available on this device".into(),
-                })?;
+        let pipeline = self.pipelines.resize_nearest_f16.as_ref().ok_or({
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 resize nearest",
+            }
+        })?;
         let (n, _ih, _iw, c) = (
             input.shape[0],
             input.shape[1],
@@ -1865,13 +1839,11 @@ impl GpuBackend {
         &self,
         input: &GpuBuffer,
     ) -> Result<GpuBuffer, KernelError> {
-        let pipeline = self
-            .pipelines
-            .permute_nhwc_nchw_f16
-            .as_ref()
-            .ok_or_else(|| KernelError::Gpu {
-                message: "f16 NHWC-to-NCHW permute pipeline not available on this device".into(),
-            })?;
+        let pipeline = self.pipelines.permute_nhwc_nchw_f16.as_ref().ok_or(
+            KernelError::GpuPipelineUnavailable {
+                pipeline: "f16 NHWC-to-NCHW permute",
+            },
+        )?;
         let (n, h, w, c) = (
             input.shape[0],
             input.shape[1],
@@ -3001,9 +2973,10 @@ impl GpuBackend {
         c_out: usize,
         ch_offset: usize,
     ) -> Result<GpuBuffer, KernelError> {
-        let c_in = *input.shape.last().ok_or_else(|| KernelError::Gpu {
-            message: "empty shape".into(),
-        })?;
+        let c_in = *input
+            .shape
+            .last()
+            .ok_or(KernelError::GpuEmpty { what: "shape" })?;
         let spatial: usize = input.size / c_in;
         let total = spatial * c_out;
         let buf_out = self.output_buf(total);
@@ -3050,9 +3023,9 @@ impl GpuBackend {
         );
 
         let mut out_shape = input.shape.clone();
-        *out_shape.last_mut().ok_or_else(|| KernelError::Gpu {
-            message: "empty shape".into(),
-        })? = c_out;
+        *out_shape
+            .last_mut()
+            .ok_or(KernelError::GpuEmpty { what: "shape" })? = c_out;
         Ok(GpuBuffer {
             buffer: buf_out,
             size: total,
@@ -3067,9 +3040,10 @@ impl GpuBackend {
         input: &GpuBuffer,
         split_sizes: &[usize],
     ) -> Result<Vec<GpuBuffer>, KernelError> {
-        let c_in = *input.shape.last().ok_or_else(|| KernelError::Gpu {
-            message: "empty shape".into(),
-        })?;
+        let c_in = *input
+            .shape
+            .last()
+            .ok_or(KernelError::GpuEmpty { what: "shape" })?;
         let spatial: usize = input.size / c_in;
 
         let bgl = self.pipelines.channel_split.get_bind_group_layout(0);
@@ -3120,9 +3094,9 @@ impl GpuBackend {
             wg_sizes.push((div_ceil(total as u32, 256), 1u32, 1u32));
 
             let mut out_shape = input.shape.clone();
-            *out_shape.last_mut().ok_or_else(|| KernelError::Gpu {
-                message: "empty shape".into(),
-            })? = c_out;
+            *out_shape
+                .last_mut()
+                .ok_or(KernelError::GpuEmpty { what: "shape" })? = c_out;
             results.push(GpuBuffer {
                 buffer: buf_out,
                 size: total,
@@ -3144,23 +3118,23 @@ impl GpuBackend {
         inputs: &[&GpuBuffer],
     ) -> Result<GpuBuffer, KernelError> {
         if inputs.is_empty() {
-            return Err(KernelError::Gpu {
-                message: "empty inputs".into(),
-            });
+            return Err(KernelError::GpuEmpty { what: "inputs" });
         }
         let c_out: usize = {
             let mut sum = 0usize;
             for b in inputs {
-                sum += *b.shape.last().ok_or_else(|| KernelError::Gpu {
-                    message: "empty shape".into(),
-                })?;
+                sum += *b
+                    .shape
+                    .last()
+                    .ok_or(KernelError::GpuEmpty { what: "shape" })?;
             }
             sum
         };
         let spatial: usize = inputs[0].size
-            / *inputs[0].shape.last().ok_or_else(|| KernelError::Gpu {
-                message: "empty shape".into(),
-            })?;
+            / *inputs[0]
+                .shape
+                .last()
+                .ok_or(KernelError::GpuEmpty { what: "shape" })?;
         let total = spatial * c_out;
         let buf_out = self.output_buf(total);
 
@@ -3171,9 +3145,10 @@ impl GpuBackend {
 
         let mut ch_offset = 0usize;
         for inp in inputs {
-            let c_in = *inp.shape.last().ok_or_else(|| KernelError::Gpu {
-                message: "empty shape".into(),
-            })?;
+            let c_in = *inp
+                .shape
+                .last()
+                .ok_or(KernelError::GpuEmpty { what: "shape" })?;
             #[repr(C)]
             #[derive(Clone, Copy, bytemuck::Pod, bytemuck::Zeroable)]
             struct P {
@@ -3217,9 +3192,9 @@ impl GpuBackend {
         self.record_compute_batch(&self.pipelines.channel_concat, &bind_groups, &wg_sizes);
 
         let mut out_shape = inputs[0].shape.clone();
-        *out_shape.last_mut().ok_or_else(|| KernelError::Gpu {
-            message: "empty shape".into(),
-        })? = c_out;
+        *out_shape
+            .last_mut()
+            .ok_or(KernelError::GpuEmpty { what: "shape" })? = c_out;
         Ok(GpuBuffer {
             buffer: buf_out,
             size: total,
@@ -3454,9 +3429,7 @@ impl GpuBackend {
         axis: usize,
     ) -> Result<GpuBuffer, KernelError> {
         if inputs.is_empty() {
-            return Err(KernelError::Gpu {
-                message: "empty inputs".into(),
-            });
+            return Err(KernelError::GpuEmpty { what: "inputs" });
         }
         let inner: usize = inputs[0].shape[axis + 1..].iter().product();
         let outer: usize = inputs[0].shape[..axis].iter().product();

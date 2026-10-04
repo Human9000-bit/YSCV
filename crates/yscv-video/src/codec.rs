@@ -216,9 +216,9 @@ pub fn parse_mp4_boxes(data: &[u8]) -> Result<Vec<Mp4Box>, VideoError> {
 
         let (size, header_size) = if size_32 == 1 {
             if offset + 16 > len {
-                return Err(VideoError::ContainerParse(
-                    "truncated extended box size".into(),
-                ));
+                return Err(VideoError::Truncated {
+                    what: "MP4 extended box size",
+                });
             }
             let extended = u64::from_be_bytes([
                 data[o + 8],
@@ -238,10 +238,12 @@ pub fn parse_mp4_boxes(data: &[u8]) -> Result<Vec<Mp4Box>, VideoError> {
         };
 
         if size < header_size as u64 {
-            return Err(VideoError::ContainerParse(format!(
-                "box size {} smaller than header at offset {offset}",
-                size
-            )));
+            return Err(VideoError::OutOfBounds {
+                what: "MP4 box header",
+                offset: o,
+                len: header_size.into(),
+                available: size as usize,
+            });
         }
 
         boxes.push(Mp4Box {

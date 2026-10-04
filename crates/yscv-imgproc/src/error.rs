@@ -1,7 +1,10 @@
+use std::path::PathBuf;
+use std::sync::Arc;
+
 use thiserror::Error;
 use yscv_tensor::TensorError;
 
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[derive(Debug, Clone, Error)]
 pub enum ImgProcError {
     #[error("invalid image shape: expected rank {expected_rank}, got {got:?}")]
     InvalidImageShape {
@@ -31,14 +34,32 @@ pub enum ImgProcError {
         expected: Vec<usize>,
         got: Vec<usize>,
     },
-    #[error("I/O error: {message}")]
-    Io { message: String },
-    #[error("unsupported image format: {path}")]
-    UnsupportedFormat { path: String },
-    #[error("image decode error: {message}")]
-    ImageDecode { message: String },
-    #[error("image encode error: {message}")]
-    ImageEncode { message: String },
+    #[error("failed to open image {path:?}: {source}")]
+    Io {
+        path: PathBuf,
+        #[source]
+        source: Arc<std::io::Error>,
+    },
+    #[error("unsupported image format: {path:?}")]
+    UnsupportedFormat { path: PathBuf },
+    #[error("image decode error for {path:?}: {source}")]
+    ImageDecode {
+        path: PathBuf,
+        #[source]
+        source: Arc<image::ImageError>,
+    },
+    #[error("image encode error for {path:?}: {source}")]
+    ImageEncode {
+        path: PathBuf,
+        #[source]
+        source: Arc<image::ImageError>,
+    },
+    #[error("{height}x{width}x{channels} image does not fit an image buffer")]
+    ImageBufferSize {
+        height: usize,
+        width: usize,
+        channels: usize,
+    },
     #[error(transparent)]
     Tensor(#[from] TensorError),
 }

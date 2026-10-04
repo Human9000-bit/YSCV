@@ -587,15 +587,16 @@ impl Drop for DlHandle {
 /// # Safety
 /// Caller must ensure `handle` is a valid dl handle and the type `T`
 /// matches the symbol's C function signature.
-unsafe fn resolve_required<T: Copy>(handle: *mut c_void, name: &[u8]) -> Result<T, KernelError> {
+unsafe fn resolve_required<T: Copy>(
+    handle: *mut c_void,
+    name: &'static [u8],
+) -> Result<T, KernelError> {
     // SAFETY: handle is valid; name is a null-terminated byte string.
     let sym = unsafe { libc::dlsym(handle, name.as_ptr().cast()) };
     if sym.is_null() {
-        let sym_name =
+        let symbol =
             std::str::from_utf8(&name[..name.len().saturating_sub(1)]).unwrap_or("<invalid>");
-        return Err(KernelError::Rknn {
-            message: format!("required symbol `{sym_name}` not found in the RKNN runtime"),
-        });
+        return Err(KernelError::RknnSymbolMissing { symbol });
     }
     // SAFETY: sym is non-null; caller guarantees `T` matches.
     Ok(unsafe { std::mem::transmute_copy::<*mut c_void, T>(&sym) })
@@ -636,9 +637,8 @@ pub(crate) fn dlopen_runtime() -> *mut c_void {
 pub(crate) fn load_rknn_library() -> Result<(DlHandle, RknnFunctions), KernelError> {
     let handle = dlopen_runtime();
     if handle.is_null() {
-        return Err(KernelError::Rknn {
-            message: "failed to load librknnrt.so or librknnmrt.so — RKNN runtime not available"
-                .into(),
+        return Err(KernelError::RknnLibraryUnavailable {
+            library: "librknnrt.so or librknnmrt.so (RKNN runtime)",
         });
     }
     // Owned before any symbol is resolved, so a missing required symbol
@@ -705,18 +705,16 @@ pub(crate) fn query_raw<T>(
     funcs: &RknnFunctions,
     ctx: RknnContext,
     cmd: u32,
-    cmd_name: &str,
+    cmd_name: &'static str,
     info: *mut T,
 ) -> Result<(), KernelError> {
     // SAFETY: info points to a valid struct of type T; caller provides
     // matching size via `size_of::<T>()`. cmd is a valid query command.
     let ret = unsafe { (funcs.query)(ctx, cmd, info.cast(), std::mem::size_of::<T>() as u32) };
     if ret != RKNN_SUCC {
-        return Err(KernelError::Rknn {
-            message: format!(
-                "rknn_query({cmd_name}) failed: {} ({ret})",
-                rknn_error_name(ret)
-            ),
+        return Err(KernelError::RknnCall {
+            func: cmd_name,
+            status: ret,
         });
     }
     Ok(())
@@ -724,7 +722,7 @@ pub(crate) fn query_raw<T>(
 
 /// Convert an RKNN return code into a stable short label.
 ///
-/// Used in error messages to make `KernelError::Rknn` self-explanatory.
+/// Used by the `KernelError::RknnCall` / `RknnWait` messages.
 /// Unknown codes (e.g. negative values from custom-op handlers) return
 /// `"UNKNOWN"`.
 pub(crate) const fn rknn_error_name(code: i32) -> &'static str {
@@ -750,7 +748,7 @@ pub(crate) const fn rknn_error_name(code: i32) -> &'static str {
     }
 }
 
-/// Returns `true` when a `KernelError::Rknn` error message indicates a
+/// Returns `true` when `err` is an RKNN call whose status code indicates a
 /// *recoverable* runtime fault — a stuck NPU, a dropped device handle,
 /// or a transient timeout. Caller-bug errors (`PARAM_INVALID`,
 /// `INPUT_INVALID`, `OUTPUT_INVALID`, `MODEL_INVALID`, etc.) return
@@ -760,11 +758,17 @@ pub(crate) const fn rknn_error_name(code: i32) -> &'static str {
 /// Used by `ContextPool::dispatch_on` and
 /// `RknnPipelinedPool::submit`/`wait` to decide whether to auto-reset
 /// a slot after a dispatch failure.
-pub(crate) fn is_recoverable_rknn_error(err_message: &str) -> bool {
-    // Match on the symbolic name that `rknn_error_name` embeds into
-    // every `KernelError::Rknn::message`. Tests pin this contract.
-    err_message.contains("TIMEOUT")
-        || err_message.contains("CTX_INVALID")
-        || err_message.contains("DEVICE_UNAVAILABLE")
-        || err_message.contains("DEVICE_UNMATCH")
+pub(crate) fn is_recoverable_rknn_error(err: &KernelError) -> bool {
+    use super::consts::*;
+    matches!(
+        err,
+        KernelError::RknnCall { status, .. } | KernelError::RknnWait { status, .. }
+            if matches!(
+                *status,
+                RKNN_ERR_TIMEOUT
+                    | RKNN_ERR_CTX_INVALID
+                    | RKNN_ERR_DEVICE_UNAVAILABLE
+                    | RKNN_ERR_DEVICE_UNMATCH
+            )
+    )
 }
