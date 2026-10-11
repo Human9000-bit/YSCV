@@ -33,12 +33,12 @@ use std::arch::x86_64::{
 
 #[cfg(target_arch = "aarch64")]
 use super::exp::fast_exp_sigmoid_neon;
-#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
-use super::exp::{fast_exp_sigmoid_neon, vrecipq_neon_v7};
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use super::exp::{fast_exp_avx, fast_exp_sigmoid_avx, fast_exp_sigmoid_sse, fast_exp_sse};
 #[cfg(target_arch = "x86_64")]
 use super::exp::{fast_exp_avx512, fast_exp_sigmoid_avx512};
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+use super::exp::{fast_exp_sigmoid_neon, vrecipq_neon_v7};
 use super::{SimdDispatchPath, dispatch_path, x86_memory_simd_forces_avx2};
 
 // ===========================================================================

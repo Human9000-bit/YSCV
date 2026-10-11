@@ -441,8 +441,8 @@ pub(crate) unsafe fn vrecipq_neon_v7(x: float32x4_t) -> float32x4_t {
 #[target_feature(enable = "neon")]
 pub(crate) unsafe fn fast_exp_neon(x: float32x4_t) -> float32x4_t {
     use std::arch::arm::{
-        vaddq_s32, vbslq_f32, vcgeq_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdupq_n_s32,
-        vmlaq_f32, vreinterpretq_f32_s32, vshlq_n_s32,
+        vaddq_s32, vbslq_f32, vcgeq_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdupq_n_s32, vmlaq_f32,
+        vreinterpretq_f32_s32, vshlq_n_s32,
     };
 
     let ln2_inv = vdupq_n_f32(std::f32::consts::LOG2_E);
@@ -482,8 +482,8 @@ pub(crate) unsafe fn fast_exp_neon(x: float32x4_t) -> float32x4_t {
 #[target_feature(enable = "neon")]
 pub(crate) unsafe fn fast_exp_sigmoid_neon(x: float32x4_t) -> float32x4_t {
     use std::arch::arm::{
-        vaddq_s32, vbslq_f32, vcgeq_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdupq_n_s32,
-        vmlaq_f32, vreinterpretq_f32_s32, vshlq_n_s32,
+        vaddq_s32, vbslq_f32, vcgeq_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdupq_n_s32, vmlaq_f32,
+        vreinterpretq_f32_s32, vshlq_n_s32,
     };
 
     let x = vmaxq_f32(vdupq_n_f32(-88.0), vminq_f32(vdupq_n_f32(88.0), x));
