@@ -7,6 +7,11 @@ use std::arch::aarch64::{
     float32x4_t, vaddq_f32, vdivq_f32, vdupq_n_f32, vfmaq_f32, vld1q_f32, vmaxq_f32, vminq_f32,
     vmulq_f32, vnegq_f32, vst1q_f32, vsubq_f32,
 };
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+use std::arch::arm::{
+    float32x4_t, vaddq_f32, vdupq_n_f32, vld1q_f32, vmaxq_f32, vminq_f32, vmulq_f32, vst1q_f32,
+    vsubq_f32,
+};
 #[cfg(target_arch = "x86")]
 use std::arch::x86::{
     __m128, __m256, _mm_add_ps, _mm_castsi128_ps, _mm_cvtepi32_ps, _mm_cvtps_epi32, _mm_loadu_ps,
@@ -418,6 +423,91 @@ pub(crate) unsafe fn fast_exp_sigmoid_neon(x: float32x4_t) -> float32x4_t {
 }
 
 // ===========================================================================
+// armv7 NEON fast-exp helpers (4-wide)
+// ===========================================================================
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[inline(always)]
+#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+pub(crate) unsafe fn vrecipq_neon_v7(x: float32x4_t) -> float32x4_t {
+    use std::arch::arm::{vrecpeq_f32, vrecpsq_f32};
+    let est = vrecpeq_f32(x);
+    let est = vmulq_f32(est, vrecpsq_f32(x, est));
+    vmulq_f32(est, vrecpsq_f32(x, est))
+}
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+pub(crate) unsafe fn fast_exp_neon(x: float32x4_t) -> float32x4_t {
+    use std::arch::arm::{
+        vaddq_s32, vbslq_f32, vcgeq_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdupq_n_s32,
+        vmlaq_f32, vreinterpretq_f32_s32, vshlq_n_s32,
+    };
+
+    let ln2_inv = vdupq_n_f32(std::f32::consts::LOG2_E);
+    let ln2_hi = vdupq_n_f32(0.693_359_4);
+    let ln2_lo = vdupq_n_f32(-2.121_944_4e-4);
+    let c0 = vdupq_n_f32(1.000_000_1);
+    let c1 = vdupq_n_f32(0.999_971_3);
+    let c2 = vdupq_n_f32(0.499_990_85);
+    let c3 = vdupq_n_f32(0.167_781_98);
+    let c4 = vdupq_n_f32(0.041_894_704);
+
+    let x = vmaxq_f32(vdupq_n_f32(-88.0), vminq_f32(vdupq_n_f32(88.0), x));
+    let n_f = vmulq_f32(x, ln2_inv);
+
+    let zero = vdupq_n_f32(0.0);
+    let half = vdupq_n_f32(0.5);
+    let neg_half = vdupq_n_f32(-0.5);
+    let bias = vbslq_f32(vcgeq_f32(n_f, zero), half, neg_half);
+    let n_i = vcvtq_s32_f32(vaddq_f32(n_f, bias));
+    let n_f = vcvtq_f32_s32(n_i);
+
+    let r = vsubq_f32(vsubq_f32(x, vmulq_f32(n_f, ln2_hi)), vmulq_f32(n_f, ln2_lo));
+
+    let mut poly = c4;
+    poly = vmlaq_f32(c3, r, poly);
+    poly = vmlaq_f32(c2, r, poly);
+    poly = vmlaq_f32(c1, r, poly);
+    poly = vmlaq_f32(c0, r, poly);
+
+    let bias_i = vdupq_n_s32(127);
+    let pow2n = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n_i, bias_i)));
+    vmulq_f32(poly, pow2n)
+}
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+pub(crate) unsafe fn fast_exp_sigmoid_neon(x: float32x4_t) -> float32x4_t {
+    use std::arch::arm::{
+        vaddq_s32, vbslq_f32, vcgeq_f32, vcvtq_f32_s32, vcvtq_s32_f32, vdupq_n_s32,
+        vmlaq_f32, vreinterpretq_f32_s32, vshlq_n_s32,
+    };
+
+    let x = vmaxq_f32(vdupq_n_f32(-88.0), vminq_f32(vdupq_n_f32(88.0), x));
+    let n_f = vmulq_f32(x, vdupq_n_f32(std::f32::consts::LOG2_E));
+
+    let zero = vdupq_n_f32(0.0);
+    let half = vdupq_n_f32(0.5);
+    let neg_half = vdupq_n_f32(-0.5);
+    let bias = vbslq_f32(vcgeq_f32(n_f, zero), half, neg_half);
+    let n_i = vcvtq_s32_f32(vaddq_f32(n_f, bias));
+
+    let r = vsubq_f32(
+        x,
+        vmulq_f32(vcvtq_f32_s32(n_i), vdupq_n_f32(std::f32::consts::LN_2)),
+    );
+    let pow2n = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n_i, vdupq_n_s32(127))));
+
+    let p = vmlaq_f32(vdupq_n_f32(0.167_781_98), r, vdupq_n_f32(0.041_894_704));
+    let p = vmlaq_f32(vdupq_n_f32(0.499_990_85), r, p);
+    let p = vmlaq_f32(vdupq_n_f32(0.999_971_3), r, p);
+    vmulq_f32(vmlaq_f32(vdupq_n_f32(1.000_000_1), r, p), pow2n)
+}
+
+// ===========================================================================
 // Exp slice dispatch + implementations
 // ===========================================================================
 
@@ -486,6 +576,16 @@ pub fn exp_slice_dispatch(input: &[f32], output: &mut [f32]) {
         }
     }
 
+    #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+    {
+        if path == SimdDispatchPath::Neon {
+            unsafe {
+                exp_slice_neon(input, output);
+            }
+            return;
+        }
+    }
+
     exp_slice_scalar(input, output);
 }
 
@@ -542,6 +642,16 @@ pub fn sub_exp_slice_dispatch(input: &[f32], offset: f32, output: &mut [f32]) {
         }
     }
 
+    #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+    {
+        if path == SimdDispatchPath::Neon {
+            unsafe {
+                sub_exp_slice_neon(input, offset, output);
+            }
+            return;
+        }
+    }
+
     sub_exp_slice_scalar(input, offset, output);
 }
 
@@ -590,6 +700,16 @@ pub fn tanh_slice_dispatch(input: &[f32], output: &mut [f32]) {
     {
         if path == SimdDispatchPath::Neon {
             // SAFETY: guarded by runtime feature detection in `dispatch_path`.
+            unsafe {
+                tanh_slice_neon(input, output);
+            }
+            return;
+        }
+    }
+
+    #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+    {
+        if path == SimdDispatchPath::Neon {
             unsafe {
                 tanh_slice_neon(input, output);
             }
@@ -749,6 +869,28 @@ unsafe fn exp_slice_neon(input: &[f32], output: &mut [f32]) {
     }
 }
 
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, dead_code, unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+unsafe fn exp_slice_neon(input: &[f32], output: &mut [f32]) {
+    let len = input.len();
+    let in_ptr = input.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+    let mut index = 0usize;
+
+    while index + 4 <= len {
+        let v = vld1q_f32(in_ptr.add(index));
+        let r = fast_exp_neon(v);
+        vst1q_f32(out_ptr.add(index), r);
+        index += 4;
+    }
+
+    while index < len {
+        *out_ptr.add(index) = (*in_ptr.add(index)).exp();
+        index += 1;
+    }
+}
+
 // ===========================================================================
 // Fused subtract-and-exp: output[i] = exp(input[i] - offset)
 // ===========================================================================
@@ -862,6 +1004,30 @@ unsafe fn sub_exp_slice_avx(input: &[f32], offset: f32, output: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code)]
 #[allow(unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+unsafe fn sub_exp_slice_neon(input: &[f32], offset: f32, output: &mut [f32]) {
+    let len = input.len();
+    let in_ptr = input.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+    let off = vdupq_n_f32(offset);
+    let mut index = 0usize;
+
+    while index + 4 <= len {
+        let v = vld1q_f32(in_ptr.add(index));
+        let shifted = vsubq_f32(v, off);
+        let r = fast_exp_neon(shifted);
+        vst1q_f32(out_ptr.add(index), r);
+        index += 4;
+    }
+
+    while index < len {
+        *out_ptr.add(index) = (*in_ptr.add(index) - offset).exp();
+        index += 1;
+    }
+}
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn sub_exp_slice_neon(input: &[f32], offset: f32, output: &mut [f32]) {
     let len = input.len();
@@ -1062,6 +1228,89 @@ unsafe fn tanh_slice_neon(input: &[f32], output: &mut [f32]) {
         let exp_neg = fast_exp_sigmoid_neon(neg_two_x);
         let denom = vaddq_f32(one, exp_neg);
         let result = vsubq_f32(vdivq_f32(two, denom), one);
+        vst1q_f32(out_ptr.add(index), result);
+        index += 4;
+    }
+
+    while index < len {
+        *out_ptr.add(index) = (*in_ptr.add(index)).tanh();
+        index += 1;
+    }
+}
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, dead_code, unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+unsafe fn tanh_slice_neon(input: &[f32], output: &mut [f32]) {
+    let len = input.len();
+    let in_ptr = input.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+    let two = vdupq_n_f32(2.0);
+    let one = vdupq_n_f32(1.0);
+    let zero = vdupq_n_f32(0.0);
+    let mut index = 0usize;
+
+    while index + 32 <= len {
+        let x0 = vld1q_f32(in_ptr.add(index));
+        let x1 = vld1q_f32(in_ptr.add(index + 4));
+        let x2 = vld1q_f32(in_ptr.add(index + 8));
+        let x3 = vld1q_f32(in_ptr.add(index + 12));
+        let x4 = vld1q_f32(in_ptr.add(index + 16));
+        let x5 = vld1q_f32(in_ptr.add(index + 20));
+        let x6 = vld1q_f32(in_ptr.add(index + 24));
+        let x7 = vld1q_f32(in_ptr.add(index + 28));
+
+        let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x0)));
+        let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x1)));
+        let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x2)));
+        let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x3)));
+        let e4 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x4)));
+        let e5 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x5)));
+        let e6 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x6)));
+        let e7 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(two, x7)));
+
+        vst1q_f32(
+            out_ptr.add(index),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e0))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 4),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e1))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 8),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e2))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 12),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e3))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 16),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e4))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 20),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e5))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 24),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e6))), one),
+        );
+        vst1q_f32(
+            out_ptr.add(index + 28),
+            vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(vaddq_f32(one, e7))), one),
+        );
+        index += 32;
+    }
+
+    while index + 4 <= len {
+        let x = vld1q_f32(in_ptr.add(index));
+        let two_x = vmulq_f32(two, x);
+        let neg_two_x = vsubq_f32(zero, two_x);
+        let exp_neg = fast_exp_sigmoid_neon(neg_two_x);
+        let denom = vaddq_f32(one, exp_neg);
+        let result = vsubq_f32(vmulq_f32(two, vrecipq_neon_v7(denom)), one);
         vst1q_f32(out_ptr.add(index), result);
         index += 4;
     }

@@ -504,7 +504,7 @@ pub fn nhwc_to_nchw_fast(input: &Tensor) -> Result<Tensor, KernelError> {
     let x86_fast = false;
     #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
     let neon_fast = c % 4 == 0 && hw % 4 == 0 && crate::host_cpu().features.neon;
-    #[cfg(not(target_arch = "aarch64"))]
+    #[cfg(not(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7"))))]
     let neon_fast = false;
 
     if !x86_fast && !neon_fast {

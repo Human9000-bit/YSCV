@@ -6,6 +6,10 @@
 use std::arch::aarch64::{
     vaddq_f32, vdupq_n_f32, vld1q_f32, vmaxq_f32, vmulq_f32, vst1q_f32, vsubq_f32,
 };
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+use std::arch::arm::{
+    vaddq_f32, vdupq_n_f32, vld1q_f32, vmaxq_f32, vmulq_f32, vst1q_f32, vsubq_f32,
+};
 #[cfg(target_arch = "x86")]
 use std::arch::x86::{
     _mm_add_ps, _mm_loadu_ps, _mm_max_ps, _mm_mul_ps, _mm_set1_ps, _mm_setzero_ps, _mm_storeu_ps,
@@ -27,6 +31,8 @@ use std::arch::x86_64::{
 #[cfg(target_arch = "x86_64")]
 use super::exp::fast_exp_avx512;
 #[cfg(target_arch = "aarch64")]
+use super::exp::fast_exp_neon;
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
 use super::exp::fast_exp_neon;
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 use super::exp::{fast_exp_avx, fast_exp_sse};
@@ -56,6 +62,18 @@ pub fn softmax_rows_fused_dispatch(input: &[f32], output: &mut [f32], row_len: u
     {
         if path == SimdDispatchPath::Neon {
             // SAFETY: guarded by runtime feature detection in `dispatch_path`.
+            unsafe {
+                for (in_row, out_row) in input.chunks(row_len).zip(output.chunks_mut(row_len)) {
+                    softmax_row_fused_neon(in_row, out_row);
+                }
+            }
+            return;
+        }
+    }
+
+    #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+    {
+        if path == SimdDispatchPath::Neon {
             unsafe {
                 for (in_row, out_row) in input.chunks(row_len).zip(output.chunks_mut(row_len)) {
                     softmax_row_fused_neon(in_row, out_row);
@@ -132,6 +150,18 @@ pub fn log_softmax_rows_fused_dispatch(input: &[f32], output: &mut [f32], row_le
     {
         if path == SimdDispatchPath::Neon {
             // SAFETY: guarded by runtime feature detection in `dispatch_path`.
+            unsafe {
+                for (in_row, out_row) in input.chunks(row_len).zip(output.chunks_mut(row_len)) {
+                    log_softmax_row_fused_neon(in_row, out_row);
+                }
+            }
+            return;
+        }
+    }
+
+    #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+    {
+        if path == SimdDispatchPath::Neon {
             unsafe {
                 for (in_row, out_row) in input.chunks(row_len).zip(output.chunks_mut(row_len)) {
                     log_softmax_row_fused_neon(in_row, out_row);
@@ -299,6 +329,104 @@ unsafe fn softmax_row_fused_neon(input: &[f32], output: &mut [f32]) {
     }
 
     // 4. divide (NEON multiply by 1/sum)
+    let inv = vdupq_n_f32(1.0 / sum_exp);
+    i = 0;
+    while i + 16 <= len {
+        vst1q_f32(out_ptr.add(i), vmulq_f32(vld1q_f32(out_ptr.add(i)), inv));
+        vst1q_f32(
+            out_ptr.add(i + 4),
+            vmulq_f32(vld1q_f32(out_ptr.add(i + 4)), inv),
+        );
+        vst1q_f32(
+            out_ptr.add(i + 8),
+            vmulq_f32(vld1q_f32(out_ptr.add(i + 8)), inv),
+        );
+        vst1q_f32(
+            out_ptr.add(i + 12),
+            vmulq_f32(vld1q_f32(out_ptr.add(i + 12)), inv),
+        );
+        i += 16;
+    }
+    while i + 4 <= len {
+        vst1q_f32(out_ptr.add(i), vmulq_f32(vld1q_f32(out_ptr.add(i)), inv));
+        i += 4;
+    }
+    let inv_s = 1.0 / sum_exp;
+    while i < len {
+        *out_ptr.add(i) *= inv_s;
+        i += 1;
+    }
+}
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+unsafe fn softmax_row_fused_neon(input: &[f32], output: &mut [f32]) {
+    use std::arch::arm::{
+        vadd_f32, vget_high_f32, vget_lane_f32, vget_low_f32, vpadd_f32, vpmax_f32,
+    };
+
+    let len = input.len();
+    let in_ptr = input.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+
+    // 1. Find max (pairwise reduction)
+    let mut acc_max = vdupq_n_f32(f32::NEG_INFINITY);
+    let mut i = 0usize;
+    while i + 16 <= len {
+        let v0 = vld1q_f32(in_ptr.add(i));
+        let v1 = vld1q_f32(in_ptr.add(i + 4));
+        let v2 = vld1q_f32(in_ptr.add(i + 8));
+        let v3 = vld1q_f32(in_ptr.add(i + 12));
+        acc_max = vmaxq_f32(acc_max, vmaxq_f32(vmaxq_f32(v0, v1), vmaxq_f32(v2, v3)));
+        i += 16;
+    }
+    while i + 4 <= len {
+        let v = vld1q_f32(in_ptr.add(i));
+        acc_max = vmaxq_f32(acc_max, v);
+        i += 4;
+    }
+    let pair = vpmax_f32(vget_low_f32(acc_max), vget_high_f32(acc_max));
+    let pair = vpmax_f32(pair, pair);
+    let mut max_val = vget_lane_f32::<0>(pair);
+    while i < len {
+        max_val = max_val.max(*in_ptr.add(i));
+        i += 1;
+    }
+
+    // 2. sub+exp + 3. accumulate sum
+    let off = vdupq_n_f32(max_val);
+    let mut acc_sum = vdupq_n_f32(0.0);
+    i = 0;
+    while i + 16 <= len {
+        let v0 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i)), off));
+        let v1 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), off));
+        let v2 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), off));
+        let v3 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), off));
+        vst1q_f32(out_ptr.add(i), v0);
+        vst1q_f32(out_ptr.add(i + 4), v1);
+        vst1q_f32(out_ptr.add(i + 8), v2);
+        vst1q_f32(out_ptr.add(i + 12), v3);
+        acc_sum = vaddq_f32(acc_sum, vaddq_f32(vaddq_f32(v0, v1), vaddq_f32(v2, v3)));
+        i += 16;
+    }
+    while i + 4 <= len {
+        let v = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i)), off));
+        vst1q_f32(out_ptr.add(i), v);
+        acc_sum = vaddq_f32(acc_sum, v);
+        i += 4;
+    }
+    let pair = vadd_f32(vget_low_f32(acc_sum), vget_high_f32(acc_sum));
+    let pair = vpadd_f32(pair, pair);
+    let mut sum_exp = vget_lane_f32::<0>(pair);
+    while i < len {
+        let e = (*in_ptr.add(i) - max_val).exp();
+        *out_ptr.add(i) = e;
+        sum_exp += e;
+        i += 1;
+    }
+
+    // 4. divide (multiply by 1/sum)
     let inv = vdupq_n_f32(1.0 / sum_exp);
     i = 0;
     while i + 16 <= len {
@@ -669,6 +797,102 @@ unsafe fn log_softmax_row_fused_neon(input: &[f32], output: &mut [f32]) {
         i += 4;
     }
     let mut sum_exp = vaddvq_f32(acc_sum);
+    while i < len {
+        sum_exp += (*in_ptr.add(i) - max_val).exp();
+        i += 1;
+    }
+
+    // 3. output[i] = x[i] - (max + log(sum_exp))
+    let log_denom = vdupq_n_f32(max_val + sum_exp.ln());
+    i = 0;
+    while i + 16 <= len {
+        vst1q_f32(
+            out_ptr.add(i),
+            vsubq_f32(vld1q_f32(in_ptr.add(i)), log_denom),
+        );
+        vst1q_f32(
+            out_ptr.add(i + 4),
+            vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), log_denom),
+        );
+        vst1q_f32(
+            out_ptr.add(i + 8),
+            vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), log_denom),
+        );
+        vst1q_f32(
+            out_ptr.add(i + 12),
+            vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), log_denom),
+        );
+        i += 16;
+    }
+    while i + 4 <= len {
+        vst1q_f32(
+            out_ptr.add(i),
+            vsubq_f32(vld1q_f32(in_ptr.add(i)), log_denom),
+        );
+        i += 4;
+    }
+    let log_denom_s = max_val + sum_exp.ln();
+    while i < len {
+        *out_ptr.add(i) = *in_ptr.add(i) - log_denom_s;
+        i += 1;
+    }
+}
+
+#[cfg(all(target_arch = "arm", feature = "neon-v7"))]
+#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[target_feature(enable = "neon")]
+unsafe fn log_softmax_row_fused_neon(input: &[f32], output: &mut [f32]) {
+    use std::arch::arm::{
+        vadd_f32, vget_high_f32, vget_lane_f32, vget_low_f32, vpadd_f32, vpmax_f32,
+    };
+
+    let len = input.len();
+    let in_ptr = input.as_ptr();
+    let out_ptr = output.as_mut_ptr();
+
+    // 1. Find max (pairwise reduction)
+    let mut acc_max = vdupq_n_f32(f32::NEG_INFINITY);
+    let mut i = 0usize;
+    while i + 16 <= len {
+        let v0 = vld1q_f32(in_ptr.add(i));
+        let v1 = vld1q_f32(in_ptr.add(i + 4));
+        let v2 = vld1q_f32(in_ptr.add(i + 8));
+        let v3 = vld1q_f32(in_ptr.add(i + 12));
+        acc_max = vmaxq_f32(acc_max, vmaxq_f32(vmaxq_f32(v0, v1), vmaxq_f32(v2, v3)));
+        i += 16;
+    }
+    while i + 4 <= len {
+        acc_max = vmaxq_f32(acc_max, vld1q_f32(in_ptr.add(i)));
+        i += 4;
+    }
+    let pair = vpmax_f32(vget_low_f32(acc_max), vget_high_f32(acc_max));
+    let pair = vpmax_f32(pair, pair);
+    let mut max_val = vget_lane_f32::<0>(pair);
+    while i < len {
+        max_val = max_val.max(*in_ptr.add(i));
+        i += 1;
+    }
+
+    // 2. sum(exp(x - max))
+    let off = vdupq_n_f32(max_val);
+    let mut acc_sum = vdupq_n_f32(0.0);
+    i = 0;
+    while i + 16 <= len {
+        let e0 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i)), off));
+        let e1 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), off));
+        let e2 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), off));
+        let e3 = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), off));
+        acc_sum = vaddq_f32(acc_sum, vaddq_f32(vaddq_f32(e0, e1), vaddq_f32(e2, e3)));
+        i += 16;
+    }
+    while i + 4 <= len {
+        let e = fast_exp_neon(vsubq_f32(vld1q_f32(in_ptr.add(i)), off));
+        acc_sum = vaddq_f32(acc_sum, e);
+        i += 4;
+    }
+    let pair = vadd_f32(vget_low_f32(acc_sum), vget_high_f32(acc_sum));
+    let pair = vpadd_f32(pair, pair);
+    let mut sum_exp = vget_lane_f32::<0>(pair);
     while i < len {
         sum_exp += (*in_ptr.add(i) - max_val).exp();
         i += 1;
