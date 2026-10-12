@@ -5,6 +5,7 @@ mod byte_track;
 mod config;
 mod deep_sort;
 mod error;
+pub mod guidance;
 pub mod hungarian;
 mod kalman;
 mod motion;
