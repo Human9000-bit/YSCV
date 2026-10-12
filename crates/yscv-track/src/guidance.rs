@@ -13,11 +13,6 @@ pub struct GuidanceConfig {
     pub kf_q_pos: f32,
     pub kf_q_vel: f32,
     pub kf_r: f32,
-    pub kf_coast_frames: u32,
-    pub pn_n: f32,
-    pub pn_kp: f32,
-    pub pn_vc_scale: f32,
-    pub tilt_compensate: bool,
     pub rng_q_z: f32,
     pub rng_q_vz: f32,
     pub rng_q_w0: f32,
@@ -31,11 +26,6 @@ impl Default for GuidanceConfig {
             kf_q_pos: 0.001,
             kf_q_vel: 0.01,
             kf_r: 0.05,
-            kf_coast_frames: 10,
-            pn_n: 3.0,
-            pn_kp: 0.5,
-            pn_vc_scale: 0.1,
-            tilt_compensate: true,
             rng_q_z: 0.1,
             rng_q_vz: 1.0,
             rng_q_w0: 0.0001,
@@ -282,8 +272,8 @@ pub struct Nav3dOut {
 /// Combined 2D LOS + range EKF.
 pub struct Nav3d {
     pub los: LosKf,
-    pub rng: RangeKf,
-    pub initialized: bool,
+    rng: RangeKf,
+    initialized: bool,
 }
 
 impl Nav3d {
@@ -293,6 +283,10 @@ impl Nav3d {
             rng: RangeKf::new(cfg),
             initialized: false,
         }
+    }
+
+    pub fn initialized(&self) -> bool {
+        self.initialized
     }
 
     pub fn reset(&mut self) {
