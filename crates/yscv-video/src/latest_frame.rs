@@ -1,8 +1,4 @@
 //! Bounded, latest-only frame delivery to independent consumers.
-//!
-//! Publishing replaces one retained frame; slow readers skip intermediate frames.
-//! Pixel storage is shared with `Arc`, with no per-publication allocation here.
-//! Dropping the last sender wakes readers; each may drain the final frame once.
 
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, PoisonError};
 use std::time::{Duration, Instant};
@@ -10,13 +6,13 @@ use std::time::{Duration, Instant};
 /// Shared pixels and metadata from a single publication.
 #[derive(Debug)]
 pub struct FrameSnapshot<T> {
-    /// Caller-owned pixel storage; its layout is chosen by the producer.
+    /// Shared pixels in the producer's layout.
     pub data: Arc<T>,
-    /// Width in pixels, supplied by the producer.
+    /// Width in pixels.
     pub width: usize,
-    /// Height in pixels, supplied by the producer.
+    /// Height in pixels.
     pub height: usize,
-    /// Monotonic capture time supplied by the producer, not the receive time.
+    /// Producer-supplied monotonic capture time.
     pub captured_at: Instant,
     /// Wrapping publication counter. Compare for equality, not ordering.
     pub sequence: u64,
@@ -31,7 +27,7 @@ impl<T> Clone for FrameSnapshot<T> {
     }
 }
 
-/// A frame channel is closed, or a receive deadline expired.
+/// Publish or receive failure.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
 pub enum FrameChannelError {
     /// No more frames can arrive.
@@ -107,7 +103,7 @@ impl<T> FrameSender<T> {
         }
     }
 
-    /// Subscribe independently, including the currently retained frame, if any.
+    /// Subscribe independently, including the retained frame, if any.
     pub fn subscribe(&self) -> FrameReceiver<T> {
         FrameReceiver {
             shared: self.publisher.0.clone(),
@@ -117,9 +113,7 @@ impl<T> FrameSender<T> {
 
     /// Replace the retained frame and wake all readers.
     ///
-    /// Dimensions describe the payload; this channel does not validate its layout.
-    /// Retired payloads are dropped outside the mutex, so their destructors cannot
-    /// block readers or deadlock by re-entering the channel.
+    /// Payload layout is unchecked. Retired payloads drop outside the mutex.
     pub fn publish(
         &self,
         data: Arc<T>,
@@ -153,8 +147,7 @@ impl<T> FrameSender<T> {
     }
 }
 
-/// Independent cursor over a frame broadcast; receiving never consumes another
-/// reader's frame. Holding a snapshot keeps its pixel buffer alive.
+/// Independent cursor; receiving never consumes another reader's frame.
 pub struct FrameReceiver<T> {
     shared: Arc<Shared<T>>,
     seen: Option<u64>,

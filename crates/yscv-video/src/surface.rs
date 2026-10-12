@@ -1,7 +1,4 @@
 //! Checked composition into caller-owned packed byte surfaces.
-//!
-//! Nearest-neighbor plans cache byte offsets, fuse scaling with conversion, and
-//! copy repeated output rows. Rendering allocates nothing and uses no worker pool.
 
 use crate::VideoError;
 
@@ -20,7 +17,7 @@ pub enum SurfaceFormat {
 }
 
 impl SurfaceFormat {
-    /// Number of bytes occupied by one pixel.
+    /// Bytes per pixel.
     pub const fn bytes_per_pixel(self) -> usize {
         match self {
             Self::Rgb8 => 3,
@@ -30,7 +27,7 @@ impl SurfaceFormat {
     }
 }
 
-/// A validated mutable view. Row padding is never modified by drawing operations.
+/// Validated byte surface; drawing preserves row padding.
 pub struct SurfaceMut<'a> {
     bytes: &'a mut [u8],
     width: usize,
@@ -80,8 +77,7 @@ impl<'a> SurfaceMut<'a> {
         self.height
     }
 
-    /// Fill a rectangle clipped to the visible surface. Oversized coordinates and
-    /// extents are safe; empty or wholly offscreen rectangles do nothing.
+    /// Fill a clipped rectangle. Empty or offscreen rectangles do nothing.
     pub fn fill_rect(
         &mut self,
         x: usize,

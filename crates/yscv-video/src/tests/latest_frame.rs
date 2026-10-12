@@ -147,7 +147,7 @@ fn payload_destructor_runs_without_holding_the_slot() -> TestResult {
             }
         }
     }
-    // A Mutex makes the test payload Sync; production frame buffers need no wrapper.
+    // The receiver in this test payload needs a Mutex to be Sync.
     let sender = FrameSender::new();
     let mut reader = sender.subscribe();
     let (started, dropping) = mpsc::channel();
