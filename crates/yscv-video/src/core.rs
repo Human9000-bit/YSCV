@@ -77,6 +77,8 @@ pub mod hevc_transform;
 pub mod hw_decode;
 #[path = "latency_histogram.rs"]
 pub mod latency_histogram;
+#[path = "latest_frame.rs"]
+pub mod latest_frame;
 #[path = "mavlink.rs"]
 pub mod mavlink;
 #[path = "mjpeg.rs"]
@@ -95,6 +97,8 @@ pub mod rga;
 mod source;
 #[path = "stream.rs"]
 mod stream;
+#[path = "surface.rs"]
+pub mod surface;
 #[cfg(target_os = "linux")]
 #[path = "v4l2.rs"]
 #[allow(unsafe_code)]

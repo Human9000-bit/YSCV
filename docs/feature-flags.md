@@ -442,6 +442,14 @@ See [`video-pipeline.md`](video-pipeline.md) for container parsing
 
 ## Miscellaneous flags
 
+### `neon-v7` — 32-bit ARM SIMD in `yscv-video`
+
+Enabled by default. Requires nightly on 32-bit ARM for NEON intrinsics and
+`target_feature`; execution still checks the cached runtime NEON capability.
+This includes the contiguous RGB8-to-BGRA8 surface conversion. AArch64 NEON
+and x86 SSSE3 do not require this feature; all paths have scalar fallbacks.
+Disable default features for stable 32-bit ARM builds without NEON.
+
 ### `drm` — Linux KMS display output (yscv-video)
 
 Direct framebuffer output via DRM/KMS. For headless edge devices

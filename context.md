@@ -22,7 +22,7 @@ yscv (umbrella re-export)
 ├── yscv-optim           ← 8 optimizers + Lookahead, 11 LR schedulers
 ├── yscv-model           ← 39 layers, 17 architectures, LoRA, trainer
 ├── yscv-imgproc         ← 183 image ops, u8/f32 SIMD
-├── yscv-video           ← H.264/HEVC/AV1 decode, V4L2, MJPEG, H.264 encode, MAVLink, overlay, framebuffer
+├── yscv-video           ← H.264/HEVC/AV1 decode, V4L2, MJPEG, H.264 encode, MAVLink, overlay, framebuffer, checked byte surfaces, latest-frame broadcast
 ├── yscv-video-mpp       ← Rockchip MPP hardware video encoder
 ├── yscv-detect          ← YOLOv8/v11, NMS, heatmap, RoI align
 ├── yscv-recognize       ← Cosine matching, VP-Tree ANN
@@ -37,7 +37,7 @@ yscv (umbrella re-export)
 
 | Metric | Value |
 |--------|-------|
-| Tests | **2,413** |
+| Tests | **2,429 passing**, 29 ignored (Linux host, `cargo test --workspace`) |
 | ONNX operators | **122** |
 | Tensor methods | **159** |
 | Imgproc ops | **183** |

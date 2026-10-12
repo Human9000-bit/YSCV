@@ -52,6 +52,14 @@ proptest = "1"
 name = "normalize_rgb8"
 harness = false
 
+[[bench]]
+name = "surface"
+harness = false
+
+[[bench]]
+name = "latest_frame"
+harness = false
+
 [package.metadata.docs.rs]
 features = ["videotoolbox"]
 
