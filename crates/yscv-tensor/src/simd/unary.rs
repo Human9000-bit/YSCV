@@ -367,7 +367,7 @@ unsafe fn unary_avx(data: &[f32], out: &mut [f32], kind: UnaryKind) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn unary_neon(data: &[f32], out: &mut [f32], kind: UnaryKind) {
+unsafe fn unary_neon(data: &[f32], out: &mut [f32], kind: UnaryKind) { unsafe {
     let len = data.len();
     let inp = data.as_ptr();
     let op = out.as_mut_ptr();
@@ -516,4 +516,4 @@ unsafe fn unary_neon(data: &[f32], out: &mut [f32], kind: UnaryKind) {
         };
         i += 1;
     }
-}
+} }

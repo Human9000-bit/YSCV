@@ -1049,9 +1049,9 @@ unsafe fn luma_core_neon(
 /// NEON kernel for one horizontal luma MB edge (16 contiguous samples).
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[allow(clippy::too_many_arguments)]
-unsafe fn deblock_luma_h16_neon(
+fn deblock_luma_h16_neon(
     plane: &mut [u8],
     q0_base: usize,
     stride: usize,
@@ -1059,7 +1059,7 @@ unsafe fn deblock_luma_h16_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) {
+) { unsafe {
     use std::arch::aarch64::*;
     debug_assert!(q0_base >= 4 * stride && q0_base + 3 * stride + 16 <= plane.len());
     let base = plane.as_mut_ptr().add(q0_base);
@@ -1080,7 +1080,7 @@ unsafe fn deblock_luma_h16_neon(
     vst1q_u8(base, o[3]);
     vst1q_u8(base.add(stride), o[4]);
     vst1q_u8(base.add(2 * stride), o[5]);
-}
+} }
 
 /// Transposes an 8x8 byte tile held as eight row vectors.
 #[cfg(target_arch = "aarch64")]
@@ -1119,9 +1119,9 @@ unsafe fn transpose_8x8_neon(
 /// filter core as the horizontal edge, and transposed back.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[allow(clippy::too_many_arguments)]
-unsafe fn deblock_luma_v16_neon(
+fn deblock_luma_v16_neon(
     plane: &mut [u8],
     q0_base: usize,
     stride: usize,
@@ -1129,7 +1129,7 @@ unsafe fn deblock_luma_v16_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) {
+) { unsafe {
     use std::arch::aarch64::*;
     debug_assert!(q0_base >= 4 && q0_base + 15 * stride + 4 <= plane.len());
     let base = plane.as_mut_ptr().add(q0_base - 4);
@@ -1194,7 +1194,7 @@ unsafe fn deblock_luma_v16_neon(
     for (i, r) in rb.into_iter().enumerate() {
         vst1_u8(base.add((8 + i) * stride), r);
     }
-}
+} }
 
 /// `|a - b|` per u8 lane (SSE2 has no unsigned abs-diff).
 #[cfg(target_arch = "x86_64")]
@@ -1952,9 +1952,9 @@ unsafe fn chroma_core_neon(
 /// are filtered together as one 16-lane vector.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[allow(clippy::too_many_arguments)]
-unsafe fn deblock_chroma_h8_neon(
+fn deblock_chroma_h8_neon(
     u: &mut [u8],
     v: &mut [u8],
     q0_base: usize,
@@ -1963,7 +1963,7 @@ unsafe fn deblock_chroma_h8_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) {
+) { unsafe {
     use std::arch::aarch64::*;
     debug_assert!(q0_base >= 2 * stride && q0_base + stride + 8 <= u.len().min(v.len()));
     let ub = u.as_mut_ptr().add(q0_base);
@@ -1977,16 +1977,16 @@ unsafe fn deblock_chroma_h8_neon(
     vst1_u8(vb.sub(stride), vget_high_u8(np0));
     vst1_u8(ub, vget_low_u8(nq0));
     vst1_u8(vb, vget_high_u8(nq0));
-}
+} }
 
 /// NEON kernel for one vertical chroma MB edge: each of the 8 rows packs the
 /// four U cross-edge samples and the four V ones into one 8-byte lane row,
 /// one shared transpose feeds both planes through the 16-lane core.
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[allow(clippy::too_many_arguments)]
-unsafe fn deblock_chroma_v8_neon(
+fn deblock_chroma_v8_neon(
     u: &mut [u8],
     v: &mut [u8],
     q0_base: usize,
@@ -1995,7 +1995,7 @@ unsafe fn deblock_chroma_v8_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) {
+) { unsafe {
     use std::arch::aarch64::*;
     debug_assert!(q0_base >= 2 && q0_base + 7 * stride + 2 <= u.len().min(v.len()));
     let ub = u.as_mut_ptr().add(q0_base - 2);
@@ -2035,7 +2035,7 @@ unsafe fn deblock_chroma_v8_neon(
         (ub.add(i * stride) as *mut u32).write_unaligned(vget_lane_u32::<0>(w));
         (vb.add(i * stride) as *mut u32).write_unaligned(vget_lane_u32::<1>(w));
     }
-}
+} }
 
 /// Shared 16-lane chroma filter core (SSE2 analogue of [`chroma_core_neon`]).
 #[cfg(target_arch = "x86_64")]

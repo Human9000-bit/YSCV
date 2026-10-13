@@ -344,8 +344,8 @@ pub fn mul_scalar_inplace_dispatch(data: &mut [f32], scalar: f32) {
 // ===========================================================================
 
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn binary_same_shape_scalar(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+    unsafe {
     let len = lhs.len();
     let left_ptr = lhs.as_ptr();
     let right_ptr = rhs.as_ptr();
@@ -405,6 +405,7 @@ unsafe fn binary_same_shape_scalar(lhs: &[f32], rhs: &[f32], out: &mut [f32], ki
             }
         }
     }
+    }
 }
 
 // ===========================================================================
@@ -413,9 +414,9 @@ unsafe fn binary_same_shape_scalar(lhs: &[f32], rhs: &[f32], out: &mut [f32], ki
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx512f")]
 unsafe fn binary_same_shape_avx512(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+    unsafe {
     let len = lhs.len();
     let left_ptr = lhs.as_ptr();
     let right_ptr = rhs.as_ptr();
@@ -469,13 +470,14 @@ unsafe fn binary_same_shape_avx512(lhs: &[f32], rhs: &[f32], out: &mut [f32], ki
     if index < len {
         binary_same_shape_avx(&lhs[index..], &rhs[index..], &mut out[index..], kind);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn binary_same_shape_sse(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+    unsafe {
     let len = lhs.len();
     let left_ptr = lhs.as_ptr();
     let right_ptr = rhs.as_ptr();
@@ -497,13 +499,14 @@ unsafe fn binary_same_shape_sse(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind:
     if index < len {
         binary_same_shape_scalar(&lhs[index..], &rhs[index..], &mut out[index..], kind);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn binary_same_shape_avx(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+    unsafe {
     let len = lhs.len();
     let left_ptr = lhs.as_ptr();
     let right_ptr = rhs.as_ptr();
@@ -583,13 +586,14 @@ unsafe fn binary_same_shape_avx(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind:
     if index < len {
         binary_same_shape_sse(&lhs[index..], &rhs[index..], &mut out[index..], kind);
     }
+    }
 }
 
 #[cfg(all(target_arch = "aarch64", not(target_os = "macos")))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn binary_same_shape_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+    unsafe {
     let len = lhs.len();
     let left_ptr = lhs.as_ptr();
     let right_ptr = rhs.as_ptr();
@@ -610,6 +614,7 @@ unsafe fn binary_same_shape_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind
 
     if index < len {
         binary_same_shape_scalar(&lhs[index..], &rhs[index..], &mut out[index..], kind);
+    }
     }
 }
 
@@ -656,9 +661,10 @@ pub fn add_relu_inplace_dispatch(data: &mut [f32], rhs: &[f32]) {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn add_relu_inplace_avx(data: &mut [f32], rhs: &[f32]) {
+    unsafe {
     let len = data.len();
     let dp = data.as_mut_ptr();
     let rp = rhs.as_ptr();
@@ -694,12 +700,14 @@ unsafe fn add_relu_inplace_avx(data: &mut [f32], rhs: &[f32]) {
         *dp.add(i) = if v > 0.0 { v } else { 0.0 };
         i += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn add_relu_inplace_neon(data: &mut [f32], rhs: &[f32]) {
+    unsafe {
     #[cfg(target_arch = "aarch64")]
     use std::arch::aarch64::vmaxq_f32;
     #[cfg(target_arch = "arm")]
@@ -718,6 +726,7 @@ unsafe fn add_relu_inplace_neon(data: &mut [f32], rhs: &[f32]) {
         let v = *dp.add(i) + *rp.add(i);
         *dp.add(i) = if v > 0.0 { v } else { 0.0 };
         i += 1;
+    }
     }
 }
 
@@ -767,9 +776,10 @@ pub fn add_inplace_dispatch(data: &mut [f32], rhs: &[f32]) {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn add_inplace_avx(data: &mut [f32], rhs: &[f32]) {
+    unsafe {
     let len = data.len();
     let dp = data.as_mut_ptr();
     let rp = rhs.as_ptr();
@@ -799,12 +809,14 @@ unsafe fn add_inplace_avx(data: &mut [f32], rhs: &[f32]) {
         *dp.add(i) += *rp.add(i);
         i += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 unsafe fn add_inplace_sse(data: &mut [f32], rhs: &[f32]) {
+    unsafe {
     let len = data.len();
     let dp = data.as_mut_ptr();
     let rp = rhs.as_ptr();
@@ -819,12 +831,14 @@ unsafe fn add_inplace_sse(data: &mut [f32], rhs: &[f32]) {
         *dp.add(i) += *rp.add(i);
         i += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn add_inplace_neon(data: &mut [f32], rhs: &[f32]) {
+    unsafe {
     let len = data.len();
     let dp = data.as_mut_ptr();
     let rp = rhs.as_ptr();
@@ -839,6 +853,7 @@ unsafe fn add_inplace_neon(data: &mut [f32], rhs: &[f32]) {
         *dp.add(i) += *rp.add(i);
         i += 1;
     }
+    }
 }
 
 // ===========================================================================
@@ -846,9 +861,10 @@ unsafe fn add_inplace_neon(data: &mut [f32], rhs: &[f32]) {
 // ===========================================================================
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn mul_scalar_inplace_neon(data: &mut [f32], scalar: f32) {
+    unsafe {
     let len = data.len();
     let ptr = data.as_mut_ptr();
     let vs = vdupq_n_f32(scalar);
@@ -862,12 +878,14 @@ unsafe fn mul_scalar_inplace_neon(data: &mut [f32], scalar: f32) {
         *ptr.add(i) *= scalar;
         i += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn mul_scalar_inplace_avx(data: &mut [f32], scalar: f32) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
@@ -892,12 +910,14 @@ unsafe fn mul_scalar_inplace_avx(data: &mut [f32], scalar: f32) {
         *ptr.add(i) *= scalar;
         i += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 unsafe fn mul_scalar_inplace_sse(data: &mut [f32], scalar: f32) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
@@ -914,5 +934,6 @@ unsafe fn mul_scalar_inplace_sse(data: &mut [f32], scalar: f32) {
     while i < len {
         *ptr.add(i) *= scalar;
         i += 1;
+    }
     }
 }

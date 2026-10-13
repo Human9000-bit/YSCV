@@ -24,7 +24,7 @@
 //! in the order of int32 additions, which is associative for true integers
 //! (no overflow guard is needed for k ≤ 2³¹/(127*127) ≈ 130k).
 
-#![allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#![allow(unsafe_code)]
 
 use std::sync::OnceLock;
 
@@ -238,6 +238,7 @@ unsafe fn sdot_inline(
     a: std::arch::aarch64::int8x16_t,
     b: std::arch::aarch64::int8x16_t,
 ) -> std::arch::aarch64::int32x4_t {
+    unsafe {
     use std::arch::aarch64::int32x4_t;
     let mut out: int32x4_t = acc;
     std::arch::asm!(
@@ -248,6 +249,7 @@ unsafe fn sdot_inline(
         options(pure, nomem, nostack)
     );
     out
+    }
 }
 
 /// Issue the aarch64 `smmla Vd.4S, Vn.16B, Vm.16B` (i8mm) instruction.
@@ -261,6 +263,7 @@ unsafe fn smmla_inline(
     a: std::arch::aarch64::int8x16_t,
     b: std::arch::aarch64::int8x16_t,
 ) -> std::arch::aarch64::int32x4_t {
+    unsafe {
     use std::arch::aarch64::int32x4_t;
     let mut out: int32x4_t = acc;
     std::arch::asm!(
@@ -271,11 +274,13 @@ unsafe fn smmla_inline(
         options(pure, nomem, nostack)
     );
     out
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon,i8mm")]
 unsafe fn int8_matmul_neon_i8mm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::aarch64::*;
     // SMMLA: acc[0..4] += [A0·B0, A0·B1, A1·B0, A1·B1] where Ai is an
     // 8-byte row slice and Bj is an 8-byte column slice. Tile 2×2 in
@@ -333,11 +338,13 @@ unsafe fn int8_matmul_neon_i8mm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize
             }
         }
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon,i8mm")]
 unsafe fn int8_matmul_prepacked_neon_i8mm(a: &[i8], b: &PackedI8B, m: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::aarch64::*;
     let k = b.k;
     let n = b.n;
@@ -392,11 +399,13 @@ unsafe fn int8_matmul_prepacked_neon_i8mm(a: &[i8], b: &PackedI8B, m: usize, out
             }
         }
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon,dotprod")]
 unsafe fn int8_matmul_prepacked_neon_sdot(a: &[i8], b: &PackedI8B, m: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::aarch64::*;
     let k = b.k;
     let n = b.n;
@@ -419,11 +428,13 @@ unsafe fn int8_matmul_prepacked_neon_sdot(a: &[i8], b: &PackedI8B, m: usize, out
             out[i * n + j] = tail;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon,dotprod")]
 unsafe fn int8_matmul_neon_sdot(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::aarch64::*;
     let k4 = k & !3;
     for i in 0..m {
@@ -448,6 +459,7 @@ unsafe fn int8_matmul_neon_sdot(a: &[i8], b: &[i8], m: usize, k: usize, n: usize
             out[i * n + j] = tail;
         }
     }
+    }
 }
 
 /// One column of the widening dot: `a_row · bt_col` over K, via `vmull_s8`
@@ -459,6 +471,7 @@ unsafe fn int8_matmul_neon_sdot(a: &[i8], b: &[i8], m: usize, k: usize, n: usize
 #[target_feature(enable = "neon")]
 #[inline]
 unsafe fn widen_dot_1col(ap: *const i8, bp: *const i8, k: usize) -> i32 {
+    unsafe {
     use std::arch::aarch64::*;
     unsafe {
         let mut acc = vdupq_n_s32(0);
@@ -480,6 +493,7 @@ unsafe fn widen_dot_1col(ap: *const i8, bp: *const i8, k: usize) -> i32 {
             kk += 1;
         }
         s
+    }
     }
 }
 
@@ -903,6 +917,7 @@ unsafe fn neon_gemm4x4_asm(a: &[i8], bt: &[i8], m: usize, k: usize, n: usize, ou
 /// SAFETY: `a.len() >= m*k`, `b.len() >= k*n`, `out.len() >= m*n`.
 #[cfg(target_arch = "aarch64")]
 unsafe fn neon_mlal_lane_gemm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
+    unsafe {
     let kp = k.div_ceil(8) * 8;
     let mut ap = vec![0i8; m * kp];
     for i in 0..m {
@@ -946,6 +961,7 @@ unsafe fn neon_mlal_lane_gemm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, 
             }
             out[i * n + j] = s;
         }
+    }
     }
 }
 
@@ -1178,6 +1194,7 @@ unsafe fn mlal_lane_tail_4xnr(
     ldo: usize,
     nb: usize,
 ) {
+    unsafe {
     use std::arch::aarch64::*;
     unsafe {
         let ar = [ap, ap.add(kp), ap.add(2 * kp), ap.add(3 * kp)];
@@ -1229,6 +1246,7 @@ unsafe fn mlal_lane_tail_4xnr(
             }
         }
     }
+    }
 }
 
 /// Small-K int8 GEMM via the hand-asm 4×16 mlal-lane kernel. `a` is `[M,K]`
@@ -1241,10 +1259,12 @@ unsafe fn mlal_lane_tail_4xnr(
 /// SAFETY: `a.len() >= m*k`, `b.len() >= k*n`, `out.len() >= m*n`.
 #[cfg(target_arch = "aarch64")]
 unsafe fn neon_mlal4x16_gemm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
+    unsafe {
     let b16 = widen_kmajor_b_i16(b, k, n);
     let kp = k.div_ceil(8) * 8;
     // SAFETY: b16 is [kp,n]; a=[m,k]; out=[m,n].
     unsafe { neon_mlal4x16_i16b(a, &b16, m, k, kp, n, out) };
+    }
 }
 
 /// Widen a k-major `[K,N]` i8 RHS to i16 `[kp,N]` (kp = K padded to a multiple
@@ -1310,6 +1330,7 @@ unsafe fn neon_mlal4x16_i16b(
     n: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     // A: pad K to kp only when needed; else use `a` directly (kp == k).
     let ap_owned: Vec<i8>;
     let (ap, lda): (&[i8], usize) = if kp == k {
@@ -1365,6 +1386,7 @@ unsafe fn neon_mlal4x16_i16b(
             }
         }
     }
+    }
 }
 
 /// Plain ARMv8.0-A NEON widening int8 GEMM: `a` is `[M, K]` row-major, `bt`
@@ -1386,6 +1408,7 @@ unsafe fn neon_mlal4x16_i16b(
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 unsafe fn neon_widen_gemm(a: &[i8], bt: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::aarch64::*;
     unsafe {
         let ab = a.as_ptr();
@@ -1598,6 +1621,7 @@ unsafe fn neon_widen_gemm(a: &[i8], bt: &[i8], m: usize, k: usize, n: usize, out
             i += 1;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
@@ -1617,6 +1641,7 @@ unsafe fn int8_matmul_neon_widen(
     n: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     // Small-K (MobileNet 1×1 c_in ≤ 48, plus the im2col'd 3×3 stem K=27): the
     // hand-asm 4×16 SMLAL-lane kernel wins big (no per-output horizontal
     // reduction, wide NR, B prefetch), consuming `b` in its native k-major
@@ -1636,6 +1661,7 @@ unsafe fn int8_matmul_neon_widen(
     let bt = transpose_b(b, k, n);
     // SAFETY: bt is [n,k], a=[m,k], out=[m,n].
     unsafe { neon_widen_gemm(a, &bt, m, k, n, out) };
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1648,6 +1674,7 @@ unsafe fn int8_matmul_avx2_widen(
     n: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     use std::arch::x86_64::*;
     let bt = transpose_b(b, k, n);
     for i in 0..m {
@@ -1673,11 +1700,13 @@ unsafe fn int8_matmul_avx2_widen(
             out[i * n + j] = tail;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2")]
 unsafe fn int8_matmul_prepacked_avx2_widen(a: &[i8], b: &PackedI8B, m: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::x86_64::*;
     let k = b.k;
     let n = b.n;
@@ -1705,11 +1734,13 @@ unsafe fn int8_matmul_prepacked_avx2_widen(a: &[i8], b: &PackedI8B, m: usize, ou
             out[i * n + j] = tail;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,avxvnni")]
 unsafe fn int8_matmul_avx_vnni(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::x86_64::*;
     let bt = transpose_b(b, k, n);
     let bias: i32 = 128;
@@ -1757,11 +1788,13 @@ unsafe fn int8_matmul_avx_vnni(a: &[i8], b: &[i8], m: usize, k: usize, n: usize,
             out[i * n + j] = tail;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx2,avxvnni")]
 unsafe fn int8_matmul_prepacked_avx_vnni(a: &[i8], b: &PackedI8B, m: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::x86_64::*;
     let k = b.k;
     let n = b.n;
@@ -1797,6 +1830,7 @@ unsafe fn int8_matmul_prepacked_avx_vnni(a: &[i8], b: &PackedI8B, m: usize, out:
             }
             out[i * n + j] = tail;
         }
+    }
     }
 }
 
@@ -1855,6 +1889,7 @@ unsafe fn int8_matmul_avx512_vnni_blocked(
     n: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     use std::arch::x86_64::*;
     const MR: usize = 4;
     const NR: usize = 16;
@@ -1922,6 +1957,7 @@ unsafe fn int8_matmul_avx512_vnni_blocked(
             }
         }
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -1932,6 +1968,7 @@ unsafe fn int8_matmul_prepacked_avx512_vnni_blocked(
     m: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     use std::arch::x86_64::*;
     const MR: usize = 4;
     const NR: usize = 16;
@@ -1988,6 +2025,7 @@ unsafe fn int8_matmul_prepacked_avx512_vnni_blocked(
             }
         }
     }
+    }
 }
 
 /// Register-blocked AVX-512-VNNI kernel, MR=8 × NR=16. 8 ZMM
@@ -2012,6 +2050,7 @@ unsafe fn int8_matmul_avx512_vnni_blocked_mr8(
     n: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     use std::arch::x86_64::*;
     const MR: usize = 8;
     const NR: usize = 16;
@@ -2093,6 +2132,7 @@ unsafe fn int8_matmul_avx512_vnni_blocked_mr8(
             }
         }
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -2105,6 +2145,7 @@ unsafe fn int8_matmul_avx512_vnni(
     n: usize,
     out: &mut [i32],
 ) {
+    unsafe {
     use std::arch::x86_64::*;
     // Register-blocked dispatch: pick MR=8 only on the empirically-good
     // regime — large K with small N (e.g. Llama down-proj 64×8192×2048)
@@ -2156,11 +2197,13 @@ unsafe fn int8_matmul_avx512_vnni(
             out[i * n + j] = tail;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[target_feature(enable = "avx512f,avx512bw,avx512vnni")]
 unsafe fn int8_matmul_prepacked_avx512_vnni(a: &[i8], b: &PackedI8B, m: usize, out: &mut [i32]) {
+    unsafe {
     use std::arch::x86_64::*;
     let k = b.k;
     let n = b.n;
@@ -2204,6 +2247,7 @@ unsafe fn int8_matmul_prepacked_avx512_vnni(a: &[i8], b: &PackedI8B, m: usize, o
             }
             out[i * n + j] = tail;
         }
+    }
     }
 }
 

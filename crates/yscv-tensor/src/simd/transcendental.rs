@@ -212,7 +212,7 @@ unsafe fn exp_avx(data: &[f32], out: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(dead_code, unsafe_code, unsafe_op_in_unsafe_fn)]
 #[inline(always)]
-unsafe fn fast_exp_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+unsafe fn fast_exp_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t { unsafe {
     use std::arch::aarch64::{
         vaddq_s32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32, vreinterpretq_f32_s32,
         vshlq_n_s32,
@@ -250,12 +250,12 @@ unsafe fn fast_exp_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch6
     let pow2n = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n_i, bias)));
 
     vmulq_f32(poly, pow2n)
-}
+} }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(dead_code, unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn exp_neon(data: &[f32], out: &mut [f32]) {
+unsafe fn exp_neon(data: &[f32], out: &mut [f32]) { unsafe {
     use std::arch::aarch64::{
         vaddq_s32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32, vreinterpretq_f32_s32,
         vshlq_n_s32,
@@ -378,7 +378,7 @@ unsafe fn exp_neon(data: &[f32], out: &mut [f32]) {
         *op.add(i) = (*inp.add(i)).exp();
         i += 1;
     }
-}
+} }
 
 // ===========================================================================
 // sin: out[i] = sin(data[i]) -- SIMD polynomial approximation
@@ -476,7 +476,7 @@ fn cos_scalar(data: &[f32], out: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn fast_sin_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+unsafe fn fast_sin_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t { unsafe {
     use std::arch::aarch64::{
         vandq_s32, vbslq_f32, vcgtq_f32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32,
         vorrq_s32, vreinterpretq_f32_s32, vreinterpretq_s32_f32,
@@ -523,12 +523,12 @@ unsafe fn fast_sin_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch6
     poly = vfmaq_f32(vdupq_n_f32(1.0), x2, poly);
 
     vmulq_f32(x_final, poly)
-}
+} }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn sin_neon(data: &[f32], out: &mut [f32]) {
+unsafe fn sin_neon(data: &[f32], out: &mut [f32]) { unsafe {
     let len = data.len();
     let inp = data.as_ptr();
     let op = out.as_mut_ptr();
@@ -544,12 +544,12 @@ unsafe fn sin_neon(data: &[f32], out: &mut [f32]) {
         *op.add(i) = (*inp.add(i)).sin();
         i += 1;
     }
-}
+} }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn cos_neon(data: &[f32], out: &mut [f32]) {
+unsafe fn cos_neon(data: &[f32], out: &mut [f32]) { unsafe {
     let len = data.len();
     let inp = data.as_ptr();
     let op = out.as_mut_ptr();
@@ -568,7 +568,7 @@ unsafe fn cos_neon(data: &[f32], out: &mut [f32]) {
         *op.add(i) = (*inp.add(i)).cos();
         i += 1;
     }
-}
+} }
 
 // -- SSE sin/cos (4-wide) --
 
@@ -848,7 +848,7 @@ pub(crate) fn ln_dispatch(data: &[f32], out: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn ln_neon(data: &[f32], out: &mut [f32]) {
+unsafe fn ln_neon(data: &[f32], out: &mut [f32]) { unsafe {
     use std::arch::aarch64::{
         vandq_s32, vcvtq_f32_s32, vdivq_f32, vdupq_n_s32, vfmaq_f32, vorrq_s32,
         vreinterpretq_f32_s32, vreinterpretq_s32_f32, vshrq_n_s32, vsubq_s32,
@@ -901,7 +901,7 @@ unsafe fn ln_neon(data: &[f32], out: &mut [f32]) {
         *op.add(i) = (*inp.add(i)).ln();
         i += 1;
     }
-}
+} }
 
 /// SSE polynomial ln using s=(m-1)/(m+1) substitution.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]

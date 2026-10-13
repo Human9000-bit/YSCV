@@ -85,8 +85,8 @@ pub fn fma_slice_dispatch(a: &[f32], b: &[f32], acc: &mut [f32]) {
 // ===========================================================================
 
 #[allow(unsafe_code, dead_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 pub(super) unsafe fn fma_slice_scalar(a: &[f32], b: &[f32], acc: &mut [f32]) {
+    unsafe {
     let len = a.len();
     let a_ptr = a.as_ptr();
     let b_ptr = b.as_ptr();
@@ -104,6 +104,7 @@ pub(super) unsafe fn fma_slice_scalar(a: &[f32], b: &[f32], acc: &mut [f32]) {
         *acc_ptr.add(index) += *a_ptr.add(index) * *b_ptr.add(index);
         index += 1;
     }
+    }
 }
 
 // ===========================================================================
@@ -112,9 +113,9 @@ pub(super) unsafe fn fma_slice_scalar(a: &[f32], b: &[f32], acc: &mut [f32]) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn fma_slice_sse(a: &[f32], b: &[f32], acc: &mut [f32]) {
+    unsafe {
     let len = a.len();
     let a_ptr = a.as_ptr();
     let b_ptr = b.as_ptr();
@@ -133,13 +134,14 @@ unsafe fn fma_slice_sse(a: &[f32], b: &[f32], acc: &mut [f32]) {
     if index < len {
         fma_slice_scalar(&a[index..], &b[index..], &mut acc[index..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn fma_slice_avx(a: &[f32], b: &[f32], acc: &mut [f32]) {
+    unsafe {
     let len = a.len();
     let a_ptr = a.as_ptr();
     let b_ptr = b.as_ptr();
@@ -158,13 +160,14 @@ unsafe fn fma_slice_avx(a: &[f32], b: &[f32], acc: &mut [f32]) {
     if index < len {
         fma_slice_sse(&a[index..], &b[index..], &mut acc[index..]);
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, dead_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn fma_slice_neon(a: &[f32], b: &[f32], acc: &mut [f32]) {
+    unsafe {
     let len = a.len();
     let a_ptr = a.as_ptr();
     let b_ptr = b.as_ptr();
@@ -182,6 +185,7 @@ unsafe fn fma_slice_neon(a: &[f32], b: &[f32], acc: &mut [f32]) {
 
     if index < len {
         fma_slice_scalar(&a[index..], &b[index..], &mut acc[index..]);
+    }
     }
 }
 
@@ -205,7 +209,6 @@ unsafe fn fma_slice_neon(a: &[f32], b: &[f32], acc: &mut [f32]) {
 /// - The caller must ensure no aliasing between `out_row` and the input pointers.
 #[inline]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn matmul_row_dispatch(
     left_row: *const f32,
     right: *const f32,
@@ -213,6 +216,7 @@ pub unsafe fn matmul_row_dispatch(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     if cfg!(miri) {
         matmul_row_scalar(left_row, right, out_row, k, n);
         return;
@@ -241,11 +245,11 @@ pub unsafe fn matmul_row_dispatch(
     }
 
     matmul_row_scalar(left_row, right, out_row, k, n);
+    }
 }
 
 /// Scalar fallback: broadcast-multiply-accumulate, unrolled by 4.
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn matmul_row_scalar(
     left_row: *const f32,
     right: *const f32,
@@ -253,6 +257,7 @@ unsafe fn matmul_row_scalar(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     for p in 0..k {
         let a_val = *left_row.add(p);
         let b_row = right.add(p * n);
@@ -270,11 +275,11 @@ unsafe fn matmul_row_scalar(
             col += 1;
         }
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn matmul_row_sse(
     left_row: *const f32,
@@ -283,6 +288,7 @@ unsafe fn matmul_row_sse(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     let mut col = 0usize;
     while col + 8 <= n {
         let mut acc0 = _mm_setzero_ps();
@@ -317,11 +323,11 @@ unsafe fn matmul_row_sse(
         *out_row.add(col) += sum;
         col += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn matmul_row_avx(
     left_row: *const f32,
@@ -330,6 +336,7 @@ unsafe fn matmul_row_avx(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     if crate::host_cpu().features.fma {
         matmul_row_avx_fma(left_row, right, out_row, k, n);
         return;
@@ -366,11 +373,11 @@ unsafe fn matmul_row_avx(
         *out_row.add(col) += sum;
         col += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx", enable = "fma")]
 unsafe fn matmul_row_avx_fma(
     left_row: *const f32,
@@ -379,6 +386,7 @@ unsafe fn matmul_row_avx_fma(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm256_fmadd_ps;
     #[cfg(target_arch = "x86_64")]
@@ -483,11 +491,11 @@ unsafe fn matmul_row_avx_fma(
         *out_row.add(col) += sum;
         col += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn matmul_row_neon(
     left_row: *const f32,
@@ -496,6 +504,7 @@ unsafe fn matmul_row_neon(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     for p in 0..k {
         let a_val: float32x4_t = vdupq_n_f32(*left_row.add(p));
         let b_row = right.add(p * n);
@@ -513,6 +522,7 @@ unsafe fn matmul_row_neon(
             col += 1;
         }
     }
+    }
 }
 
 // ===========================================================================
@@ -522,7 +532,6 @@ unsafe fn matmul_row_neon(
 
 #[inline]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 pub unsafe fn matmul_row_set_dispatch(
     left_row: *const f32,
     right: *const f32,
@@ -530,6 +539,7 @@ pub unsafe fn matmul_row_set_dispatch(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     if cfg!(miri) {
         matmul_row_set_scalar(left_row, right, out_row, k, n);
         return;
@@ -582,10 +592,10 @@ pub unsafe fn matmul_row_set_dispatch(
     }
 
     matmul_row_set_scalar(left_row, right, out_row, k, n);
+    }
 }
 
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn matmul_row_set_scalar(
     left_row: *const f32,
     right: *const f32,
@@ -593,6 +603,7 @@ unsafe fn matmul_row_set_scalar(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     for col in 0..n {
         let mut sum = 0.0f32;
         for p in 0..k {
@@ -600,11 +611,11 @@ unsafe fn matmul_row_set_scalar(
         }
         *out_row.add(col) = sum;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn matmul_row_set_sse(
     left_row: *const f32,
@@ -613,6 +624,7 @@ unsafe fn matmul_row_set_sse(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     let mut col = 0usize;
     while col + 8 <= n {
         let mut acc0 = _mm_setzero_ps();
@@ -644,11 +656,11 @@ unsafe fn matmul_row_set_sse(
         *out_row.add(col) = sum;
         col += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn matmul_row_set_avx(
     left_row: *const f32,
@@ -657,6 +669,7 @@ unsafe fn matmul_row_set_avx(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     if crate::host_cpu().features.fma {
         matmul_row_set_avx_fma(left_row, right, out_row, k, n);
         return;
@@ -690,11 +703,11 @@ unsafe fn matmul_row_set_avx(
         *out_row.add(col) = sum;
         col += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx", enable = "fma")]
 unsafe fn matmul_row_set_avx_fma(
     left_row: *const f32,
@@ -703,6 +716,7 @@ unsafe fn matmul_row_set_avx_fma(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm256_fmadd_ps;
     #[cfg(target_arch = "x86_64")]
@@ -875,6 +889,7 @@ unsafe fn matmul_row_set_avx_fma(
         *out_row.add(col) = sum;
         col += 1;
     }
+    }
 }
 
 /// AVX-512 single-row matmul: `out[1, n] = left_row[1, k] @ right[k, n]`
@@ -890,7 +905,6 @@ unsafe fn matmul_row_set_avx_fma(
 /// projections that the int4 packer doesn't touch.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx512f")]
 unsafe fn matmul_row_set_avx512(
     left_row: *const f32,
@@ -899,6 +913,7 @@ unsafe fn matmul_row_set_avx512(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::*;
     #[cfg(target_arch = "x86_64")]
@@ -963,11 +978,11 @@ unsafe fn matmul_row_set_avx512(
         *out_row.add(col) = sum;
         col += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn matmul_row_set_neon(
     left_row: *const f32,
@@ -976,6 +991,7 @@ unsafe fn matmul_row_set_neon(
     k: usize,
     n: usize,
 ) {
+    unsafe {
     // `right` is read down a column at stride `n * 4` bytes, which the in-order
     // A53/A55 prefetcher misses once `n` grows. The split keeps the hint out of
     // the k-loop body: a per-iteration branch here costs that core more than the
@@ -1008,5 +1024,6 @@ unsafe fn matmul_row_set_neon(
         }
         *out_row.add(col) = sum;
         col += 1;
+    }
     }
 }

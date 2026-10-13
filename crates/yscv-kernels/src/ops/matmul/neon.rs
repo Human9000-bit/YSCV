@@ -13,7 +13,6 @@ use core::arch::arm::*;
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn microkernel_4x8_neon(
     a_panel: *const f32,
@@ -27,6 +26,7 @@ pub(super) unsafe fn microkernel_4x8_neon(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     let mut c00: float32x4_t = vdupq_n_f32(0.0);
     let mut c01: float32x4_t = vdupq_n_f32(0.0);
     let mut c10: float32x4_t = vdupq_n_f32(0.0);
@@ -218,6 +218,7 @@ pub(super) unsafe fn microkernel_4x8_neon(
     vst1q_f32(cp2.add(4), c21);
     vst1q_f32(cp3, c30);
     vst1q_f32(cp3.add(4), c31);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -228,7 +229,6 @@ pub(super) unsafe fn microkernel_4x8_neon(
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn microkernel_4x16_neon(
     a_panel: *const f32,
@@ -243,6 +243,7 @@ pub(super) unsafe fn microkernel_4x16_neon(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     let mut c00: float32x4_t = vdupq_n_f32(0.0);
     let mut c01: float32x4_t = vdupq_n_f32(0.0);
     let mut c02: float32x4_t = vdupq_n_f32(0.0);
@@ -416,6 +417,7 @@ pub(super) unsafe fn microkernel_4x16_neon(
     vst1q_f32(cp3.add(4), c31);
     vst1q_f32(cp3.add(8), c32);
     vst1q_f32(cp3.add(12), c33);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -428,7 +430,6 @@ pub(super) unsafe fn microkernel_4x16_neon(
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 pub(super) unsafe fn microkernel_4x24_neon(
     a_panel: *const f32,
@@ -444,6 +445,7 @@ pub(super) unsafe fn microkernel_4x24_neon(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     // 4 rows × 6 f32x4 quarters = 24 accumulators.
     let mut c00 = vdupq_n_f32(0.0);
     let mut c01 = vdupq_n_f32(0.0);
@@ -686,6 +688,7 @@ pub(super) unsafe fn microkernel_4x24_neon(
     vst1q_f32(cp3.add(12), c33);
     vst1q_f32(cp3.add(16), c34);
     vst1q_f32(cp3.add(20), c35);
+    }
 }
 
 /// SiLU using NEON: x / (1 + exp(-x)), uses fast sigmoid helper.
@@ -696,25 +699,29 @@ pub(super) unsafe fn microkernel_4x24_neon(
 /// aarch64 on every activation. No graph we run on this board uses SiLU, so
 /// the scalar round-trip costs nothing and keeps the two arches comparable.
 #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn silu_neon(x: float32x4_t) -> float32x4_t {
+    unsafe {
     let mut lanes = [0f32; 4];
     vst1q_f32(lanes.as_mut_ptr(), x);
     for v in &mut lanes {
         *v /= 1.0 + (-*v).exp();
     }
     vld1q_f32(lanes.as_ptr())
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 #[inline]
 unsafe fn silu_neon(x: float32x4_t) -> float32x4_t {
+    unsafe {
     let one = vdupq_n_f32(1.0);
     let neg_x = vnegq_f32(x);
     let exp_neg = super::super::simd::exp::fast_exp_sigmoid_neon(neg_x);
     let denom = vaddq_f32(one, exp_neg);
     vdivq_f32(x, denom)
+    }
 }

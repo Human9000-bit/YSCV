@@ -97,7 +97,7 @@ unsafe fn sum_avx(data: &[f32]) -> f32 {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn sum_neon(data: &[f32]) -> f32 {
+unsafe fn sum_neon(data: &[f32]) -> f32 { unsafe {
     use std::arch::aarch64::vaddvq_f32;
 
     let len = data.len();
@@ -116,7 +116,7 @@ unsafe fn sum_neon(data: &[f32]) -> f32 {
         i += 1;
     }
     result
-}
+} }
 
 // ===========================================================================
 // Max reduction
@@ -216,7 +216,7 @@ unsafe fn max_avx(data: &[f32]) -> f32 {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn max_neon(data: &[f32]) -> f32 {
+unsafe fn max_neon(data: &[f32]) -> f32 { unsafe {
     use std::arch::aarch64::vmaxvq_f32;
 
     let len = data.len();
@@ -235,7 +235,7 @@ unsafe fn max_neon(data: &[f32]) -> f32 {
         i += 1;
     }
     result
-}
+} }
 
 // ===========================================================================
 // Min reduction
@@ -335,7 +335,7 @@ unsafe fn min_avx(data: &[f32]) -> f32 {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn min_neon(data: &[f32]) -> f32 {
+unsafe fn min_neon(data: &[f32]) -> f32 { unsafe {
     use std::arch::aarch64::vminvq_f32;
 
     let len = data.len();
@@ -354,4 +354,4 @@ unsafe fn min_neon(data: &[f32]) -> f32 {
         i += 1;
     }
     result
-}
+} }

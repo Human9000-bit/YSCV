@@ -15,7 +15,6 @@ use super::*;
 /// - `output` must point to a buffer with at least `(ic + mc) * n` elements.
 /// - Caller must ensure no concurrent writes to the same output rows.
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[cfg_attr(
     any(target_arch = "x86", target_arch = "x86_64"),
     target_feature(enable = "avx,fma")
@@ -35,6 +34,7 @@ pub(super) unsafe fn gebp_kernel_raw(
     epilogue: GemmEpilogue,
     is_last_k: bool,
 ) {
+    unsafe {
     #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
     let use_4x16 = crate::host_cpu().features.fma && crate::host_cpu().features.avx;
     #[cfg(target_arch = "aarch64")]
@@ -449,6 +449,7 @@ pub(super) unsafe fn gebp_kernel_raw(
         }
         jr += NR;
     }
+    }
 }
 
 // Micro-kernel dispatch
@@ -464,7 +465,6 @@ pub(super) unsafe fn gebp_kernel_raw(
 /// - `c`: points to C[ir, jr]; next row at `c + ldc`.
 /// - `ldc`: row stride of full C matrix (= N).
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn microkernel_4x8_dispatch(
     a_panel: *const f32,
     b_panel: *const f32,
@@ -477,6 +477,7 @@ unsafe fn microkernel_4x8_dispatch(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     // Residual is fused by `microkernel_4x24_avx_fma` / `microkernel_4x16_avx_fma`
     // and by the scalar/NEON 4×8 variants. The x86 SIMD/ASM 4×8 paths below
     // (`sgemm_4x8_set/acc`, `microkernel_4x8_avx_fma`, `microkernel_4x8_avx`,
@@ -566,6 +567,7 @@ unsafe fn microkernel_4x8_dispatch(
         col_offset,
         residual_tile,
     );
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -573,7 +575,7 @@ unsafe fn microkernel_4x8_dispatch(
 // ---------------------------------------------------------------------------
 
 /// Scalar epilogue: bias + activation on a row slice of accumulator values.
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[inline(always)]
 unsafe fn apply_epilogue_scalar(
     row: &mut [f32],
@@ -581,6 +583,7 @@ unsafe fn apply_epilogue_scalar(
     col_offset: usize,
     residual_tile_row: Option<*const f32>,
 ) {
+    unsafe {
     if let Some(bias) = epilogue.bias {
         for (j, v) in row.iter_mut().enumerate() {
             *v += *bias.add(col_offset + j);
@@ -605,6 +608,7 @@ unsafe fn apply_epilogue_scalar(
         }
         Activation::None => {}
     }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -612,7 +616,6 @@ unsafe fn apply_epilogue_scalar(
 // ---------------------------------------------------------------------------
 
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn microkernel_4x8_scalar(
     a_panel: *const f32,
     b_panel: *const f32,
@@ -625,6 +628,7 @@ unsafe fn microkernel_4x8_scalar(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     let mut acc = [[0.0f32; NR]; MR];
 
     for p in 0..kc {
@@ -653,6 +657,7 @@ unsafe fn microkernel_4x8_scalar(
             *row_ptr.add(j) = acc[i][j];
         }
     }
+    }
 }
 
 /// aarch64-only: scalar fallback for the 8×12 MR=8 path when the row or
@@ -662,7 +667,7 @@ unsafe fn microkernel_4x8_scalar(
 /// so indexing has to match the NR=12 packed-B layout instead of the
 /// generic NR=8.
 #[cfg(target_arch = "aarch64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 pub(super) unsafe fn microkernel_scalar_nr12_partial_mr8(
     a_panel: *const f32,
     b_panel: *const f32,
@@ -677,6 +682,7 @@ pub(super) unsafe fn microkernel_scalar_nr12_partial_mr8(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     const MR8: usize = 8;
     const NR12: usize = 12;
     debug_assert!(mr <= MR8);
@@ -710,11 +716,11 @@ pub(super) unsafe fn microkernel_scalar_nr12_partial_mr8(
             *row_ptr.add(j) = acc[i][j];
         }
     }
+    }
 }
 
 /// Scalar micro-kernel for edge tiles where mr < MR or nr < NR.
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 unsafe fn microkernel_scalar_partial(
     a_panel: *const f32,
     b_panel: *const f32,
@@ -729,6 +735,7 @@ unsafe fn microkernel_scalar_partial(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     microkernel_scalar_partial_stride(
         a_panel,
         b_panel,
@@ -744,10 +751,10 @@ unsafe fn microkernel_scalar_partial(
         col_offset,
         residual_tile,
     );
+    }
 }
 
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 pub(super) unsafe fn microkernel_scalar_partial_stride(
     a_panel: *const f32,
     b_panel: *const f32,
@@ -763,6 +770,7 @@ pub(super) unsafe fn microkernel_scalar_partial_stride(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     // Sized for max(MR=4 x86/scalar, MR=8 aarch64 mr8 path). Real rows bounded by `mr`.
     let mut acc = [[0.0f32; NR]; 8];
 
@@ -792,6 +800,7 @@ pub(super) unsafe fn microkernel_scalar_partial_stride(
             *row_ptr.add(j) = acc[i][j];
         }
     }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -802,7 +811,6 @@ pub(super) unsafe fn microkernel_scalar_partial_stride(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx,fma")]
 #[inline]
 unsafe fn microkernel_4x16_avx_fma(
@@ -818,6 +826,7 @@ unsafe fn microkernel_4x16_avx_fma(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     // 8 accumulators: ymm0-ymm7 (c00,c01,c10,c11,c20,c21,c30,c31)
     // Temp: ymm8,ymm9 (b0,b1), ymm10 (a broadcast)
     let mut c00: __m256;
@@ -1036,6 +1045,7 @@ unsafe fn microkernel_4x16_avx_fma(
     _mm256_storeu_ps(cp2.add(8), c21);
     _mm256_storeu_ps(cp3, c30);
     _mm256_storeu_ps(cp3.add(8), c31);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1063,7 +1073,6 @@ unsafe fn microkernel_4x16_avx_fma(
 /// store. Mirrors `microkernel_4x16_avx_fma` structure scaled to 6 rows.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx,fma")]
 #[inline]
 pub(super) unsafe fn microkernel_6x16_avx_fma(
@@ -1079,6 +1088,7 @@ pub(super) unsafe fn microkernel_6x16_avx_fma(
     col_offset: usize,
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     // 12 accumulators, 6 rows × 2 NR panels of 8 cols.
     let mut c00: __m256 = _mm256_setzero_ps();
     let mut c01: __m256 = _mm256_setzero_ps();
@@ -1236,6 +1246,7 @@ pub(super) unsafe fn microkernel_6x16_avx_fma(
     _mm256_storeu_ps(cp4.add(8), c41);
     _mm256_storeu_ps(cp5, c50);
     _mm256_storeu_ps(cp5.add(8), c51);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1248,7 +1259,7 @@ pub(super) unsafe fn microkernel_6x16_avx_fma(
 /// (2 FMA ports, 4-cycle latency → need 8+ independent FMAs).
 /// Uses `core::arch::asm!` to avoid LLVM stack frame overhead.
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx,fma")]
 unsafe fn microkernel_4x8_avx_fma(
     a_panel: *const f32,
@@ -1261,6 +1272,7 @@ unsafe fn microkernel_4x8_avx_fma(
     is_last_k: bool,
     col_offset: usize,
 ) {
+    unsafe {
     // Accumulator registers: ymm0-ymm3 (c0-c3)
     // Temp registers: ymm4 (b_vec), ymm5-ymm8 (a broadcasts)
     let mut c0: std::arch::x86_64::__m256;
@@ -1385,11 +1397,12 @@ unsafe fn microkernel_4x8_avx_fma(
     _mm256_storeu_ps(cp1, c1);
     _mm256_storeu_ps(cp2, c2);
     _mm256_storeu_ps(cp3, c3);
+    }
 }
 
 /// Fallback for x86 (32-bit) — uses Rust intrinsics.
 #[cfg(target_arch = "x86")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx,fma")]
 unsafe fn microkernel_4x8_avx_fma(
     a_panel: *const f32,
@@ -1402,6 +1415,7 @@ unsafe fn microkernel_4x8_avx_fma(
     is_last_k: bool,
     col_offset: usize,
 ) {
+    unsafe {
     // x86 (32-bit) fallback — same logic, Rust intrinsics
     let mut c0: __m256 = _mm256_setzero_ps();
     let mut c1: __m256 = _mm256_setzero_ps();
@@ -1456,6 +1470,7 @@ unsafe fn microkernel_4x8_avx_fma(
     _mm256_storeu_ps(cp1, c1);
     _mm256_storeu_ps(cp2, c2);
     _mm256_storeu_ps(cp3, c3);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1464,7 +1479,6 @@ unsafe fn microkernel_4x8_avx_fma(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn microkernel_4x8_avx(
     a_panel: *const f32,
@@ -1477,6 +1491,7 @@ unsafe fn microkernel_4x8_avx(
     is_last_k: bool,
     col_offset: usize,
 ) {
+    unsafe {
     let mut c0: __m256 = _mm256_setzero_ps();
     let mut c1: __m256 = _mm256_setzero_ps();
     let mut c2: __m256 = _mm256_setzero_ps();
@@ -1540,6 +1555,7 @@ unsafe fn microkernel_4x8_avx(
     _mm256_storeu_ps(cp1, c1);
     _mm256_storeu_ps(cp2, c2);
     _mm256_storeu_ps(cp3, c3);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1548,7 +1564,6 @@ unsafe fn microkernel_4x8_avx(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn microkernel_4x8_sse(
     a_panel: *const f32,
@@ -1561,6 +1576,7 @@ unsafe fn microkernel_4x8_sse(
     is_last_k: bool,
     col_offset: usize,
 ) {
+    unsafe {
     let mut c00: __m128 = _mm_setzero_ps();
     let mut c01: __m128 = _mm_setzero_ps();
     let mut c10: __m128 = _mm_setzero_ps();
@@ -1655,6 +1671,7 @@ unsafe fn microkernel_4x8_sse(
     _mm_storeu_ps(cp2.add(4), c21);
     _mm_storeu_ps(cp3, c30);
     _mm_storeu_ps(cp3.add(4), c31);
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1664,7 +1681,7 @@ unsafe fn microkernel_4x8_sse(
 // ---------------------------------------------------------------------------
 
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx,fma")]
 #[inline]
 unsafe fn microkernel_4x24_avx_fma(
@@ -1686,6 +1703,7 @@ unsafe fn microkernel_4x24_avx_fma(
     // matches `ldc = n`.
     residual_tile: Option<*const f32>,
 ) {
+    unsafe {
     // 12 accumulators (4 rows × 3 panels of 8 cols)
     let mut c00: __m256;
     let mut c01: __m256;
@@ -1917,44 +1935,51 @@ unsafe fn microkernel_4x24_avx_fma(
     _mm256_storeu_ps(cp3, c30);
     _mm256_storeu_ps(cp3.add(8), c31);
     _mm256_storeu_ps(cp3.add(16), c32);
+    }
 }
 
 // ---------------------------------------------------------------------------
 /// SiLU using AVX+FMA: x / (1 + exp(-x)), uses bit-trick exp for speed.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx,fma")]
 #[inline]
 pub(super) unsafe fn silu_avx_fma(x: __m256) -> __m256 {
+    unsafe {
     let one = _mm256_set1_ps(1.0);
     let neg_x = _mm256_sub_ps(_mm256_setzero_ps(), x);
     let exp_neg = super::super::simd::exp::fast_exp_bittrick_avx(neg_x);
     let denom = _mm256_add_ps(one, exp_neg);
     _mm256_div_ps(x, denom)
+    }
 }
 
 /// SiLU using AVX (no FMA): x / (1 + exp(-x)), uses bit-trick exp.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 #[inline]
 unsafe fn silu_avx(x: __m256) -> __m256 {
+    unsafe {
     let one = _mm256_set1_ps(1.0);
     let neg_x = _mm256_sub_ps(_mm256_setzero_ps(), x);
     let exp_neg = super::super::simd::exp::fast_exp_bittrick_avx(neg_x);
     let denom = _mm256_add_ps(one, exp_neg);
     _mm256_div_ps(x, denom)
+    }
 }
 
 /// SiLU using SSE: x / (1 + exp(-x)), uses bit-trick exp.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 #[inline]
 unsafe fn silu_sse(x: __m128) -> __m128 {
+    unsafe {
     let one = _mm_set1_ps(1.0);
     let neg_x = _mm_sub_ps(_mm_setzero_ps(), x);
     let exp_neg = super::super::simd::exp::fast_exp_bittrick_sse(neg_x);
     let denom = _mm_add_ps(one, exp_neg);
     _mm_div_ps(x, denom)
+    }
 }

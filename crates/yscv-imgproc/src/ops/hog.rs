@@ -191,6 +191,7 @@ unsafe fn orient_pass_neon(
     use std::arch::aarch64::*;
     #[cfg(target_arch = "arm")]
     use std::arch::arm::*;
+    unsafe {
     let mut b0 = vec![0u8; mh * mw];
     let mut c0v = vec![0f32; mh * mw];
     let mut c1v = vec![0f32; mh * mw];
@@ -261,6 +262,7 @@ unsafe fn orient_pass_neon(
         }
     }
     (b0, c0v, c1v)
+    }
 }
 
 /// Colour-Name channels: `fh x fw x 11`. Each 4x4 RGB block is area-averaged

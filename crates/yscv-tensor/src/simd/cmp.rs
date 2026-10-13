@@ -47,7 +47,7 @@ pub(crate) fn clamp_dispatch(data: &[f32], out: &mut [f32], min_val: f32, max_va
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn clamp_neon(data: &[f32], out: &mut [f32], min_val: f32, max_val: f32) {
+unsafe fn clamp_neon(data: &[f32], out: &mut [f32], min_val: f32, max_val: f32) { unsafe {
     let len = data.len();
     let inp = data.as_ptr();
     let op = out.as_mut_ptr();
@@ -65,7 +65,7 @@ unsafe fn clamp_neon(data: &[f32], out: &mut [f32], min_val: f32, max_val: f32) 
         *op.add(i) = (*inp.add(i)).clamp(min_val, max_val);
         i += 1;
     }
-}
+} }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
@@ -175,7 +175,7 @@ fn cmp_scalar(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: CmpKind) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn cmp_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], len: usize, kind: CmpKind) {
+unsafe fn cmp_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], len: usize, kind: CmpKind) { unsafe {
     use std::arch::aarch64::*;
     let lp = lhs.as_ptr();
     let rp = rhs.as_ptr();
@@ -236,4 +236,4 @@ unsafe fn cmp_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], len: usize, kind: 
         };
         i += 1;
     }
-}
+} }

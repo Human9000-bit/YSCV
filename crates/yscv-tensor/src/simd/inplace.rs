@@ -89,7 +89,7 @@ unsafe fn add_inplace_avx(dst: &mut [f32], src: &[f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn add_inplace_neon(dst: &mut [f32], src: &[f32]) {
+unsafe fn add_inplace_neon(dst: &mut [f32], src: &[f32]) { unsafe {
     let len = dst.len();
     let dp = dst.as_mut_ptr();
     let sp = src.as_ptr();
@@ -106,7 +106,7 @@ unsafe fn add_inplace_neon(dst: &mut [f32], src: &[f32]) {
         *dp.add(i) += *sp.add(i);
         i += 1;
     }
-}
+} }
 
 // ===========================================================================
 // In-place max: dst[i] = max(dst[i], src[i])
@@ -197,7 +197,7 @@ unsafe fn max_inplace_avx(dst: &mut [f32], src: &[f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn max_inplace_neon(dst: &mut [f32], src: &[f32]) {
+unsafe fn max_inplace_neon(dst: &mut [f32], src: &[f32]) { unsafe {
     let len = dst.len();
     let dp = dst.as_mut_ptr();
     let sp = src.as_ptr();
@@ -216,7 +216,7 @@ unsafe fn max_inplace_neon(dst: &mut [f32], src: &[f32]) {
         *dp.add(i) = if d > s { d } else { s };
         i += 1;
     }
-}
+} }
 
 // ===========================================================================
 // In-place ReLU: v[i] = max(v[i], 0)
@@ -302,7 +302,7 @@ unsafe fn relu_inplace_avx(values: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn relu_inplace_neon(values: &mut [f32]) {
+unsafe fn relu_inplace_neon(values: &mut [f32]) { unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let zero = vdupq_n_f32(0.0);
@@ -319,7 +319,7 @@ unsafe fn relu_inplace_neon(values: &mut [f32]) {
         *ptr.add(i) = if v > 0.0 { v } else { 0.0 };
         i += 1;
     }
-}
+} }
 
 // ===========================================================================
 // In-place scalar ops: v[i] += s, v[i] *= s
@@ -402,7 +402,7 @@ unsafe fn add_scalar_inplace_avx(values: &mut [f32], s: f32) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn add_scalar_inplace_neon(values: &mut [f32], s: f32) {
+unsafe fn add_scalar_inplace_neon(values: &mut [f32], s: f32) { unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let sv = vdupq_n_f32(s);
@@ -417,7 +417,7 @@ unsafe fn add_scalar_inplace_neon(values: &mut [f32], s: f32) {
         *ptr.add(i) += s;
         i += 1;
     }
-}
+} }
 
 #[allow(unsafe_code)]
 #[inline]
@@ -496,7 +496,7 @@ unsafe fn mul_scalar_inplace_avx(values: &mut [f32], s: f32) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn mul_scalar_inplace_neon(values: &mut [f32], s: f32) {
+unsafe fn mul_scalar_inplace_neon(values: &mut [f32], s: f32) { unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let sv = vdupq_n_f32(s);
@@ -511,4 +511,4 @@ unsafe fn mul_scalar_inplace_neon(values: &mut [f32], s: f32) {
         *ptr.add(i) *= s;
         i += 1;
     }
-}
+} }

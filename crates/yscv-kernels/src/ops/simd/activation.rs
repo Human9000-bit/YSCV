@@ -417,9 +417,10 @@ pub fn silu_inplace(data: &mut [f32]) {
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 unsafe fn silu_inplace_sse(ptr: *mut f32, len: usize) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -441,12 +442,14 @@ unsafe fn silu_inplace_sse(ptr: *mut f32, len: usize) {
         *ptr.add(index) = x / (1.0 + (-x).exp());
         index += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn silu_inplace_avx(ptr: *mut f32, len: usize) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm256_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -468,12 +471,14 @@ unsafe fn silu_inplace_avx(ptr: *mut f32, len: usize) {
         *ptr.add(index) = x / (1.0 + (-x).exp());
         index += 1;
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx512f")]
 unsafe fn silu_inplace_avx512(ptr: *mut f32, len: usize) {
+    unsafe {
     let one = _mm512_set1_ps(1.0);
     let zero = _mm512_setzero_ps();
     let mut index = 0;
@@ -488,6 +493,7 @@ unsafe fn silu_inplace_avx512(ptr: *mut f32, len: usize) {
     }
     if index < len {
         silu_inplace_avx(ptr.add(index), len - index);
+    }
     }
 }
 
@@ -622,7 +628,7 @@ fn fused_row_epilogue_scalar(
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx,fma")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn fused_row_epilogue_avx_fma(
     out_row: &mut [f32],
     residual: Option<&[f32]>,
@@ -630,6 +636,7 @@ unsafe fn fused_row_epilogue_avx_fma(
     activation_id: u8,
     n: usize,
 ) {
+    unsafe {
     let out_ptr = out_row.as_mut_ptr();
     let res_ptr = residual.map(|r| r.as_ptr());
     let bias_ptr = bias.map(|b| b.as_ptr());
@@ -679,6 +686,7 @@ unsafe fn fused_row_epilogue_avx_fma(
         *out_ptr.add(j) = x;
         j += 1;
     }
+    }
 }
 
 /// Fused bias + SiLU for NHWC output: `output[row*n + c] = silu(output[row*n + c] + bias[c])`.
@@ -722,8 +730,9 @@ pub fn bias_silu_nhwc_dispatch(output: &mut [f32], bias: &[f32], m: usize, n: us
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn bias_relu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
+    unsafe {
     let zero = _mm256_setzero_ps();
     let out_ptr = output.as_mut_ptr();
     let bias_ptr = bias.as_ptr();
@@ -781,12 +790,14 @@ unsafe fn bias_relu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usiz
             c += 1;
         }
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn bias_add_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
+    unsafe {
     let out_ptr = output.as_mut_ptr();
     let bias_ptr = bias.as_ptr();
     if n == 16 {
@@ -830,12 +841,14 @@ unsafe fn bias_add_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize
             c += 1;
         }
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[target_feature(enable = "avx")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn bias_silu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
+    unsafe {
     let one = _mm256_set1_ps(1.0);
     let out_ptr = output.as_mut_ptr();
     let bias_ptr = bias.as_ptr();
@@ -860,12 +873,14 @@ unsafe fn bias_silu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usiz
             c += 1;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn bias_relu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
+    unsafe {
     let zero = vdupq_n_f32(0.0);
     let out_ptr = output.as_mut_ptr();
     let bias_ptr = bias.as_ptr();
@@ -939,12 +954,14 @@ unsafe fn bias_relu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usi
             c += 1;
         }
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn bias_add_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
+    unsafe {
     let out_ptr = output.as_mut_ptr();
     let bias_ptr = bias.as_ptr();
     for row in 0..m {
@@ -960,6 +977,7 @@ unsafe fn bias_add_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usiz
             c += 1;
         }
     }
+    }
 }
 
 // ===========================================================================
@@ -967,8 +985,8 @@ unsafe fn bias_add_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usiz
 // ===========================================================================
 
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 pub(super) unsafe fn relu_slice_scalar(values: &mut [f32]) {
+    unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let mut index = 0usize;
@@ -997,11 +1015,12 @@ pub(super) unsafe fn relu_slice_scalar(values: &mut [f32]) {
         *ptr.add(index) = (*ptr.add(index)).max(0.0);
         index += 1;
     }
+    }
 }
 
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 pub(super) unsafe fn relu_to_slice_scalar(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1022,6 +1041,7 @@ pub(super) unsafe fn relu_to_slice_scalar(input: &[f32], output: &mut [f32]) {
     while index < len {
         *out_ptr.add(index) = (*in_ptr.add(index)).max(0.0);
         index += 1;
+    }
     }
 }
 
@@ -1051,9 +1071,9 @@ fn gelu_sigmoid_slice_scalar(input: &[f32], output: &mut [f32]) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn relu_slice_sse(values: &mut [f32]) {
+    unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let zero = _mm_setzero_ps();
@@ -1069,13 +1089,14 @@ unsafe fn relu_slice_sse(values: &mut [f32]) {
     if index < len {
         relu_slice_scalar(&mut values[index..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn relu_slice_avx(values: &mut [f32]) {
+    unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let zero = _mm256_setzero_ps();
@@ -1105,13 +1126,14 @@ unsafe fn relu_slice_avx(values: &mut [f32]) {
     if index < len {
         relu_slice_sse(&mut values[index..]);
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx512f")]
 unsafe fn relu_slice_avx512(values: &mut [f32]) {
+    unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let zero = _mm512_setzero_ps();
@@ -1140,13 +1162,14 @@ unsafe fn relu_slice_avx512(values: &mut [f32]) {
     if index < len {
         relu_slice_avx(&mut values[index..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn relu_slice_neon(values: &mut [f32]) {
+    unsafe {
     let len = values.len();
     let ptr = values.as_mut_ptr();
     let zero = vdupq_n_f32(0.0);
@@ -1181,6 +1204,7 @@ unsafe fn relu_slice_neon(values: &mut [f32]) {
     if index < len {
         relu_slice_scalar(&mut values[index..]);
     }
+    }
 }
 
 // ===========================================================================
@@ -1189,9 +1213,9 @@ unsafe fn relu_slice_neon(values: &mut [f32]) {
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn relu_to_slice_sse(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1208,13 +1232,14 @@ unsafe fn relu_to_slice_sse(input: &[f32], output: &mut [f32]) {
     if index < len {
         relu_to_slice_scalar(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn relu_to_slice_avx(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1245,13 +1270,14 @@ unsafe fn relu_to_slice_avx(input: &[f32], output: &mut [f32]) {
     if index < len {
         relu_to_slice_sse(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx512f")]
 unsafe fn relu_to_slice_avx512(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1281,13 +1307,14 @@ unsafe fn relu_to_slice_avx512(input: &[f32], output: &mut [f32]) {
     if index < len {
         relu_to_slice_avx(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn relu_to_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1325,6 +1352,7 @@ unsafe fn relu_to_slice_neon(input: &[f32], output: &mut [f32]) {
 
     if index < len {
         relu_to_slice_scalar(&input[index..], &mut output[index..]);
+    }
     }
 }
 
@@ -1379,9 +1407,10 @@ unsafe fn sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
 // (sigmoid_vdsp and silu_vdsp removed -- benchmarked slower than NEON polynomial)
 
 #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1415,13 +1444,14 @@ unsafe fn sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
     for k in i..len {
         output[k] = 1.0 / (1.0 + (-input[k]).exp());
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "sse")]
 unsafe fn sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -1475,13 +1505,14 @@ unsafe fn sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = sigmoid_scalar(*in_ptr.add(index));
         index += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx")]
 unsafe fn sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm256_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -1534,15 +1565,16 @@ unsafe fn sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
     if index < len {
         sigmoid_slice_sse(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 // (sigmoid_slice_neon defined above at line ~291)
 
 #[cfg(target_arch = "x86_64")]
 #[allow(unsafe_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "avx512f")]
 unsafe fn sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1573,6 +1605,7 @@ unsafe fn sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
     if index < len {
         sigmoid_slice_avx(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 // ===========================================================================
@@ -1580,9 +1613,10 @@ unsafe fn sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
 // ===========================================================================
 
 #[cfg(target_arch = "aarch64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1632,12 +1666,14 @@ unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = x * s;
         index += 1;
     }
+    }
 }
 
 #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1688,12 +1724,14 @@ unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = x * s;
         index += 1;
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx512f")]
 unsafe fn gelu_sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1728,12 +1766,14 @@ unsafe fn gelu_sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
     if index < len {
         gelu_sigmoid_slice_avx(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 unsafe fn gelu_sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -1789,12 +1829,14 @@ unsafe fn gelu_sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = x * s;
         index += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn gelu_sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm256_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -1847,6 +1889,7 @@ unsafe fn gelu_sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
     if index < len {
         gelu_sigmoid_slice_sse(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 // ===========================================================================
@@ -1855,11 +1898,11 @@ unsafe fn gelu_sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, dead_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 /// Fused SiLU: output[i] = x * sigmoid(x) in a single pass.
 /// 8x unrolled with fast 3-term exp polynomial.
 unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -1937,12 +1980,14 @@ unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = x * s;
         index += 1;
     }
+    }
 }
 
 #[cfg(all(target_arch = "arm", feature = "neon-v7"))]
-#[allow(unsafe_code, dead_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code, dead_code)]
 #[target_feature(enable = "neon")]
 unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -2018,13 +2063,15 @@ unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = x * s;
         index += 1;
     }
+    }
 }
 
 /// In-place SiLU using NEON. Takes raw pointer to avoid aliasing references.
 #[cfg(target_arch = "aarch64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "neon")]
 unsafe fn silu_inplace_neon(ptr: *mut f32, len: usize) {
+    unsafe {
     use std::arch::aarch64::*;
     let one = vdupq_n_f32(1.0);
     let mut index = 0usize;
@@ -2095,11 +2142,13 @@ unsafe fn silu_inplace_neon(ptr: *mut f32, len: usize) {
         *ptr.add(index) = x * s;
         index += 1;
     }
+    }
 }
 
 #[cfg(target_arch = "aarch64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 unsafe fn bias_silu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
+    unsafe {
     let one = vdupq_n_f32(1.0);
     let out_ptr = output.as_mut_ptr();
     let bias_ptr = bias.as_ptr();
@@ -2127,13 +2176,15 @@ unsafe fn bias_silu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usi
             c += 1;
         }
     }
+    }
 }
 
 /// Fused SiLU (x * sigmoid(x)) using SSE.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 unsafe fn silu_slice_sse(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -2193,13 +2244,15 @@ unsafe fn silu_slice_sse(input: &[f32], output: &mut [f32]) {
         *out_ptr.add(index) = v * s;
         index += 1;
     }
+    }
 }
 
 /// Fused SiLU (x * sigmoid(x)) using AVX.
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx512f")]
 unsafe fn silu_slice_avx512(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let in_ptr = input.as_ptr();
     let out_ptr = output.as_mut_ptr();
@@ -2230,13 +2283,15 @@ unsafe fn silu_slice_avx512(input: &[f32], output: &mut [f32]) {
     if index < len {
         silu_slice_avx(&input[index..], &mut output[index..]);
     }
+    }
 }
 
 /// Fused SiLU (x * sigmoid(x)) using AVX.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn silu_slice_avx(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm256_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -2292,6 +2347,7 @@ unsafe fn silu_slice_avx(input: &[f32], output: &mut [f32]) {
 
     if index < len {
         silu_slice_sse(&input[index..], &mut output[index..]);
+    }
     }
 }
 
@@ -2357,9 +2413,9 @@ fn hardswish_slice_scalar(input: &[f32], output: &mut [f32]) {
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
 #[allow(unsafe_code, dead_code)]
-#[allow(unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn hardswish_slice_neon(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let ip = input.as_ptr();
     let op = output.as_mut_ptr();
@@ -2394,6 +2450,7 @@ unsafe fn hardswish_slice_neon(input: &[f32], output: &mut [f32]) {
         *op.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
         i += 1;
     }
+    }
 }
 
 /// In-place HardSwish over `data`. Bit-identical to
@@ -2419,9 +2476,10 @@ pub fn hardswish_slice_inplace(data: &mut [f32]) {
 }
 
 #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-#[allow(unsafe_code, dead_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code, dead_code)]
 #[target_feature(enable = "neon")]
 unsafe fn hardswish_slice_inplace_neon(data: &mut [f32]) {
+    unsafe {
     let len = data.len();
     let p = data.as_mut_ptr();
     let three = vdupq_n_f32(3.0);
@@ -2443,12 +2501,14 @@ unsafe fn hardswish_slice_inplace_neon(data: &mut [f32]) {
         *p.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
         i += 1;
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "sse")]
 unsafe fn hardswish_slice_sse(input: &[f32], output: &mut [f32]) {
+    unsafe {
     #[cfg(target_arch = "x86")]
     use std::arch::x86::_mm_div_ps;
     #[cfg(target_arch = "x86_64")]
@@ -2472,12 +2532,14 @@ unsafe fn hardswish_slice_sse(input: &[f32], output: &mut [f32]) {
         *op.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
         i += 1;
     }
+    }
 }
 
 #[cfg(target_arch = "x86_64")]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx512f")]
 unsafe fn hardswish_slice_avx512(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let ip = input.as_ptr();
     let op = output.as_mut_ptr();
@@ -2494,12 +2556,14 @@ unsafe fn hardswish_slice_avx512(input: &[f32], output: &mut [f32]) {
     if i < len {
         hardswish_slice_avx(&input[i..], &mut output[i..]);
     }
+    }
 }
 
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
+#[allow(unsafe_code)]
 #[target_feature(enable = "avx")]
 unsafe fn hardswish_slice_avx(input: &[f32], output: &mut [f32]) {
+    unsafe {
     let len = input.len();
     let ip = input.as_ptr();
     let op = output.as_mut_ptr();
@@ -2515,5 +2579,6 @@ unsafe fn hardswish_slice_avx(input: &[f32], output: &mut [f32]) {
     }
     if i < len {
         hardswish_slice_sse(&input[i..], &mut output[i..]);
+    }
     }
 }

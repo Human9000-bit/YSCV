@@ -363,7 +363,7 @@ unsafe fn binary_avx(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind
 #[cfg(all(target_arch = "aarch64", not(target_os = "macos")))]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn binary_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+unsafe fn binary_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) { unsafe {
     use std::arch::aarch64::vdivq_f32;
 
     let len = lhs.len();
@@ -589,4 +589,4 @@ unsafe fn binary_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKin
         };
         i += 1;
     }
-}
+} }
