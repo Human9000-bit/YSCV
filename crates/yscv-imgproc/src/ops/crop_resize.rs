@@ -314,7 +314,7 @@ pub fn crop_resize_bilinear(
 /// source pixel lies outside `[0,w) x [0,h)` contribute `border[c]` instead of
 /// the replicated edge pixel (the [`crop_resize_bilinear_raw`] behaviour). This
 /// is OpenCV `copyMakeBorder(BORDER_CONSTANT)` + `resize`, fused — the crop for
-/// context-padded trackers (e.g. FEAR) whose window runs far off the frame and
+/// context-padded trackers (e.g. a validator) whose window runs far off the frame and
 /// pads with the image mean. Same coordinate convention as
 /// [`crop_resize_bilinear_raw`], so a region `[x0,y0,rw,rh]` maps to
 /// `cx = x0 + (rw-1)/2`, `cy = y0 + (rh-1)/2`, `win = (rw,rh)`. `border` must
