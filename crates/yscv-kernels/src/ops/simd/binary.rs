@@ -346,65 +346,65 @@ pub fn mul_scalar_inplace_dispatch(data: &mut [f32], scalar: f32) {
 #[allow(unsafe_code)]
 unsafe fn binary_same_shape_scalar(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
     unsafe {
-    let len = lhs.len();
-    let left_ptr = lhs.as_ptr();
-    let right_ptr = rhs.as_ptr();
-    let out_ptr = out.as_mut_ptr();
-    let mut index = 0usize;
+        let len = lhs.len();
+        let left_ptr = lhs.as_ptr();
+        let right_ptr = rhs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+        let mut index = 0usize;
 
-    match kind {
-        BinaryKind::Add => {
-            while index + 8 <= len {
-                *out_ptr.add(index) = *left_ptr.add(index) + *right_ptr.add(index);
-                *out_ptr.add(index + 1) = *left_ptr.add(index + 1) + *right_ptr.add(index + 1);
-                *out_ptr.add(index + 2) = *left_ptr.add(index + 2) + *right_ptr.add(index + 2);
-                *out_ptr.add(index + 3) = *left_ptr.add(index + 3) + *right_ptr.add(index + 3);
-                *out_ptr.add(index + 4) = *left_ptr.add(index + 4) + *right_ptr.add(index + 4);
-                *out_ptr.add(index + 5) = *left_ptr.add(index + 5) + *right_ptr.add(index + 5);
-                *out_ptr.add(index + 6) = *left_ptr.add(index + 6) + *right_ptr.add(index + 6);
-                *out_ptr.add(index + 7) = *left_ptr.add(index + 7) + *right_ptr.add(index + 7);
-                index += 8;
+        match kind {
+            BinaryKind::Add => {
+                while index + 8 <= len {
+                    *out_ptr.add(index) = *left_ptr.add(index) + *right_ptr.add(index);
+                    *out_ptr.add(index + 1) = *left_ptr.add(index + 1) + *right_ptr.add(index + 1);
+                    *out_ptr.add(index + 2) = *left_ptr.add(index + 2) + *right_ptr.add(index + 2);
+                    *out_ptr.add(index + 3) = *left_ptr.add(index + 3) + *right_ptr.add(index + 3);
+                    *out_ptr.add(index + 4) = *left_ptr.add(index + 4) + *right_ptr.add(index + 4);
+                    *out_ptr.add(index + 5) = *left_ptr.add(index + 5) + *right_ptr.add(index + 5);
+                    *out_ptr.add(index + 6) = *left_ptr.add(index + 6) + *right_ptr.add(index + 6);
+                    *out_ptr.add(index + 7) = *left_ptr.add(index + 7) + *right_ptr.add(index + 7);
+                    index += 8;
+                }
+                while index < len {
+                    *out_ptr.add(index) = *left_ptr.add(index) + *right_ptr.add(index);
+                    index += 1;
+                }
             }
-            while index < len {
-                *out_ptr.add(index) = *left_ptr.add(index) + *right_ptr.add(index);
-                index += 1;
+            BinaryKind::Sub => {
+                while index + 8 <= len {
+                    *out_ptr.add(index) = *left_ptr.add(index) - *right_ptr.add(index);
+                    *out_ptr.add(index + 1) = *left_ptr.add(index + 1) - *right_ptr.add(index + 1);
+                    *out_ptr.add(index + 2) = *left_ptr.add(index + 2) - *right_ptr.add(index + 2);
+                    *out_ptr.add(index + 3) = *left_ptr.add(index + 3) - *right_ptr.add(index + 3);
+                    *out_ptr.add(index + 4) = *left_ptr.add(index + 4) - *right_ptr.add(index + 4);
+                    *out_ptr.add(index + 5) = *left_ptr.add(index + 5) - *right_ptr.add(index + 5);
+                    *out_ptr.add(index + 6) = *left_ptr.add(index + 6) - *right_ptr.add(index + 6);
+                    *out_ptr.add(index + 7) = *left_ptr.add(index + 7) - *right_ptr.add(index + 7);
+                    index += 8;
+                }
+                while index < len {
+                    *out_ptr.add(index) = *left_ptr.add(index) - *right_ptr.add(index);
+                    index += 1;
+                }
+            }
+            BinaryKind::Mul => {
+                while index + 8 <= len {
+                    *out_ptr.add(index) = *left_ptr.add(index) * *right_ptr.add(index);
+                    *out_ptr.add(index + 1) = *left_ptr.add(index + 1) * *right_ptr.add(index + 1);
+                    *out_ptr.add(index + 2) = *left_ptr.add(index + 2) * *right_ptr.add(index + 2);
+                    *out_ptr.add(index + 3) = *left_ptr.add(index + 3) * *right_ptr.add(index + 3);
+                    *out_ptr.add(index + 4) = *left_ptr.add(index + 4) * *right_ptr.add(index + 4);
+                    *out_ptr.add(index + 5) = *left_ptr.add(index + 5) * *right_ptr.add(index + 5);
+                    *out_ptr.add(index + 6) = *left_ptr.add(index + 6) * *right_ptr.add(index + 6);
+                    *out_ptr.add(index + 7) = *left_ptr.add(index + 7) * *right_ptr.add(index + 7);
+                    index += 8;
+                }
+                while index < len {
+                    *out_ptr.add(index) = *left_ptr.add(index) * *right_ptr.add(index);
+                    index += 1;
+                }
             }
         }
-        BinaryKind::Sub => {
-            while index + 8 <= len {
-                *out_ptr.add(index) = *left_ptr.add(index) - *right_ptr.add(index);
-                *out_ptr.add(index + 1) = *left_ptr.add(index + 1) - *right_ptr.add(index + 1);
-                *out_ptr.add(index + 2) = *left_ptr.add(index + 2) - *right_ptr.add(index + 2);
-                *out_ptr.add(index + 3) = *left_ptr.add(index + 3) - *right_ptr.add(index + 3);
-                *out_ptr.add(index + 4) = *left_ptr.add(index + 4) - *right_ptr.add(index + 4);
-                *out_ptr.add(index + 5) = *left_ptr.add(index + 5) - *right_ptr.add(index + 5);
-                *out_ptr.add(index + 6) = *left_ptr.add(index + 6) - *right_ptr.add(index + 6);
-                *out_ptr.add(index + 7) = *left_ptr.add(index + 7) - *right_ptr.add(index + 7);
-                index += 8;
-            }
-            while index < len {
-                *out_ptr.add(index) = *left_ptr.add(index) - *right_ptr.add(index);
-                index += 1;
-            }
-        }
-        BinaryKind::Mul => {
-            while index + 8 <= len {
-                *out_ptr.add(index) = *left_ptr.add(index) * *right_ptr.add(index);
-                *out_ptr.add(index + 1) = *left_ptr.add(index + 1) * *right_ptr.add(index + 1);
-                *out_ptr.add(index + 2) = *left_ptr.add(index + 2) * *right_ptr.add(index + 2);
-                *out_ptr.add(index + 3) = *left_ptr.add(index + 3) * *right_ptr.add(index + 3);
-                *out_ptr.add(index + 4) = *left_ptr.add(index + 4) * *right_ptr.add(index + 4);
-                *out_ptr.add(index + 5) = *left_ptr.add(index + 5) * *right_ptr.add(index + 5);
-                *out_ptr.add(index + 6) = *left_ptr.add(index + 6) * *right_ptr.add(index + 6);
-                *out_ptr.add(index + 7) = *left_ptr.add(index + 7) * *right_ptr.add(index + 7);
-                index += 8;
-            }
-            while index < len {
-                *out_ptr.add(index) = *left_ptr.add(index) * *right_ptr.add(index);
-                index += 1;
-            }
-        }
-    }
     }
 }
 
@@ -417,59 +417,59 @@ unsafe fn binary_same_shape_scalar(lhs: &[f32], rhs: &[f32], out: &mut [f32], ki
 #[target_feature(enable = "avx512f")]
 unsafe fn binary_same_shape_avx512(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
     unsafe {
-    let len = lhs.len();
-    let left_ptr = lhs.as_ptr();
-    let right_ptr = rhs.as_ptr();
-    let out_ptr = out.as_mut_ptr();
-    let mut index = 0usize;
+        let len = lhs.len();
+        let left_ptr = lhs.as_ptr();
+        let right_ptr = rhs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 64 <= len {
-        let a0 = _mm512_loadu_ps(left_ptr.add(index));
-        let b0 = _mm512_loadu_ps(right_ptr.add(index));
-        let a1 = _mm512_loadu_ps(left_ptr.add(index + 16));
-        let b1 = _mm512_loadu_ps(right_ptr.add(index + 16));
-        let a2 = _mm512_loadu_ps(left_ptr.add(index + 32));
-        let b2 = _mm512_loadu_ps(right_ptr.add(index + 32));
-        let a3 = _mm512_loadu_ps(left_ptr.add(index + 48));
-        let b3 = _mm512_loadu_ps(right_ptr.add(index + 48));
-        match kind {
-            BinaryKind::Add => {
-                _mm512_storeu_ps(out_ptr.add(index), _mm512_add_ps(a0, b0));
-                _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_add_ps(a1, b1));
-                _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_add_ps(a2, b2));
-                _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_add_ps(a3, b3));
+        while index + 64 <= len {
+            let a0 = _mm512_loadu_ps(left_ptr.add(index));
+            let b0 = _mm512_loadu_ps(right_ptr.add(index));
+            let a1 = _mm512_loadu_ps(left_ptr.add(index + 16));
+            let b1 = _mm512_loadu_ps(right_ptr.add(index + 16));
+            let a2 = _mm512_loadu_ps(left_ptr.add(index + 32));
+            let b2 = _mm512_loadu_ps(right_ptr.add(index + 32));
+            let a3 = _mm512_loadu_ps(left_ptr.add(index + 48));
+            let b3 = _mm512_loadu_ps(right_ptr.add(index + 48));
+            match kind {
+                BinaryKind::Add => {
+                    _mm512_storeu_ps(out_ptr.add(index), _mm512_add_ps(a0, b0));
+                    _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_add_ps(a1, b1));
+                    _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_add_ps(a2, b2));
+                    _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_add_ps(a3, b3));
+                }
+                BinaryKind::Sub => {
+                    _mm512_storeu_ps(out_ptr.add(index), _mm512_sub_ps(a0, b0));
+                    _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_sub_ps(a1, b1));
+                    _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_sub_ps(a2, b2));
+                    _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_sub_ps(a3, b3));
+                }
+                BinaryKind::Mul => {
+                    _mm512_storeu_ps(out_ptr.add(index), _mm512_mul_ps(a0, b0));
+                    _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_mul_ps(a1, b1));
+                    _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_mul_ps(a2, b2));
+                    _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_mul_ps(a3, b3));
+                }
             }
-            BinaryKind::Sub => {
-                _mm512_storeu_ps(out_ptr.add(index), _mm512_sub_ps(a0, b0));
-                _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_sub_ps(a1, b1));
-                _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_sub_ps(a2, b2));
-                _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_sub_ps(a3, b3));
-            }
-            BinaryKind::Mul => {
-                _mm512_storeu_ps(out_ptr.add(index), _mm512_mul_ps(a0, b0));
-                _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_mul_ps(a1, b1));
-                _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_mul_ps(a2, b2));
-                _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_mul_ps(a3, b3));
-            }
+            index += 64;
         }
-        index += 64;
-    }
 
-    while index + 16 <= len {
-        let left = _mm512_loadu_ps(left_ptr.add(index));
-        let right = _mm512_loadu_ps(right_ptr.add(index));
-        let result = match kind {
-            BinaryKind::Add => _mm512_add_ps(left, right),
-            BinaryKind::Sub => _mm512_sub_ps(left, right),
-            BinaryKind::Mul => _mm512_mul_ps(left, right),
-        };
-        _mm512_storeu_ps(out_ptr.add(index), result);
-        index += 16;
-    }
+        while index + 16 <= len {
+            let left = _mm512_loadu_ps(left_ptr.add(index));
+            let right = _mm512_loadu_ps(right_ptr.add(index));
+            let result = match kind {
+                BinaryKind::Add => _mm512_add_ps(left, right),
+                BinaryKind::Sub => _mm512_sub_ps(left, right),
+                BinaryKind::Mul => _mm512_mul_ps(left, right),
+            };
+            _mm512_storeu_ps(out_ptr.add(index), result);
+            index += 16;
+        }
 
-    if index < len {
-        binary_same_shape_avx(&lhs[index..], &rhs[index..], &mut out[index..], kind);
-    }
+        if index < len {
+            binary_same_shape_avx(&lhs[index..], &rhs[index..], &mut out[index..], kind);
+        }
     }
 }
 
@@ -478,27 +478,27 @@ unsafe fn binary_same_shape_avx512(lhs: &[f32], rhs: &[f32], out: &mut [f32], ki
 #[target_feature(enable = "sse")]
 unsafe fn binary_same_shape_sse(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
     unsafe {
-    let len = lhs.len();
-    let left_ptr = lhs.as_ptr();
-    let right_ptr = rhs.as_ptr();
-    let out_ptr = out.as_mut_ptr();
-    let mut index = 0usize;
+        let len = lhs.len();
+        let left_ptr = lhs.as_ptr();
+        let right_ptr = rhs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        let left = _mm_loadu_ps(left_ptr.add(index));
-        let right = _mm_loadu_ps(right_ptr.add(index));
-        let result = match kind {
-            BinaryKind::Add => _mm_add_ps(left, right),
-            BinaryKind::Sub => _mm_sub_ps(left, right),
-            BinaryKind::Mul => _mm_mul_ps(left, right),
-        };
-        _mm_storeu_ps(out_ptr.add(index), result);
-        index += 4;
-    }
+        while index + 4 <= len {
+            let left = _mm_loadu_ps(left_ptr.add(index));
+            let right = _mm_loadu_ps(right_ptr.add(index));
+            let result = match kind {
+                BinaryKind::Add => _mm_add_ps(left, right),
+                BinaryKind::Sub => _mm_sub_ps(left, right),
+                BinaryKind::Mul => _mm_mul_ps(left, right),
+            };
+            _mm_storeu_ps(out_ptr.add(index), result);
+            index += 4;
+        }
 
-    if index < len {
-        binary_same_shape_scalar(&lhs[index..], &rhs[index..], &mut out[index..], kind);
-    }
+        if index < len {
+            binary_same_shape_scalar(&lhs[index..], &rhs[index..], &mut out[index..], kind);
+        }
     }
 }
 
@@ -507,85 +507,85 @@ unsafe fn binary_same_shape_sse(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind:
 #[target_feature(enable = "avx")]
 unsafe fn binary_same_shape_avx(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
     unsafe {
-    let len = lhs.len();
-    let left_ptr = lhs.as_ptr();
-    let right_ptr = rhs.as_ptr();
-    let out_ptr = out.as_mut_ptr();
-    let mut index = 0usize;
+        let len = lhs.len();
+        let left_ptr = lhs.as_ptr();
+        let right_ptr = rhs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+        let mut index = 0usize;
 
-    // 4x unrolled: process 32 floats per iteration. The access is unit-stride
-    // over three streams, which every hardware prefetcher tracks, so an
-    // explicit hint only adds uops to a bandwidth-bound loop.
-    match kind {
-        BinaryKind::Add => {
-            while index + 32 <= len {
-                let a0 = _mm256_loadu_ps(left_ptr.add(index));
-                let b0 = _mm256_loadu_ps(right_ptr.add(index));
-                let a1 = _mm256_loadu_ps(left_ptr.add(index + 8));
-                let b1 = _mm256_loadu_ps(right_ptr.add(index + 8));
-                _mm256_storeu_ps(out_ptr.add(index), _mm256_add_ps(a0, b0));
-                _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_add_ps(a1, b1));
-                let a2 = _mm256_loadu_ps(left_ptr.add(index + 16));
-                let b2 = _mm256_loadu_ps(right_ptr.add(index + 16));
-                let a3 = _mm256_loadu_ps(left_ptr.add(index + 24));
-                let b3 = _mm256_loadu_ps(right_ptr.add(index + 24));
-                _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_add_ps(a2, b2));
-                _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_add_ps(a3, b3));
-                index += 32;
+        // 4x unrolled: process 32 floats per iteration. The access is unit-stride
+        // over three streams, which every hardware prefetcher tracks, so an
+        // explicit hint only adds uops to a bandwidth-bound loop.
+        match kind {
+            BinaryKind::Add => {
+                while index + 32 <= len {
+                    let a0 = _mm256_loadu_ps(left_ptr.add(index));
+                    let b0 = _mm256_loadu_ps(right_ptr.add(index));
+                    let a1 = _mm256_loadu_ps(left_ptr.add(index + 8));
+                    let b1 = _mm256_loadu_ps(right_ptr.add(index + 8));
+                    _mm256_storeu_ps(out_ptr.add(index), _mm256_add_ps(a0, b0));
+                    _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_add_ps(a1, b1));
+                    let a2 = _mm256_loadu_ps(left_ptr.add(index + 16));
+                    let b2 = _mm256_loadu_ps(right_ptr.add(index + 16));
+                    let a3 = _mm256_loadu_ps(left_ptr.add(index + 24));
+                    let b3 = _mm256_loadu_ps(right_ptr.add(index + 24));
+                    _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_add_ps(a2, b2));
+                    _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_add_ps(a3, b3));
+                    index += 32;
+                }
+            }
+            BinaryKind::Sub => {
+                while index + 32 <= len {
+                    let a0 = _mm256_loadu_ps(left_ptr.add(index));
+                    let b0 = _mm256_loadu_ps(right_ptr.add(index));
+                    let a1 = _mm256_loadu_ps(left_ptr.add(index + 8));
+                    let b1 = _mm256_loadu_ps(right_ptr.add(index + 8));
+                    _mm256_storeu_ps(out_ptr.add(index), _mm256_sub_ps(a0, b0));
+                    _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_sub_ps(a1, b1));
+                    let a2 = _mm256_loadu_ps(left_ptr.add(index + 16));
+                    let b2 = _mm256_loadu_ps(right_ptr.add(index + 16));
+                    let a3 = _mm256_loadu_ps(left_ptr.add(index + 24));
+                    let b3 = _mm256_loadu_ps(right_ptr.add(index + 24));
+                    _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_sub_ps(a2, b2));
+                    _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_sub_ps(a3, b3));
+                    index += 32;
+                }
+            }
+            BinaryKind::Mul => {
+                while index + 32 <= len {
+                    let a0 = _mm256_loadu_ps(left_ptr.add(index));
+                    let b0 = _mm256_loadu_ps(right_ptr.add(index));
+                    let a1 = _mm256_loadu_ps(left_ptr.add(index + 8));
+                    let b1 = _mm256_loadu_ps(right_ptr.add(index + 8));
+                    _mm256_storeu_ps(out_ptr.add(index), _mm256_mul_ps(a0, b0));
+                    _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_mul_ps(a1, b1));
+                    let a2 = _mm256_loadu_ps(left_ptr.add(index + 16));
+                    let b2 = _mm256_loadu_ps(right_ptr.add(index + 16));
+                    let a3 = _mm256_loadu_ps(left_ptr.add(index + 24));
+                    let b3 = _mm256_loadu_ps(right_ptr.add(index + 24));
+                    _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_mul_ps(a2, b2));
+                    _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_mul_ps(a3, b3));
+                    index += 32;
+                }
             }
         }
-        BinaryKind::Sub => {
-            while index + 32 <= len {
-                let a0 = _mm256_loadu_ps(left_ptr.add(index));
-                let b0 = _mm256_loadu_ps(right_ptr.add(index));
-                let a1 = _mm256_loadu_ps(left_ptr.add(index + 8));
-                let b1 = _mm256_loadu_ps(right_ptr.add(index + 8));
-                _mm256_storeu_ps(out_ptr.add(index), _mm256_sub_ps(a0, b0));
-                _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_sub_ps(a1, b1));
-                let a2 = _mm256_loadu_ps(left_ptr.add(index + 16));
-                let b2 = _mm256_loadu_ps(right_ptr.add(index + 16));
-                let a3 = _mm256_loadu_ps(left_ptr.add(index + 24));
-                let b3 = _mm256_loadu_ps(right_ptr.add(index + 24));
-                _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_sub_ps(a2, b2));
-                _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_sub_ps(a3, b3));
-                index += 32;
-            }
-        }
-        BinaryKind::Mul => {
-            while index + 32 <= len {
-                let a0 = _mm256_loadu_ps(left_ptr.add(index));
-                let b0 = _mm256_loadu_ps(right_ptr.add(index));
-                let a1 = _mm256_loadu_ps(left_ptr.add(index + 8));
-                let b1 = _mm256_loadu_ps(right_ptr.add(index + 8));
-                _mm256_storeu_ps(out_ptr.add(index), _mm256_mul_ps(a0, b0));
-                _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_mul_ps(a1, b1));
-                let a2 = _mm256_loadu_ps(left_ptr.add(index + 16));
-                let b2 = _mm256_loadu_ps(right_ptr.add(index + 16));
-                let a3 = _mm256_loadu_ps(left_ptr.add(index + 24));
-                let b3 = _mm256_loadu_ps(right_ptr.add(index + 24));
-                _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_mul_ps(a2, b2));
-                _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_mul_ps(a3, b3));
-                index += 32;
-            }
-        }
-    }
 
-    // Handle remaining elements 8 at a time
-    while index + 8 <= len {
-        let left = _mm256_loadu_ps(left_ptr.add(index));
-        let right = _mm256_loadu_ps(right_ptr.add(index));
-        let result = match kind {
-            BinaryKind::Add => _mm256_add_ps(left, right),
-            BinaryKind::Sub => _mm256_sub_ps(left, right),
-            BinaryKind::Mul => _mm256_mul_ps(left, right),
-        };
-        _mm256_storeu_ps(out_ptr.add(index), result);
-        index += 8;
-    }
+        // Handle remaining elements 8 at a time
+        while index + 8 <= len {
+            let left = _mm256_loadu_ps(left_ptr.add(index));
+            let right = _mm256_loadu_ps(right_ptr.add(index));
+            let result = match kind {
+                BinaryKind::Add => _mm256_add_ps(left, right),
+                BinaryKind::Sub => _mm256_sub_ps(left, right),
+                BinaryKind::Mul => _mm256_mul_ps(left, right),
+            };
+            _mm256_storeu_ps(out_ptr.add(index), result);
+            index += 8;
+        }
 
-    if index < len {
-        binary_same_shape_sse(&lhs[index..], &rhs[index..], &mut out[index..], kind);
-    }
+        if index < len {
+            binary_same_shape_sse(&lhs[index..], &rhs[index..], &mut out[index..], kind);
+        }
     }
 }
 
@@ -594,27 +594,27 @@ unsafe fn binary_same_shape_avx(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind:
 #[target_feature(enable = "neon")]
 unsafe fn binary_same_shape_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
     unsafe {
-    let len = lhs.len();
-    let left_ptr = lhs.as_ptr();
-    let right_ptr = rhs.as_ptr();
-    let out_ptr = out.as_mut_ptr();
-    let mut index = 0usize;
+        let len = lhs.len();
+        let left_ptr = lhs.as_ptr();
+        let right_ptr = rhs.as_ptr();
+        let out_ptr = out.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        let left = vld1q_f32(left_ptr.add(index));
-        let right = vld1q_f32(right_ptr.add(index));
-        let result = match kind {
-            BinaryKind::Add => vaddq_f32(left, right),
-            BinaryKind::Sub => vsubq_f32(left, right),
-            BinaryKind::Mul => vmulq_f32(left, right),
-        };
-        vst1q_f32(out_ptr.add(index), result);
-        index += 4;
-    }
+        while index + 4 <= len {
+            let left = vld1q_f32(left_ptr.add(index));
+            let right = vld1q_f32(right_ptr.add(index));
+            let result = match kind {
+                BinaryKind::Add => vaddq_f32(left, right),
+                BinaryKind::Sub => vsubq_f32(left, right),
+                BinaryKind::Mul => vmulq_f32(left, right),
+            };
+            vst1q_f32(out_ptr.add(index), result);
+            index += 4;
+        }
 
-    if index < len {
-        binary_same_shape_scalar(&lhs[index..], &rhs[index..], &mut out[index..], kind);
-    }
+        if index < len {
+            binary_same_shape_scalar(&lhs[index..], &rhs[index..], &mut out[index..], kind);
+        }
     }
 }
 
@@ -665,41 +665,41 @@ pub fn add_relu_inplace_dispatch(data: &mut [f32], rhs: &[f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn add_relu_inplace_avx(data: &mut [f32], rhs: &[f32]) {
     unsafe {
-    let len = data.len();
-    let dp = data.as_mut_ptr();
-    let rp = rhs.as_ptr();
-    let zero = _mm256_setzero_ps();
-    let mut i = 0usize;
-    while i + 32 <= len {
-        let s0 = _mm256_add_ps(_mm256_loadu_ps(dp.add(i)), _mm256_loadu_ps(rp.add(i)));
-        let s1 = _mm256_add_ps(
-            _mm256_loadu_ps(dp.add(i + 8)),
-            _mm256_loadu_ps(rp.add(i + 8)),
-        );
-        _mm256_storeu_ps(dp.add(i), _mm256_max_ps(s0, zero));
-        _mm256_storeu_ps(dp.add(i + 8), _mm256_max_ps(s1, zero));
-        let s2 = _mm256_add_ps(
-            _mm256_loadu_ps(dp.add(i + 16)),
-            _mm256_loadu_ps(rp.add(i + 16)),
-        );
-        let s3 = _mm256_add_ps(
-            _mm256_loadu_ps(dp.add(i + 24)),
-            _mm256_loadu_ps(rp.add(i + 24)),
-        );
-        _mm256_storeu_ps(dp.add(i + 16), _mm256_max_ps(s2, zero));
-        _mm256_storeu_ps(dp.add(i + 24), _mm256_max_ps(s3, zero));
-        i += 32;
-    }
-    while i + 8 <= len {
-        let s = _mm256_add_ps(_mm256_loadu_ps(dp.add(i)), _mm256_loadu_ps(rp.add(i)));
-        _mm256_storeu_ps(dp.add(i), _mm256_max_ps(s, zero));
-        i += 8;
-    }
-    while i < len {
-        let v = *dp.add(i) + *rp.add(i);
-        *dp.add(i) = if v > 0.0 { v } else { 0.0 };
-        i += 1;
-    }
+        let len = data.len();
+        let dp = data.as_mut_ptr();
+        let rp = rhs.as_ptr();
+        let zero = _mm256_setzero_ps();
+        let mut i = 0usize;
+        while i + 32 <= len {
+            let s0 = _mm256_add_ps(_mm256_loadu_ps(dp.add(i)), _mm256_loadu_ps(rp.add(i)));
+            let s1 = _mm256_add_ps(
+                _mm256_loadu_ps(dp.add(i + 8)),
+                _mm256_loadu_ps(rp.add(i + 8)),
+            );
+            _mm256_storeu_ps(dp.add(i), _mm256_max_ps(s0, zero));
+            _mm256_storeu_ps(dp.add(i + 8), _mm256_max_ps(s1, zero));
+            let s2 = _mm256_add_ps(
+                _mm256_loadu_ps(dp.add(i + 16)),
+                _mm256_loadu_ps(rp.add(i + 16)),
+            );
+            let s3 = _mm256_add_ps(
+                _mm256_loadu_ps(dp.add(i + 24)),
+                _mm256_loadu_ps(rp.add(i + 24)),
+            );
+            _mm256_storeu_ps(dp.add(i + 16), _mm256_max_ps(s2, zero));
+            _mm256_storeu_ps(dp.add(i + 24), _mm256_max_ps(s3, zero));
+            i += 32;
+        }
+        while i + 8 <= len {
+            let s = _mm256_add_ps(_mm256_loadu_ps(dp.add(i)), _mm256_loadu_ps(rp.add(i)));
+            _mm256_storeu_ps(dp.add(i), _mm256_max_ps(s, zero));
+            i += 8;
+        }
+        while i < len {
+            let v = *dp.add(i) + *rp.add(i);
+            *dp.add(i) = if v > 0.0 { v } else { 0.0 };
+            i += 1;
+        }
     }
 }
 
@@ -708,25 +708,25 @@ unsafe fn add_relu_inplace_avx(data: &mut [f32], rhs: &[f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn add_relu_inplace_neon(data: &mut [f32], rhs: &[f32]) {
     unsafe {
-    #[cfg(target_arch = "aarch64")]
-    use std::arch::aarch64::vmaxq_f32;
-    #[cfg(target_arch = "arm")]
-    use std::arch::arm::vmaxq_f32;
-    let len = data.len();
-    let dp = data.as_mut_ptr();
-    let rp = rhs.as_ptr();
-    let zero = vdupq_n_f32(0.0);
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let s = vaddq_f32(vld1q_f32(dp.add(i)), vld1q_f32(rp.add(i)));
-        vst1q_f32(dp.add(i), vmaxq_f32(s, zero));
-        i += 4;
-    }
-    while i < len {
-        let v = *dp.add(i) + *rp.add(i);
-        *dp.add(i) = if v > 0.0 { v } else { 0.0 };
-        i += 1;
-    }
+        #[cfg(target_arch = "aarch64")]
+        use std::arch::aarch64::vmaxq_f32;
+        #[cfg(target_arch = "arm")]
+        use std::arch::arm::vmaxq_f32;
+        let len = data.len();
+        let dp = data.as_mut_ptr();
+        let rp = rhs.as_ptr();
+        let zero = vdupq_n_f32(0.0);
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let s = vaddq_f32(vld1q_f32(dp.add(i)), vld1q_f32(rp.add(i)));
+            vst1q_f32(dp.add(i), vmaxq_f32(s, zero));
+            i += 4;
+        }
+        while i < len {
+            let v = *dp.add(i) + *rp.add(i);
+            *dp.add(i) = if v > 0.0 { v } else { 0.0 };
+            i += 1;
+        }
     }
 }
 
@@ -780,35 +780,35 @@ pub fn add_inplace_dispatch(data: &mut [f32], rhs: &[f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn add_inplace_avx(data: &mut [f32], rhs: &[f32]) {
     unsafe {
-    let len = data.len();
-    let dp = data.as_mut_ptr();
-    let rp = rhs.as_ptr();
-    let mut i = 0usize;
-    while i + 32 <= len {
-        let a0 = _mm256_loadu_ps(dp.add(i));
-        let b0 = _mm256_loadu_ps(rp.add(i));
-        let a1 = _mm256_loadu_ps(dp.add(i + 8));
-        let b1 = _mm256_loadu_ps(rp.add(i + 8));
-        _mm256_storeu_ps(dp.add(i), _mm256_add_ps(a0, b0));
-        _mm256_storeu_ps(dp.add(i + 8), _mm256_add_ps(a1, b1));
-        let a2 = _mm256_loadu_ps(dp.add(i + 16));
-        let b2 = _mm256_loadu_ps(rp.add(i + 16));
-        let a3 = _mm256_loadu_ps(dp.add(i + 24));
-        let b3 = _mm256_loadu_ps(rp.add(i + 24));
-        _mm256_storeu_ps(dp.add(i + 16), _mm256_add_ps(a2, b2));
-        _mm256_storeu_ps(dp.add(i + 24), _mm256_add_ps(a3, b3));
-        i += 32;
-    }
-    while i + 8 <= len {
-        let a = _mm256_loadu_ps(dp.add(i));
-        let b = _mm256_loadu_ps(rp.add(i));
-        _mm256_storeu_ps(dp.add(i), _mm256_add_ps(a, b));
-        i += 8;
-    }
-    while i < len {
-        *dp.add(i) += *rp.add(i);
-        i += 1;
-    }
+        let len = data.len();
+        let dp = data.as_mut_ptr();
+        let rp = rhs.as_ptr();
+        let mut i = 0usize;
+        while i + 32 <= len {
+            let a0 = _mm256_loadu_ps(dp.add(i));
+            let b0 = _mm256_loadu_ps(rp.add(i));
+            let a1 = _mm256_loadu_ps(dp.add(i + 8));
+            let b1 = _mm256_loadu_ps(rp.add(i + 8));
+            _mm256_storeu_ps(dp.add(i), _mm256_add_ps(a0, b0));
+            _mm256_storeu_ps(dp.add(i + 8), _mm256_add_ps(a1, b1));
+            let a2 = _mm256_loadu_ps(dp.add(i + 16));
+            let b2 = _mm256_loadu_ps(rp.add(i + 16));
+            let a3 = _mm256_loadu_ps(dp.add(i + 24));
+            let b3 = _mm256_loadu_ps(rp.add(i + 24));
+            _mm256_storeu_ps(dp.add(i + 16), _mm256_add_ps(a2, b2));
+            _mm256_storeu_ps(dp.add(i + 24), _mm256_add_ps(a3, b3));
+            i += 32;
+        }
+        while i + 8 <= len {
+            let a = _mm256_loadu_ps(dp.add(i));
+            let b = _mm256_loadu_ps(rp.add(i));
+            _mm256_storeu_ps(dp.add(i), _mm256_add_ps(a, b));
+            i += 8;
+        }
+        while i < len {
+            *dp.add(i) += *rp.add(i);
+            i += 1;
+        }
     }
 }
 
@@ -817,20 +817,20 @@ unsafe fn add_inplace_avx(data: &mut [f32], rhs: &[f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn add_inplace_sse(data: &mut [f32], rhs: &[f32]) {
     unsafe {
-    let len = data.len();
-    let dp = data.as_mut_ptr();
-    let rp = rhs.as_ptr();
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let a = _mm_loadu_ps(dp.add(i));
-        let b = _mm_loadu_ps(rp.add(i));
-        _mm_storeu_ps(dp.add(i), _mm_add_ps(a, b));
-        i += 4;
-    }
-    while i < len {
-        *dp.add(i) += *rp.add(i);
-        i += 1;
-    }
+        let len = data.len();
+        let dp = data.as_mut_ptr();
+        let rp = rhs.as_ptr();
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let a = _mm_loadu_ps(dp.add(i));
+            let b = _mm_loadu_ps(rp.add(i));
+            _mm_storeu_ps(dp.add(i), _mm_add_ps(a, b));
+            i += 4;
+        }
+        while i < len {
+            *dp.add(i) += *rp.add(i);
+            i += 1;
+        }
     }
 }
 
@@ -839,20 +839,20 @@ unsafe fn add_inplace_sse(data: &mut [f32], rhs: &[f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn add_inplace_neon(data: &mut [f32], rhs: &[f32]) {
     unsafe {
-    let len = data.len();
-    let dp = data.as_mut_ptr();
-    let rp = rhs.as_ptr();
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let a = vld1q_f32(dp.add(i));
-        let b = vld1q_f32(rp.add(i));
-        vst1q_f32(dp.add(i), vaddq_f32(a, b));
-        i += 4;
-    }
-    while i < len {
-        *dp.add(i) += *rp.add(i);
-        i += 1;
-    }
+        let len = data.len();
+        let dp = data.as_mut_ptr();
+        let rp = rhs.as_ptr();
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let a = vld1q_f32(dp.add(i));
+            let b = vld1q_f32(rp.add(i));
+            vst1q_f32(dp.add(i), vaddq_f32(a, b));
+            i += 4;
+        }
+        while i < len {
+            *dp.add(i) += *rp.add(i);
+            i += 1;
+        }
     }
 }
 
@@ -865,19 +865,19 @@ unsafe fn add_inplace_neon(data: &mut [f32], rhs: &[f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn mul_scalar_inplace_neon(data: &mut [f32], scalar: f32) {
     unsafe {
-    let len = data.len();
-    let ptr = data.as_mut_ptr();
-    let vs = vdupq_n_f32(scalar);
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let v = vld1q_f32(ptr.add(i));
-        vst1q_f32(ptr.add(i), vmulq_f32(v, vs));
-        i += 4;
-    }
-    while i < len {
-        *ptr.add(i) *= scalar;
-        i += 1;
-    }
+        let len = data.len();
+        let ptr = data.as_mut_ptr();
+        let vs = vdupq_n_f32(scalar);
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let v = vld1q_f32(ptr.add(i));
+            vst1q_f32(ptr.add(i), vmulq_f32(v, vs));
+            i += 4;
+        }
+        while i < len {
+            *ptr.add(i) *= scalar;
+            i += 1;
+        }
     }
 }
 
@@ -886,30 +886,30 @@ unsafe fn mul_scalar_inplace_neon(data: &mut [f32], scalar: f32) {
 #[target_feature(enable = "avx")]
 unsafe fn mul_scalar_inplace_avx(data: &mut [f32], scalar: f32) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::*;
-    let len = data.len();
-    let ptr = data.as_mut_ptr();
-    let vs = _mm256_set1_ps(scalar);
-    let mut i = 0usize;
-    while i + 8 <= len {
-        let v = _mm256_loadu_ps(ptr.add(i));
-        _mm256_storeu_ps(ptr.add(i), _mm256_mul_ps(v, vs));
-        i += 8;
-    }
-    // SSE tail
-    let vs4 = _mm_set1_ps(scalar);
-    while i + 4 <= len {
-        let v = _mm_loadu_ps(ptr.add(i));
-        _mm_storeu_ps(ptr.add(i), _mm_mul_ps(v, vs4));
-        i += 4;
-    }
-    while i < len {
-        *ptr.add(i) *= scalar;
-        i += 1;
-    }
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::*;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::*;
+        let len = data.len();
+        let ptr = data.as_mut_ptr();
+        let vs = _mm256_set1_ps(scalar);
+        let mut i = 0usize;
+        while i + 8 <= len {
+            let v = _mm256_loadu_ps(ptr.add(i));
+            _mm256_storeu_ps(ptr.add(i), _mm256_mul_ps(v, vs));
+            i += 8;
+        }
+        // SSE tail
+        let vs4 = _mm_set1_ps(scalar);
+        while i + 4 <= len {
+            let v = _mm_loadu_ps(ptr.add(i));
+            _mm_storeu_ps(ptr.add(i), _mm_mul_ps(v, vs4));
+            i += 4;
+        }
+        while i < len {
+            *ptr.add(i) *= scalar;
+            i += 1;
+        }
     }
 }
 
@@ -918,22 +918,22 @@ unsafe fn mul_scalar_inplace_avx(data: &mut [f32], scalar: f32) {
 #[target_feature(enable = "sse")]
 unsafe fn mul_scalar_inplace_sse(data: &mut [f32], scalar: f32) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::*;
-    let len = data.len();
-    let ptr = data.as_mut_ptr();
-    let vs = _mm_set1_ps(scalar);
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let v = _mm_loadu_ps(ptr.add(i));
-        _mm_storeu_ps(ptr.add(i), _mm_mul_ps(v, vs));
-        i += 4;
-    }
-    while i < len {
-        *ptr.add(i) *= scalar;
-        i += 1;
-    }
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::*;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::*;
+        let len = data.len();
+        let ptr = data.as_mut_ptr();
+        let vs = _mm_set1_ps(scalar);
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let v = _mm_loadu_ps(ptr.add(i));
+            _mm_storeu_ps(ptr.add(i), _mm_mul_ps(v, vs));
+            i += 4;
+        }
+        while i < len {
+            *ptr.add(i) *= scalar;
+            i += 1;
+        }
     }
 }

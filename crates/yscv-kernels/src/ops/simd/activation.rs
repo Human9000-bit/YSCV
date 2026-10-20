@@ -421,27 +421,27 @@ pub fn silu_inplace(data: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn silu_inplace_sse(ptr: *mut f32, len: usize) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm_div_ps;
-    let one = _mm_set1_ps(1.0);
-    let zero = _mm_setzero_ps();
-    let mut index = 0;
-    while index + 4 <= len {
-        let x = _mm_loadu_ps(ptr.add(index));
-        let e = fast_exp_sse(_mm_sub_ps(zero, x));
-        _mm_storeu_ps(
-            ptr.add(index),
-            _mm_mul_ps(x, _mm_div_ps(one, _mm_add_ps(one, e))),
-        );
-        index += 4;
-    }
-    while index < len {
-        let x = *ptr.add(index);
-        *ptr.add(index) = x / (1.0 + (-x).exp());
-        index += 1;
-    }
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm_div_ps;
+        let one = _mm_set1_ps(1.0);
+        let zero = _mm_setzero_ps();
+        let mut index = 0;
+        while index + 4 <= len {
+            let x = _mm_loadu_ps(ptr.add(index));
+            let e = fast_exp_sse(_mm_sub_ps(zero, x));
+            _mm_storeu_ps(
+                ptr.add(index),
+                _mm_mul_ps(x, _mm_div_ps(one, _mm_add_ps(one, e))),
+            );
+            index += 4;
+        }
+        while index < len {
+            let x = *ptr.add(index);
+            *ptr.add(index) = x / (1.0 + (-x).exp());
+            index += 1;
+        }
     }
 }
 
@@ -450,27 +450,27 @@ unsafe fn silu_inplace_sse(ptr: *mut f32, len: usize) {
 #[target_feature(enable = "avx")]
 unsafe fn silu_inplace_avx(ptr: *mut f32, len: usize) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm256_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm256_div_ps;
-    let one = _mm256_set1_ps(1.0);
-    let zero = _mm256_setzero_ps();
-    let mut index = 0;
-    while index + 8 <= len {
-        let x = _mm256_loadu_ps(ptr.add(index));
-        let e = fast_exp_avx(_mm256_sub_ps(zero, x));
-        _mm256_storeu_ps(
-            ptr.add(index),
-            _mm256_mul_ps(x, _mm256_div_ps(one, _mm256_add_ps(one, e))),
-        );
-        index += 8;
-    }
-    while index < len {
-        let x = *ptr.add(index);
-        *ptr.add(index) = x / (1.0 + (-x).exp());
-        index += 1;
-    }
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm256_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm256_div_ps;
+        let one = _mm256_set1_ps(1.0);
+        let zero = _mm256_setzero_ps();
+        let mut index = 0;
+        while index + 8 <= len {
+            let x = _mm256_loadu_ps(ptr.add(index));
+            let e = fast_exp_avx(_mm256_sub_ps(zero, x));
+            _mm256_storeu_ps(
+                ptr.add(index),
+                _mm256_mul_ps(x, _mm256_div_ps(one, _mm256_add_ps(one, e))),
+            );
+            index += 8;
+        }
+        while index < len {
+            let x = *ptr.add(index);
+            *ptr.add(index) = x / (1.0 + (-x).exp());
+            index += 1;
+        }
     }
 }
 
@@ -479,21 +479,21 @@ unsafe fn silu_inplace_avx(ptr: *mut f32, len: usize) {
 #[target_feature(enable = "avx512f")]
 unsafe fn silu_inplace_avx512(ptr: *mut f32, len: usize) {
     unsafe {
-    let one = _mm512_set1_ps(1.0);
-    let zero = _mm512_setzero_ps();
-    let mut index = 0;
-    while index + 16 <= len {
-        let x = _mm512_loadu_ps(ptr.add(index));
-        let e = fast_exp_avx512(_mm512_sub_ps(zero, x));
-        _mm512_storeu_ps(
-            ptr.add(index),
-            _mm512_mul_ps(x, _mm512_div_ps(one, _mm512_add_ps(one, e))),
-        );
-        index += 16;
-    }
-    if index < len {
-        silu_inplace_avx(ptr.add(index), len - index);
-    }
+        let one = _mm512_set1_ps(1.0);
+        let zero = _mm512_setzero_ps();
+        let mut index = 0;
+        while index + 16 <= len {
+            let x = _mm512_loadu_ps(ptr.add(index));
+            let e = fast_exp_avx512(_mm512_sub_ps(zero, x));
+            _mm512_storeu_ps(
+                ptr.add(index),
+                _mm512_mul_ps(x, _mm512_div_ps(one, _mm512_add_ps(one, e))),
+            );
+            index += 16;
+        }
+        if index < len {
+            silu_inplace_avx(ptr.add(index), len - index);
+        }
     }
 }
 
@@ -637,55 +637,55 @@ unsafe fn fused_row_epilogue_avx_fma(
     n: usize,
 ) {
     unsafe {
-    let out_ptr = out_row.as_mut_ptr();
-    let res_ptr = residual.map(|r| r.as_ptr());
-    let bias_ptr = bias.map(|b| b.as_ptr());
-    let zero = _mm256_setzero_ps();
-    let mut j = 0usize;
+        let out_ptr = out_row.as_mut_ptr();
+        let res_ptr = residual.map(|r| r.as_ptr());
+        let bias_ptr = bias.map(|b| b.as_ptr());
+        let zero = _mm256_setzero_ps();
+        let mut j = 0usize;
 
-    // SIMD body: process 8 lanes per iteration. Has-residual / has-bias
-    // conditions evaluate to the same branch for every iteration in this
-    // call, so the branch predictor trivially handles them.
-    while j + 8 <= n {
-        let mut v = _mm256_loadu_ps(out_ptr.add(j));
-        if let Some(rp) = res_ptr {
-            v = _mm256_add_ps(v, _mm256_loadu_ps(rp.add(j)));
-        }
-        if let Some(bp) = bias_ptr {
-            v = _mm256_add_ps(v, _mm256_loadu_ps(bp.add(j)));
-        }
-        match activation_id {
-            1 => v = _mm256_max_ps(v, zero),
-            2 => {
-                // SiLU via fast bit-trick exp.
-                let one = _mm256_set1_ps(1.0);
-                let neg_x = _mm256_sub_ps(zero, v);
-                let exp_neg = fast_exp_sigmoid_avx(neg_x);
-                let denom = _mm256_add_ps(one, exp_neg);
-                v = _mm256_div_ps(v, denom);
+        // SIMD body: process 8 lanes per iteration. Has-residual / has-bias
+        // conditions evaluate to the same branch for every iteration in this
+        // call, so the branch predictor trivially handles them.
+        while j + 8 <= n {
+            let mut v = _mm256_loadu_ps(out_ptr.add(j));
+            if let Some(rp) = res_ptr {
+                v = _mm256_add_ps(v, _mm256_loadu_ps(rp.add(j)));
             }
-            _ => {}
+            if let Some(bp) = bias_ptr {
+                v = _mm256_add_ps(v, _mm256_loadu_ps(bp.add(j)));
+            }
+            match activation_id {
+                1 => v = _mm256_max_ps(v, zero),
+                2 => {
+                    // SiLU via fast bit-trick exp.
+                    let one = _mm256_set1_ps(1.0);
+                    let neg_x = _mm256_sub_ps(zero, v);
+                    let exp_neg = fast_exp_sigmoid_avx(neg_x);
+                    let denom = _mm256_add_ps(one, exp_neg);
+                    v = _mm256_div_ps(v, denom);
+                }
+                _ => {}
+            }
+            _mm256_storeu_ps(out_ptr.add(j), v);
+            j += 8;
         }
-        _mm256_storeu_ps(out_ptr.add(j), v);
-        j += 8;
-    }
-    // Scalar tail.
-    while j < n {
-        let mut x = *out_ptr.add(j);
-        if let Some(rp) = res_ptr {
-            x += *rp.add(j);
+        // Scalar tail.
+        while j < n {
+            let mut x = *out_ptr.add(j);
+            if let Some(rp) = res_ptr {
+                x += *rp.add(j);
+            }
+            if let Some(bp) = bias_ptr {
+                x += *bp.add(j);
+            }
+            x = match activation_id {
+                1 => x.max(0.0),
+                2 => x / (1.0 + (-x).exp()),
+                _ => x,
+            };
+            *out_ptr.add(j) = x;
+            j += 1;
         }
-        if let Some(bp) = bias_ptr {
-            x += *bp.add(j);
-        }
-        x = match activation_id {
-            1 => x.max(0.0),
-            2 => x / (1.0 + (-x).exp()),
-            _ => x,
-        };
-        *out_ptr.add(j) = x;
-        j += 1;
-    }
     }
 }
 
@@ -733,63 +733,63 @@ pub fn bias_silu_nhwc_dispatch(output: &mut [f32], bias: &[f32], m: usize, n: us
 #[allow(unsafe_code)]
 unsafe fn bias_relu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
     unsafe {
-    let zero = _mm256_setzero_ps();
-    let out_ptr = output.as_mut_ptr();
-    let bias_ptr = bias.as_ptr();
-    // Fast path: preload bias for small N to eliminate per-row bias loads.
-    if n == 16 {
-        let b0 = _mm256_loadu_ps(bias_ptr);
-        let b1 = _mm256_loadu_ps(bias_ptr.add(8));
+        let zero = _mm256_setzero_ps();
+        let out_ptr = output.as_mut_ptr();
+        let bias_ptr = bias.as_ptr();
+        // Fast path: preload bias for small N to eliminate per-row bias loads.
+        if n == 16 {
+            let b0 = _mm256_loadu_ps(bias_ptr);
+            let b1 = _mm256_loadu_ps(bias_ptr.add(8));
+            for row in 0..m {
+                let base = out_ptr.add(row * 16);
+                _mm256_storeu_ps(
+                    base,
+                    _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base), b0), zero),
+                );
+                _mm256_storeu_ps(
+                    base.add(8),
+                    _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1), zero),
+                );
+            }
+            return;
+        }
+        if n == 24 {
+            let b0 = _mm256_loadu_ps(bias_ptr);
+            let b1 = _mm256_loadu_ps(bias_ptr.add(8));
+            let b2 = _mm256_loadu_ps(bias_ptr.add(16));
+            for row in 0..m {
+                let base = out_ptr.add(row * 24);
+                _mm256_storeu_ps(
+                    base,
+                    _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base), b0), zero),
+                );
+                _mm256_storeu_ps(
+                    base.add(8),
+                    _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1), zero),
+                );
+                _mm256_storeu_ps(
+                    base.add(16),
+                    _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base.add(16)), b2), zero),
+                );
+            }
+            return;
+        }
         for row in 0..m {
-            let base = out_ptr.add(row * 16);
-            _mm256_storeu_ps(
-                base,
-                _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base), b0), zero),
-            );
-            _mm256_storeu_ps(
-                base.add(8),
-                _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1), zero),
-            );
+            let base = out_ptr.add(row * n);
+            let mut c = 0usize;
+            while c + 8 <= n {
+                let v = _mm256_add_ps(
+                    _mm256_loadu_ps(base.add(c)),
+                    _mm256_loadu_ps(bias_ptr.add(c)),
+                );
+                _mm256_storeu_ps(base.add(c), _mm256_max_ps(v, zero));
+                c += 8;
+            }
+            while c < n {
+                *base.add(c) = (*base.add(c) + *bias_ptr.add(c)).max(0.0);
+                c += 1;
+            }
         }
-        return;
-    }
-    if n == 24 {
-        let b0 = _mm256_loadu_ps(bias_ptr);
-        let b1 = _mm256_loadu_ps(bias_ptr.add(8));
-        let b2 = _mm256_loadu_ps(bias_ptr.add(16));
-        for row in 0..m {
-            let base = out_ptr.add(row * 24);
-            _mm256_storeu_ps(
-                base,
-                _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base), b0), zero),
-            );
-            _mm256_storeu_ps(
-                base.add(8),
-                _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1), zero),
-            );
-            _mm256_storeu_ps(
-                base.add(16),
-                _mm256_max_ps(_mm256_add_ps(_mm256_loadu_ps(base.add(16)), b2), zero),
-            );
-        }
-        return;
-    }
-    for row in 0..m {
-        let base = out_ptr.add(row * n);
-        let mut c = 0usize;
-        while c + 8 <= n {
-            let v = _mm256_add_ps(
-                _mm256_loadu_ps(base.add(c)),
-                _mm256_loadu_ps(bias_ptr.add(c)),
-            );
-            _mm256_storeu_ps(base.add(c), _mm256_max_ps(v, zero));
-            c += 8;
-        }
-        while c < n {
-            *base.add(c) = (*base.add(c) + *bias_ptr.add(c)).max(0.0);
-            c += 1;
-        }
-    }
     }
 }
 
@@ -798,49 +798,49 @@ unsafe fn bias_relu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usiz
 #[allow(unsafe_code)]
 unsafe fn bias_add_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
     unsafe {
-    let out_ptr = output.as_mut_ptr();
-    let bias_ptr = bias.as_ptr();
-    if n == 16 {
-        let b0 = _mm256_loadu_ps(bias_ptr);
-        let b1 = _mm256_loadu_ps(bias_ptr.add(8));
+        let out_ptr = output.as_mut_ptr();
+        let bias_ptr = bias.as_ptr();
+        if n == 16 {
+            let b0 = _mm256_loadu_ps(bias_ptr);
+            let b1 = _mm256_loadu_ps(bias_ptr.add(8));
+            for row in 0..m {
+                let base = out_ptr.add(row * 16);
+                _mm256_storeu_ps(base, _mm256_add_ps(_mm256_loadu_ps(base), b0));
+                _mm256_storeu_ps(base.add(8), _mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1));
+            }
+            return;
+        }
+        if n == 24 {
+            let b0 = _mm256_loadu_ps(bias_ptr);
+            let b1 = _mm256_loadu_ps(bias_ptr.add(8));
+            let b2 = _mm256_loadu_ps(bias_ptr.add(16));
+            for row in 0..m {
+                let base = out_ptr.add(row * 24);
+                _mm256_storeu_ps(base, _mm256_add_ps(_mm256_loadu_ps(base), b0));
+                _mm256_storeu_ps(base.add(8), _mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1));
+                _mm256_storeu_ps(
+                    base.add(16),
+                    _mm256_add_ps(_mm256_loadu_ps(base.add(16)), b2),
+                );
+            }
+            return;
+        }
         for row in 0..m {
-            let base = out_ptr.add(row * 16);
-            _mm256_storeu_ps(base, _mm256_add_ps(_mm256_loadu_ps(base), b0));
-            _mm256_storeu_ps(base.add(8), _mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1));
+            let base = out_ptr.add(row * n);
+            let mut c = 0usize;
+            while c + 8 <= n {
+                let v = _mm256_add_ps(
+                    _mm256_loadu_ps(base.add(c)),
+                    _mm256_loadu_ps(bias_ptr.add(c)),
+                );
+                _mm256_storeu_ps(base.add(c), v);
+                c += 8;
+            }
+            while c < n {
+                *base.add(c) += *bias_ptr.add(c);
+                c += 1;
+            }
         }
-        return;
-    }
-    if n == 24 {
-        let b0 = _mm256_loadu_ps(bias_ptr);
-        let b1 = _mm256_loadu_ps(bias_ptr.add(8));
-        let b2 = _mm256_loadu_ps(bias_ptr.add(16));
-        for row in 0..m {
-            let base = out_ptr.add(row * 24);
-            _mm256_storeu_ps(base, _mm256_add_ps(_mm256_loadu_ps(base), b0));
-            _mm256_storeu_ps(base.add(8), _mm256_add_ps(_mm256_loadu_ps(base.add(8)), b1));
-            _mm256_storeu_ps(
-                base.add(16),
-                _mm256_add_ps(_mm256_loadu_ps(base.add(16)), b2),
-            );
-        }
-        return;
-    }
-    for row in 0..m {
-        let base = out_ptr.add(row * n);
-        let mut c = 0usize;
-        while c + 8 <= n {
-            let v = _mm256_add_ps(
-                _mm256_loadu_ps(base.add(c)),
-                _mm256_loadu_ps(bias_ptr.add(c)),
-            );
-            _mm256_storeu_ps(base.add(c), v);
-            c += 8;
-        }
-        while c < n {
-            *base.add(c) += *bias_ptr.add(c);
-            c += 1;
-        }
-    }
     }
 }
 
@@ -849,30 +849,30 @@ unsafe fn bias_add_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize
 #[allow(unsafe_code)]
 unsafe fn bias_silu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
     unsafe {
-    let one = _mm256_set1_ps(1.0);
-    let out_ptr = output.as_mut_ptr();
-    let bias_ptr = bias.as_ptr();
-    for row in 0..m {
-        let base = out_ptr.add(row * n);
-        let mut c = 0usize;
-        while c + 8 <= n {
-            let v = _mm256_add_ps(
-                _mm256_loadu_ps(base.add(c)),
-                _mm256_loadu_ps(bias_ptr.add(c)),
-            );
-            let neg_v = _mm256_sub_ps(_mm256_setzero_ps(), v);
-            let exp_neg = fast_exp_avx(neg_v);
-            let sig = _mm256_div_ps(one, _mm256_add_ps(one, exp_neg));
-            _mm256_storeu_ps(base.add(c), _mm256_mul_ps(v, sig));
-            c += 8;
+        let one = _mm256_set1_ps(1.0);
+        let out_ptr = output.as_mut_ptr();
+        let bias_ptr = bias.as_ptr();
+        for row in 0..m {
+            let base = out_ptr.add(row * n);
+            let mut c = 0usize;
+            while c + 8 <= n {
+                let v = _mm256_add_ps(
+                    _mm256_loadu_ps(base.add(c)),
+                    _mm256_loadu_ps(bias_ptr.add(c)),
+                );
+                let neg_v = _mm256_sub_ps(_mm256_setzero_ps(), v);
+                let exp_neg = fast_exp_avx(neg_v);
+                let sig = _mm256_div_ps(one, _mm256_add_ps(one, exp_neg));
+                _mm256_storeu_ps(base.add(c), _mm256_mul_ps(v, sig));
+                c += 8;
+            }
+            while c < n {
+                let v = *base.add(c) + *bias_ptr.add(c);
+                let s = 1.0 / (1.0 + (-v).exp());
+                *base.add(c) = v * s;
+                c += 1;
+            }
         }
-        while c < n {
-            let v = *base.add(c) + *bias_ptr.add(c);
-            let s = 1.0 / (1.0 + (-v).exp());
-            *base.add(c) = v * s;
-            c += 1;
-        }
-    }
     }
 }
 
@@ -881,79 +881,79 @@ unsafe fn bias_silu_nhwc_avx(output: &mut [f32], bias: &[f32], m: usize, n: usiz
 #[allow(unsafe_code)]
 unsafe fn bias_relu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
     unsafe {
-    let zero = vdupq_n_f32(0.0);
-    let out_ptr = output.as_mut_ptr();
-    let bias_ptr = bias.as_ptr();
-    // Preloaded fast paths for common channel counts.
-    if n == 16 {
-        let b0 = vld1q_f32(bias_ptr);
-        let b1 = vld1q_f32(bias_ptr.add(4));
-        let b2 = vld1q_f32(bias_ptr.add(8));
-        let b3 = vld1q_f32(bias_ptr.add(12));
+        let zero = vdupq_n_f32(0.0);
+        let out_ptr = output.as_mut_ptr();
+        let bias_ptr = bias.as_ptr();
+        // Preloaded fast paths for common channel counts.
+        if n == 16 {
+            let b0 = vld1q_f32(bias_ptr);
+            let b1 = vld1q_f32(bias_ptr.add(4));
+            let b2 = vld1q_f32(bias_ptr.add(8));
+            let b3 = vld1q_f32(bias_ptr.add(12));
+            for row in 0..m {
+                let base = out_ptr.add(row * 16);
+                vst1q_f32(base, vmaxq_f32(vaddq_f32(vld1q_f32(base), b0), zero));
+                vst1q_f32(
+                    base.add(4),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(4)), b1), zero),
+                );
+                vst1q_f32(
+                    base.add(8),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(8)), b2), zero),
+                );
+                vst1q_f32(
+                    base.add(12),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(12)), b3), zero),
+                );
+            }
+            return;
+        }
+        if n == 24 {
+            let b0 = vld1q_f32(bias_ptr);
+            let b1 = vld1q_f32(bias_ptr.add(4));
+            let b2 = vld1q_f32(bias_ptr.add(8));
+            let b3 = vld1q_f32(bias_ptr.add(12));
+            let b4 = vld1q_f32(bias_ptr.add(16));
+            let b5 = vld1q_f32(bias_ptr.add(20));
+            for row in 0..m {
+                let base = out_ptr.add(row * 24);
+                vst1q_f32(base, vmaxq_f32(vaddq_f32(vld1q_f32(base), b0), zero));
+                vst1q_f32(
+                    base.add(4),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(4)), b1), zero),
+                );
+                vst1q_f32(
+                    base.add(8),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(8)), b2), zero),
+                );
+                vst1q_f32(
+                    base.add(12),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(12)), b3), zero),
+                );
+                vst1q_f32(
+                    base.add(16),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(16)), b4), zero),
+                );
+                vst1q_f32(
+                    base.add(20),
+                    vmaxq_f32(vaddq_f32(vld1q_f32(base.add(20)), b5), zero),
+                );
+            }
+            return;
+        }
         for row in 0..m {
-            let base = out_ptr.add(row * 16);
-            vst1q_f32(base, vmaxq_f32(vaddq_f32(vld1q_f32(base), b0), zero));
-            vst1q_f32(
-                base.add(4),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(4)), b1), zero),
-            );
-            vst1q_f32(
-                base.add(8),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(8)), b2), zero),
-            );
-            vst1q_f32(
-                base.add(12),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(12)), b3), zero),
-            );
+            let base = out_ptr.add(row * n);
+            let mut c = 0usize;
+            while c + 4 <= n {
+                let v = vaddq_f32(vld1q_f32(base.add(c)), vld1q_f32(bias_ptr.add(c)));
+                vst1q_f32(base.add(c), vmaxq_f32(v, zero));
+                c += 4;
+            }
+            while c < n {
+                *base.add(c) = (*base.add(c) + *bias_ptr.add(c)).max(0.0);
+                c += 1;
+            }
         }
-        return;
-    }
-    if n == 24 {
-        let b0 = vld1q_f32(bias_ptr);
-        let b1 = vld1q_f32(bias_ptr.add(4));
-        let b2 = vld1q_f32(bias_ptr.add(8));
-        let b3 = vld1q_f32(bias_ptr.add(12));
-        let b4 = vld1q_f32(bias_ptr.add(16));
-        let b5 = vld1q_f32(bias_ptr.add(20));
-        for row in 0..m {
-            let base = out_ptr.add(row * 24);
-            vst1q_f32(base, vmaxq_f32(vaddq_f32(vld1q_f32(base), b0), zero));
-            vst1q_f32(
-                base.add(4),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(4)), b1), zero),
-            );
-            vst1q_f32(
-                base.add(8),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(8)), b2), zero),
-            );
-            vst1q_f32(
-                base.add(12),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(12)), b3), zero),
-            );
-            vst1q_f32(
-                base.add(16),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(16)), b4), zero),
-            );
-            vst1q_f32(
-                base.add(20),
-                vmaxq_f32(vaddq_f32(vld1q_f32(base.add(20)), b5), zero),
-            );
-        }
-        return;
-    }
-    for row in 0..m {
-        let base = out_ptr.add(row * n);
-        let mut c = 0usize;
-        while c + 4 <= n {
-            let v = vaddq_f32(vld1q_f32(base.add(c)), vld1q_f32(bias_ptr.add(c)));
-            vst1q_f32(base.add(c), vmaxq_f32(v, zero));
-            c += 4;
-        }
-        while c < n {
-            *base.add(c) = (*base.add(c) + *bias_ptr.add(c)).max(0.0);
-            c += 1;
-        }
-    }
     }
 }
 
@@ -962,21 +962,21 @@ unsafe fn bias_relu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usi
 #[allow(unsafe_code)]
 unsafe fn bias_add_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
     unsafe {
-    let out_ptr = output.as_mut_ptr();
-    let bias_ptr = bias.as_ptr();
-    for row in 0..m {
-        let base = out_ptr.add(row * n);
-        let mut c = 0usize;
-        while c + 4 <= n {
-            let v = vaddq_f32(vld1q_f32(base.add(c)), vld1q_f32(bias_ptr.add(c)));
-            vst1q_f32(base.add(c), v);
-            c += 4;
+        let out_ptr = output.as_mut_ptr();
+        let bias_ptr = bias.as_ptr();
+        for row in 0..m {
+            let base = out_ptr.add(row * n);
+            let mut c = 0usize;
+            while c + 4 <= n {
+                let v = vaddq_f32(vld1q_f32(base.add(c)), vld1q_f32(bias_ptr.add(c)));
+                vst1q_f32(base.add(c), v);
+                c += 4;
+            }
+            while c < n {
+                *base.add(c) += *bias_ptr.add(c);
+                c += 1;
+            }
         }
-        while c < n {
-            *base.add(c) += *bias_ptr.add(c);
-            c += 1;
-        }
-    }
     }
 }
 
@@ -987,61 +987,61 @@ unsafe fn bias_add_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usiz
 #[allow(unsafe_code)]
 pub(super) unsafe fn relu_slice_scalar(values: &mut [f32]) {
     unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let mut index = 0usize;
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 8 <= len {
-        let v0 = *ptr.add(index);
-        let v1 = *ptr.add(index + 1);
-        let v2 = *ptr.add(index + 2);
-        let v3 = *ptr.add(index + 3);
-        let v4 = *ptr.add(index + 4);
-        let v5 = *ptr.add(index + 5);
-        let v6 = *ptr.add(index + 6);
-        let v7 = *ptr.add(index + 7);
-        *ptr.add(index) = v0.max(0.0);
-        *ptr.add(index + 1) = v1.max(0.0);
-        *ptr.add(index + 2) = v2.max(0.0);
-        *ptr.add(index + 3) = v3.max(0.0);
-        *ptr.add(index + 4) = v4.max(0.0);
-        *ptr.add(index + 5) = v5.max(0.0);
-        *ptr.add(index + 6) = v6.max(0.0);
-        *ptr.add(index + 7) = v7.max(0.0);
-        index += 8;
-    }
+        while index + 8 <= len {
+            let v0 = *ptr.add(index);
+            let v1 = *ptr.add(index + 1);
+            let v2 = *ptr.add(index + 2);
+            let v3 = *ptr.add(index + 3);
+            let v4 = *ptr.add(index + 4);
+            let v5 = *ptr.add(index + 5);
+            let v6 = *ptr.add(index + 6);
+            let v7 = *ptr.add(index + 7);
+            *ptr.add(index) = v0.max(0.0);
+            *ptr.add(index + 1) = v1.max(0.0);
+            *ptr.add(index + 2) = v2.max(0.0);
+            *ptr.add(index + 3) = v3.max(0.0);
+            *ptr.add(index + 4) = v4.max(0.0);
+            *ptr.add(index + 5) = v5.max(0.0);
+            *ptr.add(index + 6) = v6.max(0.0);
+            *ptr.add(index + 7) = v7.max(0.0);
+            index += 8;
+        }
 
-    while index < len {
-        *ptr.add(index) = (*ptr.add(index)).max(0.0);
-        index += 1;
-    }
+        while index < len {
+            *ptr.add(index) = (*ptr.add(index)).max(0.0);
+            index += 1;
+        }
     }
 }
 
 #[allow(unsafe_code)]
 pub(super) unsafe fn relu_to_slice_scalar(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 8 <= len {
-        *out_ptr.add(index) = (*in_ptr.add(index)).max(0.0);
-        *out_ptr.add(index + 1) = (*in_ptr.add(index + 1)).max(0.0);
-        *out_ptr.add(index + 2) = (*in_ptr.add(index + 2)).max(0.0);
-        *out_ptr.add(index + 3) = (*in_ptr.add(index + 3)).max(0.0);
-        *out_ptr.add(index + 4) = (*in_ptr.add(index + 4)).max(0.0);
-        *out_ptr.add(index + 5) = (*in_ptr.add(index + 5)).max(0.0);
-        *out_ptr.add(index + 6) = (*in_ptr.add(index + 6)).max(0.0);
-        *out_ptr.add(index + 7) = (*in_ptr.add(index + 7)).max(0.0);
-        index += 8;
-    }
+        while index + 8 <= len {
+            *out_ptr.add(index) = (*in_ptr.add(index)).max(0.0);
+            *out_ptr.add(index + 1) = (*in_ptr.add(index + 1)).max(0.0);
+            *out_ptr.add(index + 2) = (*in_ptr.add(index + 2)).max(0.0);
+            *out_ptr.add(index + 3) = (*in_ptr.add(index + 3)).max(0.0);
+            *out_ptr.add(index + 4) = (*in_ptr.add(index + 4)).max(0.0);
+            *out_ptr.add(index + 5) = (*in_ptr.add(index + 5)).max(0.0);
+            *out_ptr.add(index + 6) = (*in_ptr.add(index + 6)).max(0.0);
+            *out_ptr.add(index + 7) = (*in_ptr.add(index + 7)).max(0.0);
+            index += 8;
+        }
 
-    while index < len {
-        *out_ptr.add(index) = (*in_ptr.add(index)).max(0.0);
-        index += 1;
-    }
+        while index < len {
+            *out_ptr.add(index) = (*in_ptr.add(index)).max(0.0);
+            index += 1;
+        }
     }
 }
 
@@ -1074,21 +1074,21 @@ fn gelu_sigmoid_slice_scalar(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn relu_slice_sse(values: &mut [f32]) {
     unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let zero = _mm_setzero_ps();
-    let mut index = 0usize;
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let zero = _mm_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        let input = _mm_loadu_ps(ptr.add(index));
-        let out = _mm_max_ps(input, zero);
-        _mm_storeu_ps(ptr.add(index), out);
-        index += 4;
-    }
+        while index + 4 <= len {
+            let input = _mm_loadu_ps(ptr.add(index));
+            let out = _mm_max_ps(input, zero);
+            _mm_storeu_ps(ptr.add(index), out);
+            index += 4;
+        }
 
-    if index < len {
-        relu_slice_scalar(&mut values[index..]);
-    }
+        if index < len {
+            relu_slice_scalar(&mut values[index..]);
+        }
     }
 }
 
@@ -1097,35 +1097,35 @@ unsafe fn relu_slice_sse(values: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn relu_slice_avx(values: &mut [f32]) {
     unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let zero = _mm256_setzero_ps();
-    let mut index = 0usize;
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let zero = _mm256_setzero_ps();
+        let mut index = 0usize;
 
-    // 4x unrolled: 32 elements per iteration
-    while index + 32 <= len {
-        let v0 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index)), zero);
-        let v1 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index + 8)), zero);
-        let v2 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index + 16)), zero);
-        let v3 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index + 24)), zero);
-        _mm256_storeu_ps(ptr.add(index), v0);
-        _mm256_storeu_ps(ptr.add(index + 8), v1);
-        _mm256_storeu_ps(ptr.add(index + 16), v2);
-        _mm256_storeu_ps(ptr.add(index + 24), v3);
-        index += 32;
-    }
+        // 4x unrolled: 32 elements per iteration
+        while index + 32 <= len {
+            let v0 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index)), zero);
+            let v1 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index + 8)), zero);
+            let v2 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index + 16)), zero);
+            let v3 = _mm256_max_ps(_mm256_loadu_ps(ptr.add(index + 24)), zero);
+            _mm256_storeu_ps(ptr.add(index), v0);
+            _mm256_storeu_ps(ptr.add(index + 8), v1);
+            _mm256_storeu_ps(ptr.add(index + 16), v2);
+            _mm256_storeu_ps(ptr.add(index + 24), v3);
+            index += 32;
+        }
 
-    while index + 8 <= len {
-        _mm256_storeu_ps(
-            ptr.add(index),
-            _mm256_max_ps(_mm256_loadu_ps(ptr.add(index)), zero),
-        );
-        index += 8;
-    }
+        while index + 8 <= len {
+            _mm256_storeu_ps(
+                ptr.add(index),
+                _mm256_max_ps(_mm256_loadu_ps(ptr.add(index)), zero),
+            );
+            index += 8;
+        }
 
-    if index < len {
-        relu_slice_sse(&mut values[index..]);
-    }
+        if index < len {
+            relu_slice_sse(&mut values[index..]);
+        }
     }
 }
 
@@ -1134,34 +1134,34 @@ unsafe fn relu_slice_avx(values: &mut [f32]) {
 #[target_feature(enable = "avx512f")]
 unsafe fn relu_slice_avx512(values: &mut [f32]) {
     unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let zero = _mm512_setzero_ps();
-    let mut index = 0usize;
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let zero = _mm512_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 64 <= len {
-        let v0 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index)), zero);
-        let v1 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index + 16)), zero);
-        let v2 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index + 32)), zero);
-        let v3 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index + 48)), zero);
-        _mm512_storeu_ps(ptr.add(index), v0);
-        _mm512_storeu_ps(ptr.add(index + 16), v1);
-        _mm512_storeu_ps(ptr.add(index + 32), v2);
-        _mm512_storeu_ps(ptr.add(index + 48), v3);
-        index += 64;
-    }
+        while index + 64 <= len {
+            let v0 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index)), zero);
+            let v1 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index + 16)), zero);
+            let v2 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index + 32)), zero);
+            let v3 = _mm512_max_ps(_mm512_loadu_ps(ptr.add(index + 48)), zero);
+            _mm512_storeu_ps(ptr.add(index), v0);
+            _mm512_storeu_ps(ptr.add(index + 16), v1);
+            _mm512_storeu_ps(ptr.add(index + 32), v2);
+            _mm512_storeu_ps(ptr.add(index + 48), v3);
+            index += 64;
+        }
 
-    while index + 16 <= len {
-        _mm512_storeu_ps(
-            ptr.add(index),
-            _mm512_max_ps(_mm512_loadu_ps(ptr.add(index)), zero),
-        );
-        index += 16;
-    }
+        while index + 16 <= len {
+            _mm512_storeu_ps(
+                ptr.add(index),
+                _mm512_max_ps(_mm512_loadu_ps(ptr.add(index)), zero),
+            );
+            index += 16;
+        }
 
-    if index < len {
-        relu_slice_avx(&mut values[index..]);
-    }
+        if index < len {
+            relu_slice_avx(&mut values[index..]);
+        }
     }
 }
 
@@ -1170,40 +1170,40 @@ unsafe fn relu_slice_avx512(values: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn relu_slice_neon(values: &mut [f32]) {
     unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let zero = vdupq_n_f32(0.0);
-    let mut index = 0usize;
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let zero = vdupq_n_f32(0.0);
+        let mut index = 0usize;
 
-    // 8x unrolled: 32 elements per iteration
-    while index + 32 <= len {
-        let v0 = vmaxq_f32(vld1q_f32(ptr.add(index)), zero);
-        let v1 = vmaxq_f32(vld1q_f32(ptr.add(index + 4)), zero);
-        let v2 = vmaxq_f32(vld1q_f32(ptr.add(index + 8)), zero);
-        let v3 = vmaxq_f32(vld1q_f32(ptr.add(index + 12)), zero);
-        let v4 = vmaxq_f32(vld1q_f32(ptr.add(index + 16)), zero);
-        let v5 = vmaxq_f32(vld1q_f32(ptr.add(index + 20)), zero);
-        let v6 = vmaxq_f32(vld1q_f32(ptr.add(index + 24)), zero);
-        let v7 = vmaxq_f32(vld1q_f32(ptr.add(index + 28)), zero);
-        vst1q_f32(ptr.add(index), v0);
-        vst1q_f32(ptr.add(index + 4), v1);
-        vst1q_f32(ptr.add(index + 8), v2);
-        vst1q_f32(ptr.add(index + 12), v3);
-        vst1q_f32(ptr.add(index + 16), v4);
-        vst1q_f32(ptr.add(index + 20), v5);
-        vst1q_f32(ptr.add(index + 24), v6);
-        vst1q_f32(ptr.add(index + 28), v7);
-        index += 32;
-    }
+        // 8x unrolled: 32 elements per iteration
+        while index + 32 <= len {
+            let v0 = vmaxq_f32(vld1q_f32(ptr.add(index)), zero);
+            let v1 = vmaxq_f32(vld1q_f32(ptr.add(index + 4)), zero);
+            let v2 = vmaxq_f32(vld1q_f32(ptr.add(index + 8)), zero);
+            let v3 = vmaxq_f32(vld1q_f32(ptr.add(index + 12)), zero);
+            let v4 = vmaxq_f32(vld1q_f32(ptr.add(index + 16)), zero);
+            let v5 = vmaxq_f32(vld1q_f32(ptr.add(index + 20)), zero);
+            let v6 = vmaxq_f32(vld1q_f32(ptr.add(index + 24)), zero);
+            let v7 = vmaxq_f32(vld1q_f32(ptr.add(index + 28)), zero);
+            vst1q_f32(ptr.add(index), v0);
+            vst1q_f32(ptr.add(index + 4), v1);
+            vst1q_f32(ptr.add(index + 8), v2);
+            vst1q_f32(ptr.add(index + 12), v3);
+            vst1q_f32(ptr.add(index + 16), v4);
+            vst1q_f32(ptr.add(index + 20), v5);
+            vst1q_f32(ptr.add(index + 24), v6);
+            vst1q_f32(ptr.add(index + 28), v7);
+            index += 32;
+        }
 
-    while index + 4 <= len {
-        vst1q_f32(ptr.add(index), vmaxq_f32(vld1q_f32(ptr.add(index)), zero));
-        index += 4;
-    }
+        while index + 4 <= len {
+            vst1q_f32(ptr.add(index), vmaxq_f32(vld1q_f32(ptr.add(index)), zero));
+            index += 4;
+        }
 
-    if index < len {
-        relu_slice_scalar(&mut values[index..]);
-    }
+        if index < len {
+            relu_slice_scalar(&mut values[index..]);
+        }
     }
 }
 
@@ -1216,22 +1216,22 @@ unsafe fn relu_slice_neon(values: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn relu_to_slice_sse(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let zero = _mm_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let zero = _mm_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        let v = _mm_loadu_ps(in_ptr.add(index));
-        let r = _mm_max_ps(v, zero);
-        _mm_storeu_ps(out_ptr.add(index), r);
-        index += 4;
-    }
+        while index + 4 <= len {
+            let v = _mm_loadu_ps(in_ptr.add(index));
+            let r = _mm_max_ps(v, zero);
+            _mm_storeu_ps(out_ptr.add(index), r);
+            index += 4;
+        }
 
-    if index < len {
-        relu_to_slice_scalar(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            relu_to_slice_scalar(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1240,36 +1240,36 @@ unsafe fn relu_to_slice_sse(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn relu_to_slice_avx(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let zero = _mm256_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let zero = _mm256_setzero_ps();
+        let mut index = 0usize;
 
-    // 4x unrolled: 32 elements per iteration (matches NEON unrolling)
-    while index + 32 <= len {
-        let a0 = _mm256_loadu_ps(in_ptr.add(index));
-        let a1 = _mm256_loadu_ps(in_ptr.add(index + 8));
-        let a2 = _mm256_loadu_ps(in_ptr.add(index + 16));
-        let a3 = _mm256_loadu_ps(in_ptr.add(index + 24));
-        _mm256_storeu_ps(out_ptr.add(index), _mm256_max_ps(a0, zero));
-        _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_max_ps(a1, zero));
-        _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_max_ps(a2, zero));
-        _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_max_ps(a3, zero));
-        index += 32;
-    }
+        // 4x unrolled: 32 elements per iteration (matches NEON unrolling)
+        while index + 32 <= len {
+            let a0 = _mm256_loadu_ps(in_ptr.add(index));
+            let a1 = _mm256_loadu_ps(in_ptr.add(index + 8));
+            let a2 = _mm256_loadu_ps(in_ptr.add(index + 16));
+            let a3 = _mm256_loadu_ps(in_ptr.add(index + 24));
+            _mm256_storeu_ps(out_ptr.add(index), _mm256_max_ps(a0, zero));
+            _mm256_storeu_ps(out_ptr.add(index + 8), _mm256_max_ps(a1, zero));
+            _mm256_storeu_ps(out_ptr.add(index + 16), _mm256_max_ps(a2, zero));
+            _mm256_storeu_ps(out_ptr.add(index + 24), _mm256_max_ps(a3, zero));
+            index += 32;
+        }
 
-    while index + 8 <= len {
-        _mm256_storeu_ps(
-            out_ptr.add(index),
-            _mm256_max_ps(_mm256_loadu_ps(in_ptr.add(index)), zero),
-        );
-        index += 8;
-    }
+        while index + 8 <= len {
+            _mm256_storeu_ps(
+                out_ptr.add(index),
+                _mm256_max_ps(_mm256_loadu_ps(in_ptr.add(index)), zero),
+            );
+            index += 8;
+        }
 
-    if index < len {
-        relu_to_slice_sse(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            relu_to_slice_sse(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1278,35 +1278,35 @@ unsafe fn relu_to_slice_avx(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx512f")]
 unsafe fn relu_to_slice_avx512(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let zero = _mm512_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let zero = _mm512_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 64 <= len {
-        let a0 = _mm512_loadu_ps(in_ptr.add(index));
-        let a1 = _mm512_loadu_ps(in_ptr.add(index + 16));
-        let a2 = _mm512_loadu_ps(in_ptr.add(index + 32));
-        let a3 = _mm512_loadu_ps(in_ptr.add(index + 48));
-        _mm512_storeu_ps(out_ptr.add(index), _mm512_max_ps(a0, zero));
-        _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_max_ps(a1, zero));
-        _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_max_ps(a2, zero));
-        _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_max_ps(a3, zero));
-        index += 64;
-    }
+        while index + 64 <= len {
+            let a0 = _mm512_loadu_ps(in_ptr.add(index));
+            let a1 = _mm512_loadu_ps(in_ptr.add(index + 16));
+            let a2 = _mm512_loadu_ps(in_ptr.add(index + 32));
+            let a3 = _mm512_loadu_ps(in_ptr.add(index + 48));
+            _mm512_storeu_ps(out_ptr.add(index), _mm512_max_ps(a0, zero));
+            _mm512_storeu_ps(out_ptr.add(index + 16), _mm512_max_ps(a1, zero));
+            _mm512_storeu_ps(out_ptr.add(index + 32), _mm512_max_ps(a2, zero));
+            _mm512_storeu_ps(out_ptr.add(index + 48), _mm512_max_ps(a3, zero));
+            index += 64;
+        }
 
-    while index + 16 <= len {
-        _mm512_storeu_ps(
-            out_ptr.add(index),
-            _mm512_max_ps(_mm512_loadu_ps(in_ptr.add(index)), zero),
-        );
-        index += 16;
-    }
+        while index + 16 <= len {
+            _mm512_storeu_ps(
+                out_ptr.add(index),
+                _mm512_max_ps(_mm512_loadu_ps(in_ptr.add(index)), zero),
+            );
+            index += 16;
+        }
 
-    if index < len {
-        relu_to_slice_avx(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            relu_to_slice_avx(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1315,44 +1315,44 @@ unsafe fn relu_to_slice_avx512(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn relu_to_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let zero = vdupq_n_f32(0.0);
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let zero = vdupq_n_f32(0.0);
+        let mut index = 0usize;
 
-    // 8x unrolled with interleaved load/compute/store for better OoO pipelining
-    while index + 32 <= len {
-        let a0 = vld1q_f32(in_ptr.add(index));
-        let a1 = vld1q_f32(in_ptr.add(index + 4));
-        let a2 = vld1q_f32(in_ptr.add(index + 8));
-        let a3 = vld1q_f32(in_ptr.add(index + 12));
-        vst1q_f32(out_ptr.add(index), vmaxq_f32(a0, zero));
-        vst1q_f32(out_ptr.add(index + 4), vmaxq_f32(a1, zero));
-        let a4 = vld1q_f32(in_ptr.add(index + 16));
-        let a5 = vld1q_f32(in_ptr.add(index + 20));
-        vst1q_f32(out_ptr.add(index + 8), vmaxq_f32(a2, zero));
-        vst1q_f32(out_ptr.add(index + 12), vmaxq_f32(a3, zero));
-        let a6 = vld1q_f32(in_ptr.add(index + 24));
-        let a7 = vld1q_f32(in_ptr.add(index + 28));
-        vst1q_f32(out_ptr.add(index + 16), vmaxq_f32(a4, zero));
-        vst1q_f32(out_ptr.add(index + 20), vmaxq_f32(a5, zero));
-        vst1q_f32(out_ptr.add(index + 24), vmaxq_f32(a6, zero));
-        vst1q_f32(out_ptr.add(index + 28), vmaxq_f32(a7, zero));
-        index += 32;
-    }
+        // 8x unrolled with interleaved load/compute/store for better OoO pipelining
+        while index + 32 <= len {
+            let a0 = vld1q_f32(in_ptr.add(index));
+            let a1 = vld1q_f32(in_ptr.add(index + 4));
+            let a2 = vld1q_f32(in_ptr.add(index + 8));
+            let a3 = vld1q_f32(in_ptr.add(index + 12));
+            vst1q_f32(out_ptr.add(index), vmaxq_f32(a0, zero));
+            vst1q_f32(out_ptr.add(index + 4), vmaxq_f32(a1, zero));
+            let a4 = vld1q_f32(in_ptr.add(index + 16));
+            let a5 = vld1q_f32(in_ptr.add(index + 20));
+            vst1q_f32(out_ptr.add(index + 8), vmaxq_f32(a2, zero));
+            vst1q_f32(out_ptr.add(index + 12), vmaxq_f32(a3, zero));
+            let a6 = vld1q_f32(in_ptr.add(index + 24));
+            let a7 = vld1q_f32(in_ptr.add(index + 28));
+            vst1q_f32(out_ptr.add(index + 16), vmaxq_f32(a4, zero));
+            vst1q_f32(out_ptr.add(index + 20), vmaxq_f32(a5, zero));
+            vst1q_f32(out_ptr.add(index + 24), vmaxq_f32(a6, zero));
+            vst1q_f32(out_ptr.add(index + 28), vmaxq_f32(a7, zero));
+            index += 32;
+        }
 
-    while index + 4 <= len {
-        vst1q_f32(
-            out_ptr.add(index),
-            vmaxq_f32(vld1q_f32(in_ptr.add(index)), zero),
-        );
-        index += 4;
-    }
+        while index + 4 <= len {
+            vst1q_f32(
+                out_ptr.add(index),
+                vmaxq_f32(vld1q_f32(in_ptr.add(index)), zero),
+            );
+            index += 4;
+        }
 
-    if index < len {
-        relu_to_slice_scalar(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            relu_to_slice_scalar(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1411,39 +1411,39 @@ unsafe fn sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let mut i = 0usize;
-    let one = vdupq_n_f32(1.0);
-    let zero = vdupq_n_f32(0.0);
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let mut i = 0usize;
+        let one = vdupq_n_f32(1.0);
+        let zero = vdupq_n_f32(0.0);
 
-    while i + 16 <= len {
-        let x0 = vld1q_f32(in_ptr.add(i));
-        let x1 = vld1q_f32(in_ptr.add(i + 4));
-        let x2 = vld1q_f32(in_ptr.add(i + 8));
-        let x3 = vld1q_f32(in_ptr.add(i + 12));
-        let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, x0));
-        let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, x1));
-        let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, x2));
-        let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, x3));
-        vst1q_f32(out_ptr.add(i), vrecipq_neon_v7(vaddq_f32(one, e0)));
-        vst1q_f32(out_ptr.add(i + 4), vrecipq_neon_v7(vaddq_f32(one, e1)));
-        vst1q_f32(out_ptr.add(i + 8), vrecipq_neon_v7(vaddq_f32(one, e2)));
-        vst1q_f32(out_ptr.add(i + 12), vrecipq_neon_v7(vaddq_f32(one, e3)));
-        i += 16;
-    }
+        while i + 16 <= len {
+            let x0 = vld1q_f32(in_ptr.add(i));
+            let x1 = vld1q_f32(in_ptr.add(i + 4));
+            let x2 = vld1q_f32(in_ptr.add(i + 8));
+            let x3 = vld1q_f32(in_ptr.add(i + 12));
+            let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, x0));
+            let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, x1));
+            let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, x2));
+            let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, x3));
+            vst1q_f32(out_ptr.add(i), vrecipq_neon_v7(vaddq_f32(one, e0)));
+            vst1q_f32(out_ptr.add(i + 4), vrecipq_neon_v7(vaddq_f32(one, e1)));
+            vst1q_f32(out_ptr.add(i + 8), vrecipq_neon_v7(vaddq_f32(one, e2)));
+            vst1q_f32(out_ptr.add(i + 12), vrecipq_neon_v7(vaddq_f32(one, e3)));
+            i += 16;
+        }
 
-    while i + 4 <= len {
-        let x = vld1q_f32(in_ptr.add(i));
-        let e = fast_exp_sigmoid_neon(vsubq_f32(zero, x));
-        vst1q_f32(out_ptr.add(i), vrecipq_neon_v7(vaddq_f32(one, e)));
-        i += 4;
-    }
+        while i + 4 <= len {
+            let x = vld1q_f32(in_ptr.add(i));
+            let e = fast_exp_sigmoid_neon(vsubq_f32(zero, x));
+            vst1q_f32(out_ptr.add(i), vrecipq_neon_v7(vaddq_f32(one, e)));
+            i += 4;
+        }
 
-    for k in i..len {
-        output[k] = 1.0 / (1.0 + (-input[k]).exp());
-    }
+        for k in i..len {
+            output[k] = 1.0 / (1.0 + (-input[k]).exp());
+        }
     }
 }
 
@@ -1452,59 +1452,59 @@ unsafe fn sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm_div_ps;
 
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = _mm_set1_ps(1.0);
-    let zero = _mm_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = _mm_set1_ps(1.0);
+        let zero = _mm_setzero_ps();
+        let mut index = 0usize;
 
-    // Process 16 elements per iteration (4 SSE registers)
-    while index + 16 <= len {
-        let x0 = _mm_loadu_ps(in_ptr.add(index));
-        let x1 = _mm_loadu_ps(in_ptr.add(index + 4));
-        let x2 = _mm_loadu_ps(in_ptr.add(index + 8));
-        let x3 = _mm_loadu_ps(in_ptr.add(index + 12));
+        // Process 16 elements per iteration (4 SSE registers)
+        while index + 16 <= len {
+            let x0 = _mm_loadu_ps(in_ptr.add(index));
+            let x1 = _mm_loadu_ps(in_ptr.add(index + 4));
+            let x2 = _mm_loadu_ps(in_ptr.add(index + 8));
+            let x3 = _mm_loadu_ps(in_ptr.add(index + 12));
 
-        // Bit-trick exp is sufficient for sigmoid (output clamped 0-1, errors wash out)
-        let e0 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x0));
-        let e1 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x1));
-        let e2 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x2));
-        let e3 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x3));
+            // Bit-trick exp is sufficient for sigmoid (output clamped 0-1, errors wash out)
+            let e0 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x0));
+            let e1 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x1));
+            let e2 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x2));
+            let e3 = fast_exp_sigmoid_sse(_mm_sub_ps(zero, x3));
 
-        let r0 = _mm_div_ps(one, _mm_add_ps(one, e0));
-        let r1 = _mm_div_ps(one, _mm_add_ps(one, e1));
-        let r2 = _mm_div_ps(one, _mm_add_ps(one, e2));
-        let r3 = _mm_div_ps(one, _mm_add_ps(one, e3));
+            let r0 = _mm_div_ps(one, _mm_add_ps(one, e0));
+            let r1 = _mm_div_ps(one, _mm_add_ps(one, e1));
+            let r2 = _mm_div_ps(one, _mm_add_ps(one, e2));
+            let r3 = _mm_div_ps(one, _mm_add_ps(one, e3));
 
-        _mm_storeu_ps(out_ptr.add(index), r0);
-        _mm_storeu_ps(out_ptr.add(index + 4), r1);
-        _mm_storeu_ps(out_ptr.add(index + 8), r2);
-        _mm_storeu_ps(out_ptr.add(index + 12), r3);
+            _mm_storeu_ps(out_ptr.add(index), r0);
+            _mm_storeu_ps(out_ptr.add(index + 4), r1);
+            _mm_storeu_ps(out_ptr.add(index + 8), r2);
+            _mm_storeu_ps(out_ptr.add(index + 12), r3);
 
-        index += 16;
-    }
+            index += 16;
+        }
 
-    // Remaining 4 at a time
-    while index + 4 <= len {
-        let x = _mm_loadu_ps(in_ptr.add(index));
-        let neg_x = _mm_sub_ps(zero, x);
-        let exp_neg_x = fast_exp_sigmoid_sse(neg_x);
-        let denom = _mm_add_ps(one, exp_neg_x);
-        let result = _mm_div_ps(one, denom);
-        _mm_storeu_ps(out_ptr.add(index), result);
-        index += 4;
-    }
+        // Remaining 4 at a time
+        while index + 4 <= len {
+            let x = _mm_loadu_ps(in_ptr.add(index));
+            let neg_x = _mm_sub_ps(zero, x);
+            let exp_neg_x = fast_exp_sigmoid_sse(neg_x);
+            let denom = _mm_add_ps(one, exp_neg_x);
+            let result = _mm_div_ps(one, denom);
+            _mm_storeu_ps(out_ptr.add(index), result);
+            index += 4;
+        }
 
-    while index < len {
-        *out_ptr.add(index) = sigmoid_scalar(*in_ptr.add(index));
-        index += 1;
-    }
+        while index < len {
+            *out_ptr.add(index) = sigmoid_scalar(*in_ptr.add(index));
+            index += 1;
+        }
     }
 }
 
@@ -1513,58 +1513,58 @@ unsafe fn sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm256_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm256_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm256_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm256_div_ps;
 
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = _mm256_set1_ps(1.0);
-    let zero = _mm256_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = _mm256_set1_ps(1.0);
+        let zero = _mm256_setzero_ps();
+        let mut index = 0usize;
 
-    // Process 32 elements per iteration (4 AVX registers)
-    while index + 32 <= len {
-        let x0 = _mm256_loadu_ps(in_ptr.add(index));
-        let x1 = _mm256_loadu_ps(in_ptr.add(index + 8));
-        let x2 = _mm256_loadu_ps(in_ptr.add(index + 16));
-        let x3 = _mm256_loadu_ps(in_ptr.add(index + 24));
+        // Process 32 elements per iteration (4 AVX registers)
+        while index + 32 <= len {
+            let x0 = _mm256_loadu_ps(in_ptr.add(index));
+            let x1 = _mm256_loadu_ps(in_ptr.add(index + 8));
+            let x2 = _mm256_loadu_ps(in_ptr.add(index + 16));
+            let x3 = _mm256_loadu_ps(in_ptr.add(index + 24));
 
-        // Use Schraudolph bit-trick exp for ~3x speedup over polynomial
-        let e0 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x0));
-        let e1 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x1));
-        let e2 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x2));
-        let e3 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x3));
+            // Use Schraudolph bit-trick exp for ~3x speedup over polynomial
+            let e0 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x0));
+            let e1 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x1));
+            let e2 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x2));
+            let e3 = fast_exp_sigmoid_avx(_mm256_sub_ps(zero, x3));
 
-        let r0 = _mm256_div_ps(one, _mm256_add_ps(one, e0));
-        let r1 = _mm256_div_ps(one, _mm256_add_ps(one, e1));
-        let r2 = _mm256_div_ps(one, _mm256_add_ps(one, e2));
-        let r3 = _mm256_div_ps(one, _mm256_add_ps(one, e3));
+            let r0 = _mm256_div_ps(one, _mm256_add_ps(one, e0));
+            let r1 = _mm256_div_ps(one, _mm256_add_ps(one, e1));
+            let r2 = _mm256_div_ps(one, _mm256_add_ps(one, e2));
+            let r3 = _mm256_div_ps(one, _mm256_add_ps(one, e3));
 
-        _mm256_storeu_ps(out_ptr.add(index), r0);
-        _mm256_storeu_ps(out_ptr.add(index + 8), r1);
-        _mm256_storeu_ps(out_ptr.add(index + 16), r2);
-        _mm256_storeu_ps(out_ptr.add(index + 24), r3);
+            _mm256_storeu_ps(out_ptr.add(index), r0);
+            _mm256_storeu_ps(out_ptr.add(index + 8), r1);
+            _mm256_storeu_ps(out_ptr.add(index + 16), r2);
+            _mm256_storeu_ps(out_ptr.add(index + 24), r3);
 
-        index += 32;
-    }
+            index += 32;
+        }
 
-    // Remaining 8 at a time
-    while index + 8 <= len {
-        let x = _mm256_loadu_ps(in_ptr.add(index));
-        let neg_x = _mm256_sub_ps(zero, x);
-        let exp_neg_x = fast_exp_sigmoid_avx(neg_x);
-        let denom = _mm256_add_ps(one, exp_neg_x);
-        let result = _mm256_div_ps(one, denom);
-        _mm256_storeu_ps(out_ptr.add(index), result);
-        index += 8;
-    }
+        // Remaining 8 at a time
+        while index + 8 <= len {
+            let x = _mm256_loadu_ps(in_ptr.add(index));
+            let neg_x = _mm256_sub_ps(zero, x);
+            let exp_neg_x = fast_exp_sigmoid_avx(neg_x);
+            let denom = _mm256_add_ps(one, exp_neg_x);
+            let result = _mm256_div_ps(one, denom);
+            _mm256_storeu_ps(out_ptr.add(index), result);
+            index += 8;
+        }
 
-    if index < len {
-        sigmoid_slice_sse(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            sigmoid_slice_sse(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1575,36 +1575,36 @@ unsafe fn sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx512f")]
 unsafe fn sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = _mm512_set1_ps(1.0);
-    let zero = _mm512_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = _mm512_set1_ps(1.0);
+        let zero = _mm512_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = _mm512_loadu_ps(in_ptr.add(index));
-        let x1 = _mm512_loadu_ps(in_ptr.add(index + 16));
-        let e0 = fast_exp_sigmoid_avx512(_mm512_sub_ps(zero, x0));
-        let e1 = fast_exp_sigmoid_avx512(_mm512_sub_ps(zero, x1));
-        let r0 = _mm512_div_ps(one, _mm512_add_ps(one, e0));
-        let r1 = _mm512_div_ps(one, _mm512_add_ps(one, e1));
-        _mm512_storeu_ps(out_ptr.add(index), r0);
-        _mm512_storeu_ps(out_ptr.add(index + 16), r1);
-        index += 32;
-    }
+        while index + 32 <= len {
+            let x0 = _mm512_loadu_ps(in_ptr.add(index));
+            let x1 = _mm512_loadu_ps(in_ptr.add(index + 16));
+            let e0 = fast_exp_sigmoid_avx512(_mm512_sub_ps(zero, x0));
+            let e1 = fast_exp_sigmoid_avx512(_mm512_sub_ps(zero, x1));
+            let r0 = _mm512_div_ps(one, _mm512_add_ps(one, e0));
+            let r1 = _mm512_div_ps(one, _mm512_add_ps(one, e1));
+            _mm512_storeu_ps(out_ptr.add(index), r0);
+            _mm512_storeu_ps(out_ptr.add(index + 16), r1);
+            index += 32;
+        }
 
-    while index + 16 <= len {
-        let x = _mm512_loadu_ps(in_ptr.add(index));
-        let exp_neg_x = fast_exp_sigmoid_avx512(_mm512_sub_ps(zero, x));
-        let result = _mm512_div_ps(one, _mm512_add_ps(one, exp_neg_x));
-        _mm512_storeu_ps(out_ptr.add(index), result);
-        index += 16;
-    }
+        while index + 16 <= len {
+            let x = _mm512_loadu_ps(in_ptr.add(index));
+            let exp_neg_x = fast_exp_sigmoid_avx512(_mm512_sub_ps(zero, x));
+            let result = _mm512_div_ps(one, _mm512_add_ps(one, exp_neg_x));
+            _mm512_storeu_ps(out_ptr.add(index), result);
+            index += 16;
+        }
 
-    if index < len {
-        sigmoid_slice_avx(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            sigmoid_slice_avx(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1617,55 +1617,55 @@ unsafe fn sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let scale = vdupq_n_f32(1.702);
-    let one = vdupq_n_f32(1.0);
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let scale = vdupq_n_f32(1.702);
+        let one = vdupq_n_f32(1.0);
+        let mut index = 0usize;
 
-    while index + 16 <= len {
-        let x0 = vld1q_f32(in_ptr.add(index));
-        let x1 = vld1q_f32(in_ptr.add(index + 4));
-        let x2 = vld1q_f32(in_ptr.add(index + 8));
-        let x3 = vld1q_f32(in_ptr.add(index + 12));
-        let e0 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x0)));
-        let e1 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x1)));
-        let e2 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x2)));
-        let e3 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x3)));
-        vst1q_f32(
-            out_ptr.add(index),
-            vmulq_f32(x0, vdivq_f32(one, vaddq_f32(one, e0))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 4),
-            vmulq_f32(x1, vdivq_f32(one, vaddq_f32(one, e1))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 8),
-            vmulq_f32(x2, vdivq_f32(one, vaddq_f32(one, e2))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 12),
-            vmulq_f32(x3, vdivq_f32(one, vaddq_f32(one, e3))),
-        );
-        index += 16;
-    }
+        while index + 16 <= len {
+            let x0 = vld1q_f32(in_ptr.add(index));
+            let x1 = vld1q_f32(in_ptr.add(index + 4));
+            let x2 = vld1q_f32(in_ptr.add(index + 8));
+            let x3 = vld1q_f32(in_ptr.add(index + 12));
+            let e0 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x0)));
+            let e1 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x1)));
+            let e2 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x2)));
+            let e3 = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x3)));
+            vst1q_f32(
+                out_ptr.add(index),
+                vmulq_f32(x0, vdivq_f32(one, vaddq_f32(one, e0))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 4),
+                vmulq_f32(x1, vdivq_f32(one, vaddq_f32(one, e1))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 8),
+                vmulq_f32(x2, vdivq_f32(one, vaddq_f32(one, e2))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 12),
+                vmulq_f32(x3, vdivq_f32(one, vaddq_f32(one, e3))),
+            );
+            index += 16;
+        }
 
-    while index + 4 <= len {
-        let x = vld1q_f32(in_ptr.add(index));
-        let e = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x)));
-        let sig = vdivq_f32(one, vaddq_f32(one, e));
-        vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
-        index += 4;
-    }
+        while index + 4 <= len {
+            let x = vld1q_f32(in_ptr.add(index));
+            let e = fast_exp_sigmoid_neon(vnegq_f32(vmulq_f32(scale, x)));
+            let sig = vdivq_f32(one, vaddq_f32(one, e));
+            vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
+            index += 4;
+        }
 
-    while index < len {
-        let x = *in_ptr.add(index);
-        let s = 1.0 / (1.0 + (-(1.702 * x)).exp());
-        *out_ptr.add(index) = x * s;
-        index += 1;
-    }
+        while index < len {
+            let x = *in_ptr.add(index);
+            let s = 1.0 / (1.0 + (-(1.702 * x)).exp());
+            *out_ptr.add(index) = x * s;
+            index += 1;
+        }
     }
 }
 
@@ -1674,56 +1674,56 @@ unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let scale = vdupq_n_f32(1.702);
-    let one = vdupq_n_f32(1.0);
-    let zero = vdupq_n_f32(0.0);
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let scale = vdupq_n_f32(1.702);
+        let one = vdupq_n_f32(1.0);
+        let zero = vdupq_n_f32(0.0);
+        let mut index = 0usize;
 
-    while index + 16 <= len {
-        let x0 = vld1q_f32(in_ptr.add(index));
-        let x1 = vld1q_f32(in_ptr.add(index + 4));
-        let x2 = vld1q_f32(in_ptr.add(index + 8));
-        let x3 = vld1q_f32(in_ptr.add(index + 12));
-        let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x0)));
-        let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x1)));
-        let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x2)));
-        let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x3)));
-        vst1q_f32(
-            out_ptr.add(index),
-            vmulq_f32(x0, vrecipq_neon_v7(vaddq_f32(one, e0))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 4),
-            vmulq_f32(x1, vrecipq_neon_v7(vaddq_f32(one, e1))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 8),
-            vmulq_f32(x2, vrecipq_neon_v7(vaddq_f32(one, e2))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 12),
-            vmulq_f32(x3, vrecipq_neon_v7(vaddq_f32(one, e3))),
-        );
-        index += 16;
-    }
+        while index + 16 <= len {
+            let x0 = vld1q_f32(in_ptr.add(index));
+            let x1 = vld1q_f32(in_ptr.add(index + 4));
+            let x2 = vld1q_f32(in_ptr.add(index + 8));
+            let x3 = vld1q_f32(in_ptr.add(index + 12));
+            let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x0)));
+            let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x1)));
+            let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x2)));
+            let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x3)));
+            vst1q_f32(
+                out_ptr.add(index),
+                vmulq_f32(x0, vrecipq_neon_v7(vaddq_f32(one, e0))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 4),
+                vmulq_f32(x1, vrecipq_neon_v7(vaddq_f32(one, e1))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 8),
+                vmulq_f32(x2, vrecipq_neon_v7(vaddq_f32(one, e2))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 12),
+                vmulq_f32(x3, vrecipq_neon_v7(vaddq_f32(one, e3))),
+            );
+            index += 16;
+        }
 
-    while index + 4 <= len {
-        let x = vld1q_f32(in_ptr.add(index));
-        let e = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x)));
-        let sig = vrecipq_neon_v7(vaddq_f32(one, e));
-        vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
-        index += 4;
-    }
+        while index + 4 <= len {
+            let x = vld1q_f32(in_ptr.add(index));
+            let e = fast_exp_sigmoid_neon(vsubq_f32(zero, vmulq_f32(scale, x)));
+            let sig = vrecipq_neon_v7(vaddq_f32(one, e));
+            vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
+            index += 4;
+        }
 
-    while index < len {
-        let x = *in_ptr.add(index);
-        let s = 1.0 / (1.0 + (-(1.702 * x)).exp());
-        *out_ptr.add(index) = x * s;
-        index += 1;
-    }
+        while index < len {
+            let x = *in_ptr.add(index);
+            let s = 1.0 / (1.0 + (-(1.702 * x)).exp());
+            *out_ptr.add(index) = x * s;
+            index += 1;
+        }
     }
 }
 
@@ -1732,40 +1732,40 @@ unsafe fn gelu_sigmoid_slice_neon(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx512f")]
 unsafe fn gelu_sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let scale = _mm512_set1_ps(1.702);
-    let one = _mm512_set1_ps(1.0);
-    let zero = _mm512_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let scale = _mm512_set1_ps(1.702);
+        let one = _mm512_set1_ps(1.0);
+        let zero = _mm512_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = _mm512_loadu_ps(in_ptr.add(index));
-        let x1 = _mm512_loadu_ps(in_ptr.add(index + 16));
-        let z0 = _mm512_mul_ps(scale, x0);
-        let z1 = _mm512_mul_ps(scale, x1);
-        let e0 = fast_exp_avx512(_mm512_sub_ps(zero, z0));
-        let e1 = fast_exp_avx512(_mm512_sub_ps(zero, z1));
-        let y0 = _mm512_mul_ps(x0, _mm512_div_ps(one, _mm512_add_ps(one, e0)));
-        let y1 = _mm512_mul_ps(x1, _mm512_div_ps(one, _mm512_add_ps(one, e1)));
-        _mm512_storeu_ps(out_ptr.add(index), y0);
-        _mm512_storeu_ps(out_ptr.add(index + 16), y1);
-        index += 32;
-    }
+        while index + 32 <= len {
+            let x0 = _mm512_loadu_ps(in_ptr.add(index));
+            let x1 = _mm512_loadu_ps(in_ptr.add(index + 16));
+            let z0 = _mm512_mul_ps(scale, x0);
+            let z1 = _mm512_mul_ps(scale, x1);
+            let e0 = fast_exp_avx512(_mm512_sub_ps(zero, z0));
+            let e1 = fast_exp_avx512(_mm512_sub_ps(zero, z1));
+            let y0 = _mm512_mul_ps(x0, _mm512_div_ps(one, _mm512_add_ps(one, e0)));
+            let y1 = _mm512_mul_ps(x1, _mm512_div_ps(one, _mm512_add_ps(one, e1)));
+            _mm512_storeu_ps(out_ptr.add(index), y0);
+            _mm512_storeu_ps(out_ptr.add(index + 16), y1);
+            index += 32;
+        }
 
-    while index + 16 <= len {
-        let x = _mm512_loadu_ps(in_ptr.add(index));
-        let z = _mm512_mul_ps(scale, x);
-        let e = fast_exp_avx512(_mm512_sub_ps(zero, z));
-        let y = _mm512_mul_ps(x, _mm512_div_ps(one, _mm512_add_ps(one, e)));
-        _mm512_storeu_ps(out_ptr.add(index), y);
-        index += 16;
-    }
+        while index + 16 <= len {
+            let x = _mm512_loadu_ps(in_ptr.add(index));
+            let z = _mm512_mul_ps(scale, x);
+            let e = fast_exp_avx512(_mm512_sub_ps(zero, z));
+            let y = _mm512_mul_ps(x, _mm512_div_ps(one, _mm512_add_ps(one, e)));
+            _mm512_storeu_ps(out_ptr.add(index), y);
+            index += 16;
+        }
 
-    if index < len {
-        gelu_sigmoid_slice_avx(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            gelu_sigmoid_slice_avx(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1774,61 +1774,61 @@ unsafe fn gelu_sigmoid_slice_avx512(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn gelu_sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm_div_ps;
 
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let scale = _mm_set1_ps(1.702);
-    let one = _mm_set1_ps(1.0);
-    let zero = _mm_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let scale = _mm_set1_ps(1.702);
+        let one = _mm_set1_ps(1.0);
+        let zero = _mm_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 16 <= len {
-        let x0 = _mm_loadu_ps(in_ptr.add(index));
-        let x1 = _mm_loadu_ps(in_ptr.add(index + 4));
-        let x2 = _mm_loadu_ps(in_ptr.add(index + 8));
-        let x3 = _mm_loadu_ps(in_ptr.add(index + 12));
-        let e0 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x0)));
-        let e1 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x1)));
-        let e2 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x2)));
-        let e3 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x3)));
-        _mm_storeu_ps(
-            out_ptr.add(index),
-            _mm_mul_ps(x0, _mm_div_ps(one, _mm_add_ps(one, e0))),
-        );
-        _mm_storeu_ps(
-            out_ptr.add(index + 4),
-            _mm_mul_ps(x1, _mm_div_ps(one, _mm_add_ps(one, e1))),
-        );
-        _mm_storeu_ps(
-            out_ptr.add(index + 8),
-            _mm_mul_ps(x2, _mm_div_ps(one, _mm_add_ps(one, e2))),
-        );
-        _mm_storeu_ps(
-            out_ptr.add(index + 12),
-            _mm_mul_ps(x3, _mm_div_ps(one, _mm_add_ps(one, e3))),
-        );
-        index += 16;
-    }
+        while index + 16 <= len {
+            let x0 = _mm_loadu_ps(in_ptr.add(index));
+            let x1 = _mm_loadu_ps(in_ptr.add(index + 4));
+            let x2 = _mm_loadu_ps(in_ptr.add(index + 8));
+            let x3 = _mm_loadu_ps(in_ptr.add(index + 12));
+            let e0 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x0)));
+            let e1 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x1)));
+            let e2 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x2)));
+            let e3 = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x3)));
+            _mm_storeu_ps(
+                out_ptr.add(index),
+                _mm_mul_ps(x0, _mm_div_ps(one, _mm_add_ps(one, e0))),
+            );
+            _mm_storeu_ps(
+                out_ptr.add(index + 4),
+                _mm_mul_ps(x1, _mm_div_ps(one, _mm_add_ps(one, e1))),
+            );
+            _mm_storeu_ps(
+                out_ptr.add(index + 8),
+                _mm_mul_ps(x2, _mm_div_ps(one, _mm_add_ps(one, e2))),
+            );
+            _mm_storeu_ps(
+                out_ptr.add(index + 12),
+                _mm_mul_ps(x3, _mm_div_ps(one, _mm_add_ps(one, e3))),
+            );
+            index += 16;
+        }
 
-    while index + 4 <= len {
-        let x = _mm_loadu_ps(in_ptr.add(index));
-        let e = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x)));
-        let sig = _mm_div_ps(one, _mm_add_ps(one, e));
-        _mm_storeu_ps(out_ptr.add(index), _mm_mul_ps(x, sig));
-        index += 4;
-    }
+        while index + 4 <= len {
+            let x = _mm_loadu_ps(in_ptr.add(index));
+            let e = fast_exp_sse(_mm_sub_ps(zero, _mm_mul_ps(scale, x)));
+            let sig = _mm_div_ps(one, _mm_add_ps(one, e));
+            _mm_storeu_ps(out_ptr.add(index), _mm_mul_ps(x, sig));
+            index += 4;
+        }
 
-    while index < len {
-        let x = *in_ptr.add(index);
-        let s = 1.0 / (1.0 + (-(1.702 * x)).exp());
-        *out_ptr.add(index) = x * s;
-        index += 1;
-    }
+        while index < len {
+            let x = *in_ptr.add(index);
+            let s = 1.0 / (1.0 + (-(1.702 * x)).exp());
+            *out_ptr.add(index) = x * s;
+            index += 1;
+        }
     }
 }
 
@@ -1837,58 +1837,58 @@ unsafe fn gelu_sigmoid_slice_sse(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn gelu_sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm256_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm256_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm256_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm256_div_ps;
 
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let scale = _mm256_set1_ps(1.702);
-    let one = _mm256_set1_ps(1.0);
-    let zero = _mm256_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let scale = _mm256_set1_ps(1.702);
+        let one = _mm256_set1_ps(1.0);
+        let zero = _mm256_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = _mm256_loadu_ps(in_ptr.add(index));
-        let x1 = _mm256_loadu_ps(in_ptr.add(index + 8));
-        let x2 = _mm256_loadu_ps(in_ptr.add(index + 16));
-        let x3 = _mm256_loadu_ps(in_ptr.add(index + 24));
-        let e0 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x0)));
-        let e1 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x1)));
-        let e2 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x2)));
-        let e3 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x3)));
-        _mm256_storeu_ps(
-            out_ptr.add(index),
-            _mm256_mul_ps(x0, _mm256_div_ps(one, _mm256_add_ps(one, e0))),
-        );
-        _mm256_storeu_ps(
-            out_ptr.add(index + 8),
-            _mm256_mul_ps(x1, _mm256_div_ps(one, _mm256_add_ps(one, e1))),
-        );
-        _mm256_storeu_ps(
-            out_ptr.add(index + 16),
-            _mm256_mul_ps(x2, _mm256_div_ps(one, _mm256_add_ps(one, e2))),
-        );
-        _mm256_storeu_ps(
-            out_ptr.add(index + 24),
-            _mm256_mul_ps(x3, _mm256_div_ps(one, _mm256_add_ps(one, e3))),
-        );
-        index += 32;
-    }
+        while index + 32 <= len {
+            let x0 = _mm256_loadu_ps(in_ptr.add(index));
+            let x1 = _mm256_loadu_ps(in_ptr.add(index + 8));
+            let x2 = _mm256_loadu_ps(in_ptr.add(index + 16));
+            let x3 = _mm256_loadu_ps(in_ptr.add(index + 24));
+            let e0 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x0)));
+            let e1 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x1)));
+            let e2 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x2)));
+            let e3 = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x3)));
+            _mm256_storeu_ps(
+                out_ptr.add(index),
+                _mm256_mul_ps(x0, _mm256_div_ps(one, _mm256_add_ps(one, e0))),
+            );
+            _mm256_storeu_ps(
+                out_ptr.add(index + 8),
+                _mm256_mul_ps(x1, _mm256_div_ps(one, _mm256_add_ps(one, e1))),
+            );
+            _mm256_storeu_ps(
+                out_ptr.add(index + 16),
+                _mm256_mul_ps(x2, _mm256_div_ps(one, _mm256_add_ps(one, e2))),
+            );
+            _mm256_storeu_ps(
+                out_ptr.add(index + 24),
+                _mm256_mul_ps(x3, _mm256_div_ps(one, _mm256_add_ps(one, e3))),
+            );
+            index += 32;
+        }
 
-    while index + 8 <= len {
-        let x = _mm256_loadu_ps(in_ptr.add(index));
-        let e = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x)));
-        let sig = _mm256_div_ps(one, _mm256_add_ps(one, e));
-        _mm256_storeu_ps(out_ptr.add(index), _mm256_mul_ps(x, sig));
-        index += 8;
-    }
+        while index + 8 <= len {
+            let x = _mm256_loadu_ps(in_ptr.add(index));
+            let e = fast_exp_avx(_mm256_sub_ps(zero, _mm256_mul_ps(scale, x)));
+            let sig = _mm256_div_ps(one, _mm256_add_ps(one, e));
+            _mm256_storeu_ps(out_ptr.add(index), _mm256_mul_ps(x, sig));
+            index += 8;
+        }
 
-    if index < len {
-        gelu_sigmoid_slice_sse(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            gelu_sigmoid_slice_sse(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -1903,83 +1903,83 @@ unsafe fn gelu_sigmoid_slice_avx(input: &[f32], output: &mut [f32]) {
 /// 8x unrolled with fast 3-term exp polynomial.
 unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = vdupq_n_f32(1.0);
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = vdupq_n_f32(1.0);
+        let mut index = 0usize;
 
-    // 8x unrolled: 32 elements per iteration
-    while index + 32 <= len {
-        let x0 = vld1q_f32(in_ptr.add(index));
-        let x1 = vld1q_f32(in_ptr.add(index + 4));
-        let x2 = vld1q_f32(in_ptr.add(index + 8));
-        let x3 = vld1q_f32(in_ptr.add(index + 12));
-        let x4 = vld1q_f32(in_ptr.add(index + 16));
-        let x5 = vld1q_f32(in_ptr.add(index + 20));
-        let x6 = vld1q_f32(in_ptr.add(index + 24));
-        let x7 = vld1q_f32(in_ptr.add(index + 28));
+        // 8x unrolled: 32 elements per iteration
+        while index + 32 <= len {
+            let x0 = vld1q_f32(in_ptr.add(index));
+            let x1 = vld1q_f32(in_ptr.add(index + 4));
+            let x2 = vld1q_f32(in_ptr.add(index + 8));
+            let x3 = vld1q_f32(in_ptr.add(index + 12));
+            let x4 = vld1q_f32(in_ptr.add(index + 16));
+            let x5 = vld1q_f32(in_ptr.add(index + 20));
+            let x6 = vld1q_f32(in_ptr.add(index + 24));
+            let x7 = vld1q_f32(in_ptr.add(index + 28));
 
-        // sigmoid(x) = 1 / (1 + exp(-x))
-        let e0 = fast_exp_sigmoid_neon(vnegq_f32(x0));
-        let e1 = fast_exp_sigmoid_neon(vnegq_f32(x1));
-        let e2 = fast_exp_sigmoid_neon(vnegq_f32(x2));
-        let e3 = fast_exp_sigmoid_neon(vnegq_f32(x3));
-        let e4 = fast_exp_sigmoid_neon(vnegq_f32(x4));
-        let e5 = fast_exp_sigmoid_neon(vnegq_f32(x5));
-        let e6 = fast_exp_sigmoid_neon(vnegq_f32(x6));
-        let e7 = fast_exp_sigmoid_neon(vnegq_f32(x7));
+            // sigmoid(x) = 1 / (1 + exp(-x))
+            let e0 = fast_exp_sigmoid_neon(vnegq_f32(x0));
+            let e1 = fast_exp_sigmoid_neon(vnegq_f32(x1));
+            let e2 = fast_exp_sigmoid_neon(vnegq_f32(x2));
+            let e3 = fast_exp_sigmoid_neon(vnegq_f32(x3));
+            let e4 = fast_exp_sigmoid_neon(vnegq_f32(x4));
+            let e5 = fast_exp_sigmoid_neon(vnegq_f32(x5));
+            let e6 = fast_exp_sigmoid_neon(vnegq_f32(x6));
+            let e7 = fast_exp_sigmoid_neon(vnegq_f32(x7));
 
-        // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
-        vst1q_f32(
-            out_ptr.add(index),
-            vmulq_f32(x0, vdivq_f32(one, vaddq_f32(one, e0))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 4),
-            vmulq_f32(x1, vdivq_f32(one, vaddq_f32(one, e1))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 8),
-            vmulq_f32(x2, vdivq_f32(one, vaddq_f32(one, e2))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 12),
-            vmulq_f32(x3, vdivq_f32(one, vaddq_f32(one, e3))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 16),
-            vmulq_f32(x4, vdivq_f32(one, vaddq_f32(one, e4))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 20),
-            vmulq_f32(x5, vdivq_f32(one, vaddq_f32(one, e5))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 24),
-            vmulq_f32(x6, vdivq_f32(one, vaddq_f32(one, e6))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 28),
-            vmulq_f32(x7, vdivq_f32(one, vaddq_f32(one, e7))),
-        );
-        index += 32;
-    }
+            // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+            vst1q_f32(
+                out_ptr.add(index),
+                vmulq_f32(x0, vdivq_f32(one, vaddq_f32(one, e0))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 4),
+                vmulq_f32(x1, vdivq_f32(one, vaddq_f32(one, e1))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 8),
+                vmulq_f32(x2, vdivq_f32(one, vaddq_f32(one, e2))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 12),
+                vmulq_f32(x3, vdivq_f32(one, vaddq_f32(one, e3))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 16),
+                vmulq_f32(x4, vdivq_f32(one, vaddq_f32(one, e4))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 20),
+                vmulq_f32(x5, vdivq_f32(one, vaddq_f32(one, e5))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 24),
+                vmulq_f32(x6, vdivq_f32(one, vaddq_f32(one, e6))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 28),
+                vmulq_f32(x7, vdivq_f32(one, vaddq_f32(one, e7))),
+            );
+            index += 32;
+        }
 
-    while index + 4 <= len {
-        let x = vld1q_f32(in_ptr.add(index));
-        let e = fast_exp_sigmoid_neon(vnegq_f32(x));
-        let sig = vdivq_f32(one, vaddq_f32(one, e));
-        vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
-        index += 4;
-    }
+        while index + 4 <= len {
+            let x = vld1q_f32(in_ptr.add(index));
+            let e = fast_exp_sigmoid_neon(vnegq_f32(x));
+            let sig = vdivq_f32(one, vaddq_f32(one, e));
+            vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
+            index += 4;
+        }
 
-    while index < len {
-        let x = *in_ptr.add(index);
-        let s = 1.0 / (1.0 + (-x).exp());
-        *out_ptr.add(index) = x * s;
-        index += 1;
-    }
+        while index < len {
+            let x = *in_ptr.add(index);
+            let s = 1.0 / (1.0 + (-x).exp());
+            *out_ptr.add(index) = x * s;
+            index += 1;
+        }
     }
 }
 
@@ -1988,81 +1988,81 @@ unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = vdupq_n_f32(1.0);
-    let zero = vdupq_n_f32(0.0);
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = vdupq_n_f32(1.0);
+        let zero = vdupq_n_f32(0.0);
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = vld1q_f32(in_ptr.add(index));
-        let x1 = vld1q_f32(in_ptr.add(index + 4));
-        let x2 = vld1q_f32(in_ptr.add(index + 8));
-        let x3 = vld1q_f32(in_ptr.add(index + 12));
-        let x4 = vld1q_f32(in_ptr.add(index + 16));
-        let x5 = vld1q_f32(in_ptr.add(index + 20));
-        let x6 = vld1q_f32(in_ptr.add(index + 24));
-        let x7 = vld1q_f32(in_ptr.add(index + 28));
+        while index + 32 <= len {
+            let x0 = vld1q_f32(in_ptr.add(index));
+            let x1 = vld1q_f32(in_ptr.add(index + 4));
+            let x2 = vld1q_f32(in_ptr.add(index + 8));
+            let x3 = vld1q_f32(in_ptr.add(index + 12));
+            let x4 = vld1q_f32(in_ptr.add(index + 16));
+            let x5 = vld1q_f32(in_ptr.add(index + 20));
+            let x6 = vld1q_f32(in_ptr.add(index + 24));
+            let x7 = vld1q_f32(in_ptr.add(index + 28));
 
-        let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, x0));
-        let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, x1));
-        let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, x2));
-        let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, x3));
-        let e4 = fast_exp_sigmoid_neon(vsubq_f32(zero, x4));
-        let e5 = fast_exp_sigmoid_neon(vsubq_f32(zero, x5));
-        let e6 = fast_exp_sigmoid_neon(vsubq_f32(zero, x6));
-        let e7 = fast_exp_sigmoid_neon(vsubq_f32(zero, x7));
+            let e0 = fast_exp_sigmoid_neon(vsubq_f32(zero, x0));
+            let e1 = fast_exp_sigmoid_neon(vsubq_f32(zero, x1));
+            let e2 = fast_exp_sigmoid_neon(vsubq_f32(zero, x2));
+            let e3 = fast_exp_sigmoid_neon(vsubq_f32(zero, x3));
+            let e4 = fast_exp_sigmoid_neon(vsubq_f32(zero, x4));
+            let e5 = fast_exp_sigmoid_neon(vsubq_f32(zero, x5));
+            let e6 = fast_exp_sigmoid_neon(vsubq_f32(zero, x6));
+            let e7 = fast_exp_sigmoid_neon(vsubq_f32(zero, x7));
 
-        vst1q_f32(
-            out_ptr.add(index),
-            vmulq_f32(x0, vrecipq_neon_v7(vaddq_f32(one, e0))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 4),
-            vmulq_f32(x1, vrecipq_neon_v7(vaddq_f32(one, e1))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 8),
-            vmulq_f32(x2, vrecipq_neon_v7(vaddq_f32(one, e2))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 12),
-            vmulq_f32(x3, vrecipq_neon_v7(vaddq_f32(one, e3))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 16),
-            vmulq_f32(x4, vrecipq_neon_v7(vaddq_f32(one, e4))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 20),
-            vmulq_f32(x5, vrecipq_neon_v7(vaddq_f32(one, e5))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 24),
-            vmulq_f32(x6, vrecipq_neon_v7(vaddq_f32(one, e6))),
-        );
-        vst1q_f32(
-            out_ptr.add(index + 28),
-            vmulq_f32(x7, vrecipq_neon_v7(vaddq_f32(one, e7))),
-        );
-        index += 32;
-    }
+            vst1q_f32(
+                out_ptr.add(index),
+                vmulq_f32(x0, vrecipq_neon_v7(vaddq_f32(one, e0))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 4),
+                vmulq_f32(x1, vrecipq_neon_v7(vaddq_f32(one, e1))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 8),
+                vmulq_f32(x2, vrecipq_neon_v7(vaddq_f32(one, e2))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 12),
+                vmulq_f32(x3, vrecipq_neon_v7(vaddq_f32(one, e3))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 16),
+                vmulq_f32(x4, vrecipq_neon_v7(vaddq_f32(one, e4))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 20),
+                vmulq_f32(x5, vrecipq_neon_v7(vaddq_f32(one, e5))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 24),
+                vmulq_f32(x6, vrecipq_neon_v7(vaddq_f32(one, e6))),
+            );
+            vst1q_f32(
+                out_ptr.add(index + 28),
+                vmulq_f32(x7, vrecipq_neon_v7(vaddq_f32(one, e7))),
+            );
+            index += 32;
+        }
 
-    while index + 4 <= len {
-        let x = vld1q_f32(in_ptr.add(index));
-        let e = fast_exp_sigmoid_neon(vsubq_f32(zero, x));
-        let sig = vrecipq_neon_v7(vaddq_f32(one, e));
-        vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
-        index += 4;
-    }
+        while index + 4 <= len {
+            let x = vld1q_f32(in_ptr.add(index));
+            let e = fast_exp_sigmoid_neon(vsubq_f32(zero, x));
+            let sig = vrecipq_neon_v7(vaddq_f32(one, e));
+            vst1q_f32(out_ptr.add(index), vmulq_f32(x, sig));
+            index += 4;
+        }
 
-    while index < len {
-        let x = *in_ptr.add(index);
-        let s = 1.0 / (1.0 + (-x).exp());
-        *out_ptr.add(index) = x * s;
-        index += 1;
-    }
+        while index < len {
+            let x = *in_ptr.add(index);
+            let s = 1.0 / (1.0 + (-x).exp());
+            *out_ptr.add(index) = x * s;
+            index += 1;
+        }
     }
 }
 
@@ -2072,76 +2072,76 @@ unsafe fn silu_slice_neon(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn silu_inplace_neon(ptr: *mut f32, len: usize) {
     unsafe {
-    use std::arch::aarch64::*;
-    let one = vdupq_n_f32(1.0);
-    let mut index = 0usize;
+        use std::arch::aarch64::*;
+        let one = vdupq_n_f32(1.0);
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = vld1q_f32(ptr.add(index));
-        let x1 = vld1q_f32(ptr.add(index + 4));
-        let x2 = vld1q_f32(ptr.add(index + 8));
-        let x3 = vld1q_f32(ptr.add(index + 12));
-        let x4 = vld1q_f32(ptr.add(index + 16));
-        let x5 = vld1q_f32(ptr.add(index + 20));
-        let x6 = vld1q_f32(ptr.add(index + 24));
-        let x7 = vld1q_f32(ptr.add(index + 28));
+        while index + 32 <= len {
+            let x0 = vld1q_f32(ptr.add(index));
+            let x1 = vld1q_f32(ptr.add(index + 4));
+            let x2 = vld1q_f32(ptr.add(index + 8));
+            let x3 = vld1q_f32(ptr.add(index + 12));
+            let x4 = vld1q_f32(ptr.add(index + 16));
+            let x5 = vld1q_f32(ptr.add(index + 20));
+            let x6 = vld1q_f32(ptr.add(index + 24));
+            let x7 = vld1q_f32(ptr.add(index + 28));
 
-        let e0 = fast_exp_sigmoid_neon(vnegq_f32(x0));
-        let e1 = fast_exp_sigmoid_neon(vnegq_f32(x1));
-        let e2 = fast_exp_sigmoid_neon(vnegq_f32(x2));
-        let e3 = fast_exp_sigmoid_neon(vnegq_f32(x3));
-        let e4 = fast_exp_sigmoid_neon(vnegq_f32(x4));
-        let e5 = fast_exp_sigmoid_neon(vnegq_f32(x5));
-        let e6 = fast_exp_sigmoid_neon(vnegq_f32(x6));
-        let e7 = fast_exp_sigmoid_neon(vnegq_f32(x7));
+            let e0 = fast_exp_sigmoid_neon(vnegq_f32(x0));
+            let e1 = fast_exp_sigmoid_neon(vnegq_f32(x1));
+            let e2 = fast_exp_sigmoid_neon(vnegq_f32(x2));
+            let e3 = fast_exp_sigmoid_neon(vnegq_f32(x3));
+            let e4 = fast_exp_sigmoid_neon(vnegq_f32(x4));
+            let e5 = fast_exp_sigmoid_neon(vnegq_f32(x5));
+            let e6 = fast_exp_sigmoid_neon(vnegq_f32(x6));
+            let e7 = fast_exp_sigmoid_neon(vnegq_f32(x7));
 
-        vst1q_f32(
-            ptr.add(index),
-            vmulq_f32(x0, vdivq_f32(one, vaddq_f32(one, e0))),
-        );
-        vst1q_f32(
-            ptr.add(index + 4),
-            vmulq_f32(x1, vdivq_f32(one, vaddq_f32(one, e1))),
-        );
-        vst1q_f32(
-            ptr.add(index + 8),
-            vmulq_f32(x2, vdivq_f32(one, vaddq_f32(one, e2))),
-        );
-        vst1q_f32(
-            ptr.add(index + 12),
-            vmulq_f32(x3, vdivq_f32(one, vaddq_f32(one, e3))),
-        );
-        vst1q_f32(
-            ptr.add(index + 16),
-            vmulq_f32(x4, vdivq_f32(one, vaddq_f32(one, e4))),
-        );
-        vst1q_f32(
-            ptr.add(index + 20),
-            vmulq_f32(x5, vdivq_f32(one, vaddq_f32(one, e5))),
-        );
-        vst1q_f32(
-            ptr.add(index + 24),
-            vmulq_f32(x6, vdivq_f32(one, vaddq_f32(one, e6))),
-        );
-        vst1q_f32(
-            ptr.add(index + 28),
-            vmulq_f32(x7, vdivq_f32(one, vaddq_f32(one, e7))),
-        );
-        index += 32;
-    }
-    while index + 4 <= len {
-        let x = vld1q_f32(ptr.add(index));
-        let e = fast_exp_sigmoid_neon(vnegq_f32(x));
-        let sig = vdivq_f32(one, vaddq_f32(one, e));
-        vst1q_f32(ptr.add(index), vmulq_f32(x, sig));
-        index += 4;
-    }
-    while index < len {
-        let x = *ptr.add(index);
-        let s = 1.0 / (1.0 + (-x).exp());
-        *ptr.add(index) = x * s;
-        index += 1;
-    }
+            vst1q_f32(
+                ptr.add(index),
+                vmulq_f32(x0, vdivq_f32(one, vaddq_f32(one, e0))),
+            );
+            vst1q_f32(
+                ptr.add(index + 4),
+                vmulq_f32(x1, vdivq_f32(one, vaddq_f32(one, e1))),
+            );
+            vst1q_f32(
+                ptr.add(index + 8),
+                vmulq_f32(x2, vdivq_f32(one, vaddq_f32(one, e2))),
+            );
+            vst1q_f32(
+                ptr.add(index + 12),
+                vmulq_f32(x3, vdivq_f32(one, vaddq_f32(one, e3))),
+            );
+            vst1q_f32(
+                ptr.add(index + 16),
+                vmulq_f32(x4, vdivq_f32(one, vaddq_f32(one, e4))),
+            );
+            vst1q_f32(
+                ptr.add(index + 20),
+                vmulq_f32(x5, vdivq_f32(one, vaddq_f32(one, e5))),
+            );
+            vst1q_f32(
+                ptr.add(index + 24),
+                vmulq_f32(x6, vdivq_f32(one, vaddq_f32(one, e6))),
+            );
+            vst1q_f32(
+                ptr.add(index + 28),
+                vmulq_f32(x7, vdivq_f32(one, vaddq_f32(one, e7))),
+            );
+            index += 32;
+        }
+        while index + 4 <= len {
+            let x = vld1q_f32(ptr.add(index));
+            let e = fast_exp_sigmoid_neon(vnegq_f32(x));
+            let sig = vdivq_f32(one, vaddq_f32(one, e));
+            vst1q_f32(ptr.add(index), vmulq_f32(x, sig));
+            index += 4;
+        }
+        while index < len {
+            let x = *ptr.add(index);
+            let s = 1.0 / (1.0 + (-x).exp());
+            *ptr.add(index) = x * s;
+            index += 1;
+        }
     }
 }
 
@@ -2149,33 +2149,33 @@ unsafe fn silu_inplace_neon(ptr: *mut f32, len: usize) {
 #[allow(unsafe_code)]
 unsafe fn bias_silu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usize) {
     unsafe {
-    let one = vdupq_n_f32(1.0);
-    let out_ptr = output.as_mut_ptr();
-    let bias_ptr = bias.as_ptr();
+        let one = vdupq_n_f32(1.0);
+        let out_ptr = output.as_mut_ptr();
+        let bias_ptr = bias.as_ptr();
 
-    for row in 0..m {
-        let base = out_ptr.add(row * n);
-        let mut c = 0usize;
+        for row in 0..m {
+            let base = out_ptr.add(row * n);
+            let mut c = 0usize;
 
-        // SIMD: process 4 channels at a time
-        while c + 4 <= n {
-            let x = vld1q_f32(base.add(c));
-            let b = vld1q_f32(bias_ptr.add(c));
-            let v = vaddq_f32(x, b);
-            let e = fast_exp_sigmoid_neon(vnegq_f32(v));
-            let sig = vdivq_f32(one, vaddq_f32(one, e));
-            vst1q_f32(base.add(c), vmulq_f32(v, sig));
-            c += 4;
+            // SIMD: process 4 channels at a time
+            while c + 4 <= n {
+                let x = vld1q_f32(base.add(c));
+                let b = vld1q_f32(bias_ptr.add(c));
+                let v = vaddq_f32(x, b);
+                let e = fast_exp_sigmoid_neon(vnegq_f32(v));
+                let sig = vdivq_f32(one, vaddq_f32(one, e));
+                vst1q_f32(base.add(c), vmulq_f32(v, sig));
+                c += 4;
+            }
+
+            // Scalar tail
+            while c < n {
+                let v = *base.add(c) + *bias_ptr.add(c);
+                let s = 1.0 / (1.0 + (-v).exp());
+                *base.add(c) = v * s;
+                c += 1;
+            }
         }
-
-        // Scalar tail
-        while c < n {
-            let v = *base.add(c) + *bias_ptr.add(c);
-            let s = 1.0 / (1.0 + (-v).exp());
-            *base.add(c) = v * s;
-            c += 1;
-        }
-    }
     }
 }
 
@@ -2185,65 +2185,65 @@ unsafe fn bias_silu_nhwc_neon(output: &mut [f32], bias: &[f32], m: usize, n: usi
 #[target_feature(enable = "sse")]
 unsafe fn silu_slice_sse(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm_div_ps;
 
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = _mm_set1_ps(1.0);
-    let zero = _mm_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = _mm_set1_ps(1.0);
+        let zero = _mm_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 16 <= len {
-        let x0 = _mm_loadu_ps(in_ptr.add(index));
-        let x1 = _mm_loadu_ps(in_ptr.add(index + 4));
-        let x2 = _mm_loadu_ps(in_ptr.add(index + 8));
-        let x3 = _mm_loadu_ps(in_ptr.add(index + 12));
+        while index + 16 <= len {
+            let x0 = _mm_loadu_ps(in_ptr.add(index));
+            let x1 = _mm_loadu_ps(in_ptr.add(index + 4));
+            let x2 = _mm_loadu_ps(in_ptr.add(index + 8));
+            let x3 = _mm_loadu_ps(in_ptr.add(index + 12));
 
-        // Use Schraudolph bit-trick exp for ~3x speedup
-        let e0 = fast_exp_sse(_mm_sub_ps(zero, x0));
-        let e1 = fast_exp_sse(_mm_sub_ps(zero, x1));
-        let e2 = fast_exp_sse(_mm_sub_ps(zero, x2));
-        let e3 = fast_exp_sse(_mm_sub_ps(zero, x3));
+            // Use Schraudolph bit-trick exp for ~3x speedup
+            let e0 = fast_exp_sse(_mm_sub_ps(zero, x0));
+            let e1 = fast_exp_sse(_mm_sub_ps(zero, x1));
+            let e2 = fast_exp_sse(_mm_sub_ps(zero, x2));
+            let e3 = fast_exp_sse(_mm_sub_ps(zero, x3));
 
-        // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
-        _mm_storeu_ps(
-            out_ptr.add(index),
-            _mm_mul_ps(x0, _mm_div_ps(one, _mm_add_ps(one, e0))),
-        );
-        _mm_storeu_ps(
-            out_ptr.add(index + 4),
-            _mm_mul_ps(x1, _mm_div_ps(one, _mm_add_ps(one, e1))),
-        );
-        _mm_storeu_ps(
-            out_ptr.add(index + 8),
-            _mm_mul_ps(x2, _mm_div_ps(one, _mm_add_ps(one, e2))),
-        );
-        _mm_storeu_ps(
-            out_ptr.add(index + 12),
-            _mm_mul_ps(x3, _mm_div_ps(one, _mm_add_ps(one, e3))),
-        );
+            // silu(x) = x * sigmoid(x) = x / (1 + exp(-x))
+            _mm_storeu_ps(
+                out_ptr.add(index),
+                _mm_mul_ps(x0, _mm_div_ps(one, _mm_add_ps(one, e0))),
+            );
+            _mm_storeu_ps(
+                out_ptr.add(index + 4),
+                _mm_mul_ps(x1, _mm_div_ps(one, _mm_add_ps(one, e1))),
+            );
+            _mm_storeu_ps(
+                out_ptr.add(index + 8),
+                _mm_mul_ps(x2, _mm_div_ps(one, _mm_add_ps(one, e2))),
+            );
+            _mm_storeu_ps(
+                out_ptr.add(index + 12),
+                _mm_mul_ps(x3, _mm_div_ps(one, _mm_add_ps(one, e3))),
+            );
 
-        index += 16;
-    }
+            index += 16;
+        }
 
-    while index + 4 <= len {
-        let x = _mm_loadu_ps(in_ptr.add(index));
-        let e = fast_exp_sse(_mm_sub_ps(zero, x));
-        let sig = _mm_div_ps(one, _mm_add_ps(one, e));
-        _mm_storeu_ps(out_ptr.add(index), _mm_mul_ps(x, sig));
-        index += 4;
-    }
+        while index + 4 <= len {
+            let x = _mm_loadu_ps(in_ptr.add(index));
+            let e = fast_exp_sse(_mm_sub_ps(zero, x));
+            let sig = _mm_div_ps(one, _mm_add_ps(one, e));
+            _mm_storeu_ps(out_ptr.add(index), _mm_mul_ps(x, sig));
+            index += 4;
+        }
 
-    while index < len {
-        let v = *in_ptr.add(index);
-        let s = 1.0 / (1.0 + (-v).exp());
-        *out_ptr.add(index) = v * s;
-        index += 1;
-    }
+        while index < len {
+            let v = *in_ptr.add(index);
+            let s = 1.0 / (1.0 + (-v).exp());
+            *out_ptr.add(index) = v * s;
+            index += 1;
+        }
     }
 }
 
@@ -2253,36 +2253,36 @@ unsafe fn silu_slice_sse(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx512f")]
 unsafe fn silu_slice_avx512(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = _mm512_set1_ps(1.0);
-    let zero = _mm512_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = _mm512_set1_ps(1.0);
+        let zero = _mm512_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = _mm512_loadu_ps(in_ptr.add(index));
-        let x1 = _mm512_loadu_ps(in_ptr.add(index + 16));
-        let e0 = fast_exp_avx512(_mm512_sub_ps(zero, x0));
-        let e1 = fast_exp_avx512(_mm512_sub_ps(zero, x1));
-        let y0 = _mm512_mul_ps(x0, _mm512_div_ps(one, _mm512_add_ps(one, e0)));
-        let y1 = _mm512_mul_ps(x1, _mm512_div_ps(one, _mm512_add_ps(one, e1)));
-        _mm512_storeu_ps(out_ptr.add(index), y0);
-        _mm512_storeu_ps(out_ptr.add(index + 16), y1);
-        index += 32;
-    }
+        while index + 32 <= len {
+            let x0 = _mm512_loadu_ps(in_ptr.add(index));
+            let x1 = _mm512_loadu_ps(in_ptr.add(index + 16));
+            let e0 = fast_exp_avx512(_mm512_sub_ps(zero, x0));
+            let e1 = fast_exp_avx512(_mm512_sub_ps(zero, x1));
+            let y0 = _mm512_mul_ps(x0, _mm512_div_ps(one, _mm512_add_ps(one, e0)));
+            let y1 = _mm512_mul_ps(x1, _mm512_div_ps(one, _mm512_add_ps(one, e1)));
+            _mm512_storeu_ps(out_ptr.add(index), y0);
+            _mm512_storeu_ps(out_ptr.add(index + 16), y1);
+            index += 32;
+        }
 
-    while index + 16 <= len {
-        let x = _mm512_loadu_ps(in_ptr.add(index));
-        let e = fast_exp_avx512(_mm512_sub_ps(zero, x));
-        let y = _mm512_mul_ps(x, _mm512_div_ps(one, _mm512_add_ps(one, e)));
-        _mm512_storeu_ps(out_ptr.add(index), y);
-        index += 16;
-    }
+        while index + 16 <= len {
+            let x = _mm512_loadu_ps(in_ptr.add(index));
+            let e = fast_exp_avx512(_mm512_sub_ps(zero, x));
+            let y = _mm512_mul_ps(x, _mm512_div_ps(one, _mm512_add_ps(one, e)));
+            _mm512_storeu_ps(out_ptr.add(index), y);
+            index += 16;
+        }
 
-    if index < len {
-        silu_slice_avx(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            silu_slice_avx(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -2292,62 +2292,62 @@ unsafe fn silu_slice_avx512(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn silu_slice_avx(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm256_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm256_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm256_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm256_div_ps;
 
-    let len = input.len();
-    let in_ptr = input.as_ptr();
-    let out_ptr = output.as_mut_ptr();
-    let one = _mm256_set1_ps(1.0);
-    let zero = _mm256_setzero_ps();
-    let mut index = 0usize;
+        let len = input.len();
+        let in_ptr = input.as_ptr();
+        let out_ptr = output.as_mut_ptr();
+        let one = _mm256_set1_ps(1.0);
+        let zero = _mm256_setzero_ps();
+        let mut index = 0usize;
 
-    while index + 32 <= len {
-        let x0 = _mm256_loadu_ps(in_ptr.add(index));
-        let x1 = _mm256_loadu_ps(in_ptr.add(index + 8));
-        let x2 = _mm256_loadu_ps(in_ptr.add(index + 16));
-        let x3 = _mm256_loadu_ps(in_ptr.add(index + 24));
+        while index + 32 <= len {
+            let x0 = _mm256_loadu_ps(in_ptr.add(index));
+            let x1 = _mm256_loadu_ps(in_ptr.add(index + 8));
+            let x2 = _mm256_loadu_ps(in_ptr.add(index + 16));
+            let x3 = _mm256_loadu_ps(in_ptr.add(index + 24));
 
-        // Use Schraudolph bit-trick exp for ~3x speedup
-        let e0 = fast_exp_avx(_mm256_sub_ps(zero, x0));
-        let e1 = fast_exp_avx(_mm256_sub_ps(zero, x1));
-        let e2 = fast_exp_avx(_mm256_sub_ps(zero, x2));
-        let e3 = fast_exp_avx(_mm256_sub_ps(zero, x3));
+            // Use Schraudolph bit-trick exp for ~3x speedup
+            let e0 = fast_exp_avx(_mm256_sub_ps(zero, x0));
+            let e1 = fast_exp_avx(_mm256_sub_ps(zero, x1));
+            let e2 = fast_exp_avx(_mm256_sub_ps(zero, x2));
+            let e3 = fast_exp_avx(_mm256_sub_ps(zero, x3));
 
-        // silu(x) = x / (1 + exp(-x))
-        _mm256_storeu_ps(
-            out_ptr.add(index),
-            _mm256_mul_ps(x0, _mm256_div_ps(one, _mm256_add_ps(one, e0))),
-        );
-        _mm256_storeu_ps(
-            out_ptr.add(index + 8),
-            _mm256_mul_ps(x1, _mm256_div_ps(one, _mm256_add_ps(one, e1))),
-        );
-        _mm256_storeu_ps(
-            out_ptr.add(index + 16),
-            _mm256_mul_ps(x2, _mm256_div_ps(one, _mm256_add_ps(one, e2))),
-        );
-        _mm256_storeu_ps(
-            out_ptr.add(index + 24),
-            _mm256_mul_ps(x3, _mm256_div_ps(one, _mm256_add_ps(one, e3))),
-        );
+            // silu(x) = x / (1 + exp(-x))
+            _mm256_storeu_ps(
+                out_ptr.add(index),
+                _mm256_mul_ps(x0, _mm256_div_ps(one, _mm256_add_ps(one, e0))),
+            );
+            _mm256_storeu_ps(
+                out_ptr.add(index + 8),
+                _mm256_mul_ps(x1, _mm256_div_ps(one, _mm256_add_ps(one, e1))),
+            );
+            _mm256_storeu_ps(
+                out_ptr.add(index + 16),
+                _mm256_mul_ps(x2, _mm256_div_ps(one, _mm256_add_ps(one, e2))),
+            );
+            _mm256_storeu_ps(
+                out_ptr.add(index + 24),
+                _mm256_mul_ps(x3, _mm256_div_ps(one, _mm256_add_ps(one, e3))),
+            );
 
-        index += 32;
-    }
+            index += 32;
+        }
 
-    while index + 8 <= len {
-        let x = _mm256_loadu_ps(in_ptr.add(index));
-        let e = fast_exp_avx(_mm256_sub_ps(zero, x));
-        let sig = _mm256_div_ps(one, _mm256_add_ps(one, e));
-        _mm256_storeu_ps(out_ptr.add(index), _mm256_mul_ps(x, sig));
-        index += 8;
-    }
+        while index + 8 <= len {
+            let x = _mm256_loadu_ps(in_ptr.add(index));
+            let e = fast_exp_avx(_mm256_sub_ps(zero, x));
+            let sig = _mm256_div_ps(one, _mm256_add_ps(one, e));
+            _mm256_storeu_ps(out_ptr.add(index), _mm256_mul_ps(x, sig));
+            index += 8;
+        }
 
-    if index < len {
-        silu_slice_sse(&input[index..], &mut output[index..]);
-    }
+        if index < len {
+            silu_slice_sse(&input[index..], &mut output[index..]);
+        }
     }
 }
 
@@ -2416,40 +2416,40 @@ fn hardswish_slice_scalar(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn hardswish_slice_neon(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let ip = input.as_ptr();
-    let op = output.as_mut_ptr();
-    let three = vdupq_n_f32(3.0);
-    let six = vdupq_n_f32(6.0);
-    let inv_six = vdupq_n_f32(1.0 / 6.0);
-    let zero = vdupq_n_f32(0.0);
-    let mut i = 0usize;
-    while i + 16 <= len {
-        for k in 0..4 {
-            let off = i + k * 4;
-            let x = vld1q_f32(ip.add(off));
+        let len = input.len();
+        let ip = input.as_ptr();
+        let op = output.as_mut_ptr();
+        let three = vdupq_n_f32(3.0);
+        let six = vdupq_n_f32(6.0);
+        let inv_six = vdupq_n_f32(1.0 / 6.0);
+        let zero = vdupq_n_f32(0.0);
+        let mut i = 0usize;
+        while i + 16 <= len {
+            for k in 0..4 {
+                let off = i + k * 4;
+                let x = vld1q_f32(ip.add(off));
+                let t = vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six);
+                vst1q_f32(
+                    op.add(off),
+                    vmulq_f32(x, super::super::div_invariant_neon(t, six, inv_six)),
+                );
+            }
+            i += 16;
+        }
+        while i + 4 <= len {
+            let x = vld1q_f32(ip.add(i));
             let t = vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six);
             vst1q_f32(
-                op.add(off),
+                op.add(i),
                 vmulq_f32(x, super::super::div_invariant_neon(t, six, inv_six)),
             );
+            i += 4;
         }
-        i += 16;
-    }
-    while i + 4 <= len {
-        let x = vld1q_f32(ip.add(i));
-        let t = vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six);
-        vst1q_f32(
-            op.add(i),
-            vmulq_f32(x, super::super::div_invariant_neon(t, six, inv_six)),
-        );
-        i += 4;
-    }
-    while i < len {
-        let v = *ip.add(i);
-        *op.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
-        i += 1;
-    }
+        while i < len {
+            let v = *ip.add(i);
+            *op.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
+            i += 1;
+        }
     }
 }
 
@@ -2480,27 +2480,27 @@ pub fn hardswish_slice_inplace(data: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn hardswish_slice_inplace_neon(data: &mut [f32]) {
     unsafe {
-    let len = data.len();
-    let p = data.as_mut_ptr();
-    let three = vdupq_n_f32(3.0);
-    let six = vdupq_n_f32(6.0);
-    let inv_six = vdupq_n_f32(1.0 / 6.0);
-    let zero = vdupq_n_f32(0.0);
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let x = vld1q_f32(p.add(i));
-        let t = vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six);
-        vst1q_f32(
-            p.add(i),
-            vmulq_f32(x, super::super::div_invariant_neon(t, six, inv_six)),
-        );
-        i += 4;
-    }
-    while i < len {
-        let v = *p.add(i);
-        *p.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
-        i += 1;
-    }
+        let len = data.len();
+        let p = data.as_mut_ptr();
+        let three = vdupq_n_f32(3.0);
+        let six = vdupq_n_f32(6.0);
+        let inv_six = vdupq_n_f32(1.0 / 6.0);
+        let zero = vdupq_n_f32(0.0);
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let x = vld1q_f32(p.add(i));
+            let t = vminq_f32(vmaxq_f32(vaddq_f32(x, three), zero), six);
+            vst1q_f32(
+                p.add(i),
+                vmulq_f32(x, super::super::div_invariant_neon(t, six, inv_six)),
+            );
+            i += 4;
+        }
+        while i < len {
+            let v = *p.add(i);
+            *p.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
+            i += 1;
+        }
     }
 }
 
@@ -2509,29 +2509,29 @@ unsafe fn hardswish_slice_inplace_neon(data: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn hardswish_slice_sse(input: &[f32], output: &mut [f32]) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm_div_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm_div_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm_div_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm_div_ps;
 
-    let len = input.len();
-    let ip = input.as_ptr();
-    let op = output.as_mut_ptr();
-    let three = _mm_set1_ps(3.0);
-    let six = _mm_set1_ps(6.0);
-    let zero = _mm_setzero_ps();
-    let mut i = 0usize;
-    while i + 4 <= len {
-        let x = _mm_loadu_ps(ip.add(i));
-        let t = _mm_min_ps(_mm_max_ps(_mm_add_ps(x, three), zero), six);
-        _mm_storeu_ps(op.add(i), _mm_mul_ps(x, _mm_div_ps(t, six)));
-        i += 4;
-    }
-    while i < len {
-        let v = *ip.add(i);
-        *op.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
-        i += 1;
-    }
+        let len = input.len();
+        let ip = input.as_ptr();
+        let op = output.as_mut_ptr();
+        let three = _mm_set1_ps(3.0);
+        let six = _mm_set1_ps(6.0);
+        let zero = _mm_setzero_ps();
+        let mut i = 0usize;
+        while i + 4 <= len {
+            let x = _mm_loadu_ps(ip.add(i));
+            let t = _mm_min_ps(_mm_max_ps(_mm_add_ps(x, three), zero), six);
+            _mm_storeu_ps(op.add(i), _mm_mul_ps(x, _mm_div_ps(t, six)));
+            i += 4;
+        }
+        while i < len {
+            let v = *ip.add(i);
+            *op.add(i) = v * ((v + 3.0).clamp(0.0, 6.0) / 6.0);
+            i += 1;
+        }
     }
 }
 
@@ -2540,22 +2540,22 @@ unsafe fn hardswish_slice_sse(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx512f")]
 unsafe fn hardswish_slice_avx512(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let ip = input.as_ptr();
-    let op = output.as_mut_ptr();
-    let three = _mm512_set1_ps(3.0);
-    let six = _mm512_set1_ps(6.0);
-    let zero = _mm512_setzero_ps();
-    let mut i = 0usize;
-    while i + 16 <= len {
-        let x = _mm512_loadu_ps(ip.add(i));
-        let t = _mm512_min_ps(_mm512_max_ps(_mm512_add_ps(x, three), zero), six);
-        _mm512_storeu_ps(op.add(i), _mm512_mul_ps(x, _mm512_div_ps(t, six)));
-        i += 16;
-    }
-    if i < len {
-        hardswish_slice_avx(&input[i..], &mut output[i..]);
-    }
+        let len = input.len();
+        let ip = input.as_ptr();
+        let op = output.as_mut_ptr();
+        let three = _mm512_set1_ps(3.0);
+        let six = _mm512_set1_ps(6.0);
+        let zero = _mm512_setzero_ps();
+        let mut i = 0usize;
+        while i + 16 <= len {
+            let x = _mm512_loadu_ps(ip.add(i));
+            let t = _mm512_min_ps(_mm512_max_ps(_mm512_add_ps(x, three), zero), six);
+            _mm512_storeu_ps(op.add(i), _mm512_mul_ps(x, _mm512_div_ps(t, six)));
+            i += 16;
+        }
+        if i < len {
+            hardswish_slice_avx(&input[i..], &mut output[i..]);
+        }
     }
 }
 
@@ -2564,21 +2564,21 @@ unsafe fn hardswish_slice_avx512(input: &[f32], output: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn hardswish_slice_avx(input: &[f32], output: &mut [f32]) {
     unsafe {
-    let len = input.len();
-    let ip = input.as_ptr();
-    let op = output.as_mut_ptr();
-    let three = _mm256_set1_ps(3.0);
-    let six = _mm256_set1_ps(6.0);
-    let zero = _mm256_setzero_ps();
-    let mut i = 0usize;
-    while i + 8 <= len {
-        let x = _mm256_loadu_ps(ip.add(i));
-        let t = _mm256_min_ps(_mm256_max_ps(_mm256_add_ps(x, three), zero), six);
-        _mm256_storeu_ps(op.add(i), _mm256_mul_ps(x, _mm256_div_ps(t, six)));
-        i += 8;
-    }
-    if i < len {
-        hardswish_slice_sse(&input[i..], &mut output[i..]);
-    }
+        let len = input.len();
+        let ip = input.as_ptr();
+        let op = output.as_mut_ptr();
+        let three = _mm256_set1_ps(3.0);
+        let six = _mm256_set1_ps(6.0);
+        let zero = _mm256_setzero_ps();
+        let mut i = 0usize;
+        while i + 8 <= len {
+            let x = _mm256_loadu_ps(ip.add(i));
+            let t = _mm256_min_ps(_mm256_max_ps(_mm256_add_ps(x, three), zero), six);
+            _mm256_storeu_ps(op.add(i), _mm256_mul_ps(x, _mm256_div_ps(t, six)));
+            i += 8;
+        }
+        if i < len {
+            hardswish_slice_sse(&input[i..], &mut output[i..]);
+        }
     }
 }

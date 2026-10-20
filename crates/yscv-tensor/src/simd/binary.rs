@@ -363,230 +363,232 @@ unsafe fn binary_avx(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind
 #[cfg(all(target_arch = "aarch64", not(target_os = "macos")))]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn binary_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) { unsafe {
-    use std::arch::aarch64::vdivq_f32;
+unsafe fn binary_neon(lhs: &[f32], rhs: &[f32], out: &mut [f32], kind: BinaryKind) {
+    unsafe {
+        use std::arch::aarch64::vdivq_f32;
 
-    let len = lhs.len();
-    let lp = lhs.as_ptr();
-    let rp = rhs.as_ptr();
-    let op = out.as_mut_ptr();
-    let mut i = 0usize;
+        let len = lhs.len();
+        let lp = lhs.as_ptr();
+        let rp = rhs.as_ptr();
+        let op = out.as_mut_ptr();
+        let mut i = 0usize;
 
-    // 8x unrolled: process 32 floats per iteration for better ILP.
-    // Loads are interleaved with compute/stores to keep the OoO pipeline busy.
-    match kind {
-        BinaryKind::Add => {
-            while i + 32 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b0 = vld1q_f32(rp.add(i));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                vst1q_f32(op.add(i), vaddq_f32(a0, b0));
-                vst1q_f32(op.add(i + 4), vaddq_f32(a1, b1));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                let a4 = vld1q_f32(lp.add(i + 16));
-                let a5 = vld1q_f32(lp.add(i + 20));
-                vst1q_f32(op.add(i + 8), vaddq_f32(a2, b2));
-                vst1q_f32(op.add(i + 12), vaddq_f32(a3, b3));
-                let b4 = vld1q_f32(rp.add(i + 16));
-                let b5 = vld1q_f32(rp.add(i + 20));
-                let a6 = vld1q_f32(lp.add(i + 24));
-                let a7 = vld1q_f32(lp.add(i + 28));
-                vst1q_f32(op.add(i + 16), vaddq_f32(a4, b4));
-                vst1q_f32(op.add(i + 20), vaddq_f32(a5, b5));
-                let b6 = vld1q_f32(rp.add(i + 24));
-                let b7 = vld1q_f32(rp.add(i + 28));
-                vst1q_f32(op.add(i + 24), vaddq_f32(a6, b6));
-                vst1q_f32(op.add(i + 28), vaddq_f32(a7, b7));
-                i += 32;
+        // 8x unrolled: process 32 floats per iteration for better ILP.
+        // Loads are interleaved with compute/stores to keep the OoO pipeline busy.
+        match kind {
+            BinaryKind::Add => {
+                while i + 32 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b0 = vld1q_f32(rp.add(i));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    vst1q_f32(op.add(i), vaddq_f32(a0, b0));
+                    vst1q_f32(op.add(i + 4), vaddq_f32(a1, b1));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    let a4 = vld1q_f32(lp.add(i + 16));
+                    let a5 = vld1q_f32(lp.add(i + 20));
+                    vst1q_f32(op.add(i + 8), vaddq_f32(a2, b2));
+                    vst1q_f32(op.add(i + 12), vaddq_f32(a3, b3));
+                    let b4 = vld1q_f32(rp.add(i + 16));
+                    let b5 = vld1q_f32(rp.add(i + 20));
+                    let a6 = vld1q_f32(lp.add(i + 24));
+                    let a7 = vld1q_f32(lp.add(i + 28));
+                    vst1q_f32(op.add(i + 16), vaddq_f32(a4, b4));
+                    vst1q_f32(op.add(i + 20), vaddq_f32(a5, b5));
+                    let b6 = vld1q_f32(rp.add(i + 24));
+                    let b7 = vld1q_f32(rp.add(i + 28));
+                    vst1q_f32(op.add(i + 24), vaddq_f32(a6, b6));
+                    vst1q_f32(op.add(i + 28), vaddq_f32(a7, b7));
+                    i += 32;
+                }
+            }
+            BinaryKind::Sub => {
+                while i + 32 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b0 = vld1q_f32(rp.add(i));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    vst1q_f32(op.add(i), vsubq_f32(a0, b0));
+                    vst1q_f32(op.add(i + 4), vsubq_f32(a1, b1));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    let a4 = vld1q_f32(lp.add(i + 16));
+                    let a5 = vld1q_f32(lp.add(i + 20));
+                    vst1q_f32(op.add(i + 8), vsubq_f32(a2, b2));
+                    vst1q_f32(op.add(i + 12), vsubq_f32(a3, b3));
+                    let b4 = vld1q_f32(rp.add(i + 16));
+                    let b5 = vld1q_f32(rp.add(i + 20));
+                    let a6 = vld1q_f32(lp.add(i + 24));
+                    let a7 = vld1q_f32(lp.add(i + 28));
+                    vst1q_f32(op.add(i + 16), vsubq_f32(a4, b4));
+                    vst1q_f32(op.add(i + 20), vsubq_f32(a5, b5));
+                    let b6 = vld1q_f32(rp.add(i + 24));
+                    let b7 = vld1q_f32(rp.add(i + 28));
+                    vst1q_f32(op.add(i + 24), vsubq_f32(a6, b6));
+                    vst1q_f32(op.add(i + 28), vsubq_f32(a7, b7));
+                    i += 32;
+                }
+            }
+            BinaryKind::Mul => {
+                while i + 32 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b0 = vld1q_f32(rp.add(i));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    vst1q_f32(op.add(i), vmulq_f32(a0, b0));
+                    vst1q_f32(op.add(i + 4), vmulq_f32(a1, b1));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    let a4 = vld1q_f32(lp.add(i + 16));
+                    let a5 = vld1q_f32(lp.add(i + 20));
+                    vst1q_f32(op.add(i + 8), vmulq_f32(a2, b2));
+                    vst1q_f32(op.add(i + 12), vmulq_f32(a3, b3));
+                    let b4 = vld1q_f32(rp.add(i + 16));
+                    let b5 = vld1q_f32(rp.add(i + 20));
+                    let a6 = vld1q_f32(lp.add(i + 24));
+                    let a7 = vld1q_f32(lp.add(i + 28));
+                    vst1q_f32(op.add(i + 16), vmulq_f32(a4, b4));
+                    vst1q_f32(op.add(i + 20), vmulq_f32(a5, b5));
+                    let b6 = vld1q_f32(rp.add(i + 24));
+                    let b7 = vld1q_f32(rp.add(i + 28));
+                    vst1q_f32(op.add(i + 24), vmulq_f32(a6, b6));
+                    vst1q_f32(op.add(i + 28), vmulq_f32(a7, b7));
+                    i += 32;
+                }
+            }
+            BinaryKind::Div => {
+                while i + 32 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b0 = vld1q_f32(rp.add(i));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    vst1q_f32(op.add(i), vdivq_f32(a0, b0));
+                    vst1q_f32(op.add(i + 4), vdivq_f32(a1, b1));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    let a4 = vld1q_f32(lp.add(i + 16));
+                    let a5 = vld1q_f32(lp.add(i + 20));
+                    vst1q_f32(op.add(i + 8), vdivq_f32(a2, b2));
+                    vst1q_f32(op.add(i + 12), vdivq_f32(a3, b3));
+                    let b4 = vld1q_f32(rp.add(i + 16));
+                    let b5 = vld1q_f32(rp.add(i + 20));
+                    let a6 = vld1q_f32(lp.add(i + 24));
+                    let a7 = vld1q_f32(lp.add(i + 28));
+                    vst1q_f32(op.add(i + 16), vdivq_f32(a4, b4));
+                    vst1q_f32(op.add(i + 20), vdivq_f32(a5, b5));
+                    let b6 = vld1q_f32(rp.add(i + 24));
+                    let b7 = vld1q_f32(rp.add(i + 28));
+                    vst1q_f32(op.add(i + 24), vdivq_f32(a6, b6));
+                    vst1q_f32(op.add(i + 28), vdivq_f32(a7, b7));
+                    i += 32;
+                }
             }
         }
-        BinaryKind::Sub => {
-            while i + 32 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b0 = vld1q_f32(rp.add(i));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                vst1q_f32(op.add(i), vsubq_f32(a0, b0));
-                vst1q_f32(op.add(i + 4), vsubq_f32(a1, b1));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                let a4 = vld1q_f32(lp.add(i + 16));
-                let a5 = vld1q_f32(lp.add(i + 20));
-                vst1q_f32(op.add(i + 8), vsubq_f32(a2, b2));
-                vst1q_f32(op.add(i + 12), vsubq_f32(a3, b3));
-                let b4 = vld1q_f32(rp.add(i + 16));
-                let b5 = vld1q_f32(rp.add(i + 20));
-                let a6 = vld1q_f32(lp.add(i + 24));
-                let a7 = vld1q_f32(lp.add(i + 28));
-                vst1q_f32(op.add(i + 16), vsubq_f32(a4, b4));
-                vst1q_f32(op.add(i + 20), vsubq_f32(a5, b5));
-                let b6 = vld1q_f32(rp.add(i + 24));
-                let b7 = vld1q_f32(rp.add(i + 28));
-                vst1q_f32(op.add(i + 24), vsubq_f32(a6, b6));
-                vst1q_f32(op.add(i + 28), vsubq_f32(a7, b7));
-                i += 32;
+
+        // Handle remaining 16-element chunks (4x unrolled fallback)
+        match kind {
+            BinaryKind::Add => {
+                while i + 16 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let b0 = vld1q_f32(rp.add(i));
+                    vst1q_f32(op.add(i), vaddq_f32(a0, b0));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    vst1q_f32(op.add(i + 4), vaddq_f32(a1, b1));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    vst1q_f32(op.add(i + 8), vaddq_f32(a2, b2));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    vst1q_f32(op.add(i + 12), vaddq_f32(a3, b3));
+                    i += 16;
+                }
+            }
+            BinaryKind::Sub => {
+                while i + 16 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let b0 = vld1q_f32(rp.add(i));
+                    vst1q_f32(op.add(i), vsubq_f32(a0, b0));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    vst1q_f32(op.add(i + 4), vsubq_f32(a1, b1));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    vst1q_f32(op.add(i + 8), vsubq_f32(a2, b2));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    vst1q_f32(op.add(i + 12), vsubq_f32(a3, b3));
+                    i += 16;
+                }
+            }
+            BinaryKind::Mul => {
+                while i + 16 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let b0 = vld1q_f32(rp.add(i));
+                    vst1q_f32(op.add(i), vmulq_f32(a0, b0));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    vst1q_f32(op.add(i + 4), vmulq_f32(a1, b1));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    vst1q_f32(op.add(i + 8), vmulq_f32(a2, b2));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    vst1q_f32(op.add(i + 12), vmulq_f32(a3, b3));
+                    i += 16;
+                }
+            }
+            BinaryKind::Div => {
+                while i + 16 <= len {
+                    let a0 = vld1q_f32(lp.add(i));
+                    let b0 = vld1q_f32(rp.add(i));
+                    vst1q_f32(op.add(i), vdivq_f32(a0, b0));
+                    let a1 = vld1q_f32(lp.add(i + 4));
+                    let b1 = vld1q_f32(rp.add(i + 4));
+                    vst1q_f32(op.add(i + 4), vdivq_f32(a1, b1));
+                    let a2 = vld1q_f32(lp.add(i + 8));
+                    let b2 = vld1q_f32(rp.add(i + 8));
+                    vst1q_f32(op.add(i + 8), vdivq_f32(a2, b2));
+                    let a3 = vld1q_f32(lp.add(i + 12));
+                    let b3 = vld1q_f32(rp.add(i + 12));
+                    vst1q_f32(op.add(i + 12), vdivq_f32(a3, b3));
+                    i += 16;
+                }
             }
         }
-        BinaryKind::Mul => {
-            while i + 32 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b0 = vld1q_f32(rp.add(i));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                vst1q_f32(op.add(i), vmulq_f32(a0, b0));
-                vst1q_f32(op.add(i + 4), vmulq_f32(a1, b1));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                let a4 = vld1q_f32(lp.add(i + 16));
-                let a5 = vld1q_f32(lp.add(i + 20));
-                vst1q_f32(op.add(i + 8), vmulq_f32(a2, b2));
-                vst1q_f32(op.add(i + 12), vmulq_f32(a3, b3));
-                let b4 = vld1q_f32(rp.add(i + 16));
-                let b5 = vld1q_f32(rp.add(i + 20));
-                let a6 = vld1q_f32(lp.add(i + 24));
-                let a7 = vld1q_f32(lp.add(i + 28));
-                vst1q_f32(op.add(i + 16), vmulq_f32(a4, b4));
-                vst1q_f32(op.add(i + 20), vmulq_f32(a5, b5));
-                let b6 = vld1q_f32(rp.add(i + 24));
-                let b7 = vld1q_f32(rp.add(i + 28));
-                vst1q_f32(op.add(i + 24), vmulq_f32(a6, b6));
-                vst1q_f32(op.add(i + 28), vmulq_f32(a7, b7));
-                i += 32;
-            }
+
+        // Handle remaining 4-element chunks
+        while i + 4 <= len {
+            let l = vld1q_f32(lp.add(i));
+            let r = vld1q_f32(rp.add(i));
+            let result = match kind {
+                BinaryKind::Add => vaddq_f32(l, r),
+                BinaryKind::Sub => vsubq_f32(l, r),
+                BinaryKind::Mul => vmulq_f32(l, r),
+                BinaryKind::Div => vdivq_f32(l, r),
+            };
+            vst1q_f32(op.add(i), result);
+            i += 4;
         }
-        BinaryKind::Div => {
-            while i + 32 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b0 = vld1q_f32(rp.add(i));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                vst1q_f32(op.add(i), vdivq_f32(a0, b0));
-                vst1q_f32(op.add(i + 4), vdivq_f32(a1, b1));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                let a4 = vld1q_f32(lp.add(i + 16));
-                let a5 = vld1q_f32(lp.add(i + 20));
-                vst1q_f32(op.add(i + 8), vdivq_f32(a2, b2));
-                vst1q_f32(op.add(i + 12), vdivq_f32(a3, b3));
-                let b4 = vld1q_f32(rp.add(i + 16));
-                let b5 = vld1q_f32(rp.add(i + 20));
-                let a6 = vld1q_f32(lp.add(i + 24));
-                let a7 = vld1q_f32(lp.add(i + 28));
-                vst1q_f32(op.add(i + 16), vdivq_f32(a4, b4));
-                vst1q_f32(op.add(i + 20), vdivq_f32(a5, b5));
-                let b6 = vld1q_f32(rp.add(i + 24));
-                let b7 = vld1q_f32(rp.add(i + 28));
-                vst1q_f32(op.add(i + 24), vdivq_f32(a6, b6));
-                vst1q_f32(op.add(i + 28), vdivq_f32(a7, b7));
-                i += 32;
-            }
+
+        // Scalar tail
+        while i < len {
+            *op.add(i) = match kind {
+                BinaryKind::Add => *lp.add(i) + *rp.add(i),
+                BinaryKind::Sub => *lp.add(i) - *rp.add(i),
+                BinaryKind::Mul => *lp.add(i) * *rp.add(i),
+                BinaryKind::Div => *lp.add(i) / *rp.add(i),
+            };
+            i += 1;
         }
     }
-
-    // Handle remaining 16-element chunks (4x unrolled fallback)
-    match kind {
-        BinaryKind::Add => {
-            while i + 16 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let b0 = vld1q_f32(rp.add(i));
-                vst1q_f32(op.add(i), vaddq_f32(a0, b0));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                vst1q_f32(op.add(i + 4), vaddq_f32(a1, b1));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                vst1q_f32(op.add(i + 8), vaddq_f32(a2, b2));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                vst1q_f32(op.add(i + 12), vaddq_f32(a3, b3));
-                i += 16;
-            }
-        }
-        BinaryKind::Sub => {
-            while i + 16 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let b0 = vld1q_f32(rp.add(i));
-                vst1q_f32(op.add(i), vsubq_f32(a0, b0));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                vst1q_f32(op.add(i + 4), vsubq_f32(a1, b1));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                vst1q_f32(op.add(i + 8), vsubq_f32(a2, b2));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                vst1q_f32(op.add(i + 12), vsubq_f32(a3, b3));
-                i += 16;
-            }
-        }
-        BinaryKind::Mul => {
-            while i + 16 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let b0 = vld1q_f32(rp.add(i));
-                vst1q_f32(op.add(i), vmulq_f32(a0, b0));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                vst1q_f32(op.add(i + 4), vmulq_f32(a1, b1));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                vst1q_f32(op.add(i + 8), vmulq_f32(a2, b2));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                vst1q_f32(op.add(i + 12), vmulq_f32(a3, b3));
-                i += 16;
-            }
-        }
-        BinaryKind::Div => {
-            while i + 16 <= len {
-                let a0 = vld1q_f32(lp.add(i));
-                let b0 = vld1q_f32(rp.add(i));
-                vst1q_f32(op.add(i), vdivq_f32(a0, b0));
-                let a1 = vld1q_f32(lp.add(i + 4));
-                let b1 = vld1q_f32(rp.add(i + 4));
-                vst1q_f32(op.add(i + 4), vdivq_f32(a1, b1));
-                let a2 = vld1q_f32(lp.add(i + 8));
-                let b2 = vld1q_f32(rp.add(i + 8));
-                vst1q_f32(op.add(i + 8), vdivq_f32(a2, b2));
-                let a3 = vld1q_f32(lp.add(i + 12));
-                let b3 = vld1q_f32(rp.add(i + 12));
-                vst1q_f32(op.add(i + 12), vdivq_f32(a3, b3));
-                i += 16;
-            }
-        }
-    }
-
-    // Handle remaining 4-element chunks
-    while i + 4 <= len {
-        let l = vld1q_f32(lp.add(i));
-        let r = vld1q_f32(rp.add(i));
-        let result = match kind {
-            BinaryKind::Add => vaddq_f32(l, r),
-            BinaryKind::Sub => vsubq_f32(l, r),
-            BinaryKind::Mul => vmulq_f32(l, r),
-            BinaryKind::Div => vdivq_f32(l, r),
-        };
-        vst1q_f32(op.add(i), result);
-        i += 4;
-    }
-
-    // Scalar tail
-    while i < len {
-        *op.add(i) = match kind {
-            BinaryKind::Add => *lp.add(i) + *rp.add(i),
-            BinaryKind::Sub => *lp.add(i) - *rp.add(i),
-            BinaryKind::Mul => *lp.add(i) * *rp.add(i),
-            BinaryKind::Div => *lp.add(i) / *rp.add(i),
-        };
-        i += 1;
-    }
-} }
+}

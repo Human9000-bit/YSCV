@@ -367,153 +367,155 @@ unsafe fn unary_avx(data: &[f32], out: &mut [f32], kind: UnaryKind) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn unary_neon(data: &[f32], out: &mut [f32], kind: UnaryKind) { unsafe {
-    let len = data.len();
-    let inp = data.as_ptr();
-    let op = out.as_mut_ptr();
-    let mut i = 0usize;
+unsafe fn unary_neon(data: &[f32], out: &mut [f32], kind: UnaryKind) {
+    unsafe {
+        let len = data.len();
+        let inp = data.as_ptr();
+        let op = out.as_mut_ptr();
+        let mut i = 0usize;
 
-    // Match OUTSIDE loop: eliminates branch per iteration, enables unrolling,
-    // and hoists constants. Same pattern as binary_neon.
-    match kind {
-        UnaryKind::Neg => {
-            while i + 16 <= len {
-                vst1q_f32(op.add(i), vnegq_f32(vld1q_f32(inp.add(i))));
-                vst1q_f32(op.add(i + 4), vnegq_f32(vld1q_f32(inp.add(i + 4))));
-                vst1q_f32(op.add(i + 8), vnegq_f32(vld1q_f32(inp.add(i + 8))));
-                vst1q_f32(op.add(i + 12), vnegq_f32(vld1q_f32(inp.add(i + 12))));
-                i += 16;
-            }
-        }
-        UnaryKind::Abs => {
-            while i + 16 <= len {
-                vst1q_f32(op.add(i), vabsq_f32(vld1q_f32(inp.add(i))));
-                vst1q_f32(op.add(i + 4), vabsq_f32(vld1q_f32(inp.add(i + 4))));
-                vst1q_f32(op.add(i + 8), vabsq_f32(vld1q_f32(inp.add(i + 8))));
-                vst1q_f32(op.add(i + 12), vabsq_f32(vld1q_f32(inp.add(i + 12))));
-                i += 16;
-            }
-        }
-        UnaryKind::Sqrt => {
-            while i + 16 <= len {
-                vst1q_f32(op.add(i), vsqrtq_f32(vld1q_f32(inp.add(i))));
-                vst1q_f32(op.add(i + 4), vsqrtq_f32(vld1q_f32(inp.add(i + 4))));
-                vst1q_f32(op.add(i + 8), vsqrtq_f32(vld1q_f32(inp.add(i + 8))));
-                vst1q_f32(op.add(i + 12), vsqrtq_f32(vld1q_f32(inp.add(i + 12))));
-                i += 16;
-            }
-        }
-        UnaryKind::Recip => {
-            while i + 16 <= len {
-                let v0 = vld1q_f32(inp.add(i));
-                let v1 = vld1q_f32(inp.add(i + 4));
-                let v2 = vld1q_f32(inp.add(i + 8));
-                let v3 = vld1q_f32(inp.add(i + 12));
-                let r0 = vrecpeq_f32(v0);
-                let s0 = vrecpsq_f32(v0, r0);
-                let r1 = vrecpeq_f32(v1);
-                let s1 = vrecpsq_f32(v1, r1);
-                let r2 = vrecpeq_f32(v2);
-                let s2 = vrecpsq_f32(v2, r2);
-                let r3 = vrecpeq_f32(v3);
-                let s3 = vrecpsq_f32(v3, r3);
-                vst1q_f32(op.add(i), vmulq_f32(r0, s0));
-                vst1q_f32(op.add(i + 4), vmulq_f32(r1, s1));
-                vst1q_f32(op.add(i + 8), vmulq_f32(r2, s2));
-                vst1q_f32(op.add(i + 12), vmulq_f32(r3, s3));
-                i += 16;
-            }
-        }
-        UnaryKind::Floor => {
-            while i + 16 <= len {
-                vst1q_f32(op.add(i), vrndmq_f32(vld1q_f32(inp.add(i))));
-                vst1q_f32(op.add(i + 4), vrndmq_f32(vld1q_f32(inp.add(i + 4))));
-                vst1q_f32(op.add(i + 8), vrndmq_f32(vld1q_f32(inp.add(i + 8))));
-                vst1q_f32(op.add(i + 12), vrndmq_f32(vld1q_f32(inp.add(i + 12))));
-                i += 16;
-            }
-        }
-        UnaryKind::Ceil => {
-            while i + 16 <= len {
-                vst1q_f32(op.add(i), vrndpq_f32(vld1q_f32(inp.add(i))));
-                vst1q_f32(op.add(i + 4), vrndpq_f32(vld1q_f32(inp.add(i + 4))));
-                vst1q_f32(op.add(i + 8), vrndpq_f32(vld1q_f32(inp.add(i + 8))));
-                vst1q_f32(op.add(i + 12), vrndpq_f32(vld1q_f32(inp.add(i + 12))));
-                i += 16;
-            }
-        }
-        UnaryKind::Round => {
-            while i + 16 <= len {
-                vst1q_f32(op.add(i), vrndaq_f32(vld1q_f32(inp.add(i))));
-                vst1q_f32(op.add(i + 4), vrndaq_f32(vld1q_f32(inp.add(i + 4))));
-                vst1q_f32(op.add(i + 8), vrndaq_f32(vld1q_f32(inp.add(i + 8))));
-                vst1q_f32(op.add(i + 12), vrndaq_f32(vld1q_f32(inp.add(i + 12))));
-                i += 16;
-            }
-        }
-        UnaryKind::Sign => {
-            let zero = vdupq_n_f32(0.0);
-            let one = vdupq_n_f32(1.0);
-            let neg_one = vdupq_n_f32(-1.0);
-            while i + 16 <= len {
-                let v0 = vld1q_f32(inp.add(i));
-                let v1 = vld1q_f32(inp.add(i + 4));
-                let v2 = vld1q_f32(inp.add(i + 8));
-                let v3 = vld1q_f32(inp.add(i + 12));
-                vst1q_f32(
-                    op.add(i),
-                    vaddq_f32(
-                        vbslq_f32(vcgtq_f32(v0, zero), one, zero),
-                        vbslq_f32(vcltq_f32(v0, zero), neg_one, zero),
-                    ),
-                );
-                vst1q_f32(
-                    op.add(i + 4),
-                    vaddq_f32(
-                        vbslq_f32(vcgtq_f32(v1, zero), one, zero),
-                        vbslq_f32(vcltq_f32(v1, zero), neg_one, zero),
-                    ),
-                );
-                vst1q_f32(
-                    op.add(i + 8),
-                    vaddq_f32(
-                        vbslq_f32(vcgtq_f32(v2, zero), one, zero),
-                        vbslq_f32(vcltq_f32(v2, zero), neg_one, zero),
-                    ),
-                );
-                vst1q_f32(
-                    op.add(i + 12),
-                    vaddq_f32(
-                        vbslq_f32(vcgtq_f32(v3, zero), one, zero),
-                        vbslq_f32(vcltq_f32(v3, zero), neg_one, zero),
-                    ),
-                );
-                i += 16;
-            }
-        }
-    }
-
-    // Scalar tail for remaining < 16 elements
-    while i < len {
-        *op.add(i) = match kind {
-            UnaryKind::Neg => -*inp.add(i),
-            UnaryKind::Abs => (*inp.add(i)).abs(),
-            UnaryKind::Sqrt => (*inp.add(i)).sqrt(),
-            UnaryKind::Recip => 1.0 / *inp.add(i),
-            UnaryKind::Floor => (*inp.add(i)).floor(),
-            UnaryKind::Ceil => (*inp.add(i)).ceil(),
-            UnaryKind::Round => (*inp.add(i)).round(),
-            UnaryKind::Sign => {
-                let v = *inp.add(i);
-                if v > 0.0 {
-                    1.0
-                } else if v < 0.0 {
-                    -1.0
-                } else {
-                    0.0
+        // Match OUTSIDE loop: eliminates branch per iteration, enables unrolling,
+        // and hoists constants. Same pattern as binary_neon.
+        match kind {
+            UnaryKind::Neg => {
+                while i + 16 <= len {
+                    vst1q_f32(op.add(i), vnegq_f32(vld1q_f32(inp.add(i))));
+                    vst1q_f32(op.add(i + 4), vnegq_f32(vld1q_f32(inp.add(i + 4))));
+                    vst1q_f32(op.add(i + 8), vnegq_f32(vld1q_f32(inp.add(i + 8))));
+                    vst1q_f32(op.add(i + 12), vnegq_f32(vld1q_f32(inp.add(i + 12))));
+                    i += 16;
                 }
             }
-        };
-        i += 1;
+            UnaryKind::Abs => {
+                while i + 16 <= len {
+                    vst1q_f32(op.add(i), vabsq_f32(vld1q_f32(inp.add(i))));
+                    vst1q_f32(op.add(i + 4), vabsq_f32(vld1q_f32(inp.add(i + 4))));
+                    vst1q_f32(op.add(i + 8), vabsq_f32(vld1q_f32(inp.add(i + 8))));
+                    vst1q_f32(op.add(i + 12), vabsq_f32(vld1q_f32(inp.add(i + 12))));
+                    i += 16;
+                }
+            }
+            UnaryKind::Sqrt => {
+                while i + 16 <= len {
+                    vst1q_f32(op.add(i), vsqrtq_f32(vld1q_f32(inp.add(i))));
+                    vst1q_f32(op.add(i + 4), vsqrtq_f32(vld1q_f32(inp.add(i + 4))));
+                    vst1q_f32(op.add(i + 8), vsqrtq_f32(vld1q_f32(inp.add(i + 8))));
+                    vst1q_f32(op.add(i + 12), vsqrtq_f32(vld1q_f32(inp.add(i + 12))));
+                    i += 16;
+                }
+            }
+            UnaryKind::Recip => {
+                while i + 16 <= len {
+                    let v0 = vld1q_f32(inp.add(i));
+                    let v1 = vld1q_f32(inp.add(i + 4));
+                    let v2 = vld1q_f32(inp.add(i + 8));
+                    let v3 = vld1q_f32(inp.add(i + 12));
+                    let r0 = vrecpeq_f32(v0);
+                    let s0 = vrecpsq_f32(v0, r0);
+                    let r1 = vrecpeq_f32(v1);
+                    let s1 = vrecpsq_f32(v1, r1);
+                    let r2 = vrecpeq_f32(v2);
+                    let s2 = vrecpsq_f32(v2, r2);
+                    let r3 = vrecpeq_f32(v3);
+                    let s3 = vrecpsq_f32(v3, r3);
+                    vst1q_f32(op.add(i), vmulq_f32(r0, s0));
+                    vst1q_f32(op.add(i + 4), vmulq_f32(r1, s1));
+                    vst1q_f32(op.add(i + 8), vmulq_f32(r2, s2));
+                    vst1q_f32(op.add(i + 12), vmulq_f32(r3, s3));
+                    i += 16;
+                }
+            }
+            UnaryKind::Floor => {
+                while i + 16 <= len {
+                    vst1q_f32(op.add(i), vrndmq_f32(vld1q_f32(inp.add(i))));
+                    vst1q_f32(op.add(i + 4), vrndmq_f32(vld1q_f32(inp.add(i + 4))));
+                    vst1q_f32(op.add(i + 8), vrndmq_f32(vld1q_f32(inp.add(i + 8))));
+                    vst1q_f32(op.add(i + 12), vrndmq_f32(vld1q_f32(inp.add(i + 12))));
+                    i += 16;
+                }
+            }
+            UnaryKind::Ceil => {
+                while i + 16 <= len {
+                    vst1q_f32(op.add(i), vrndpq_f32(vld1q_f32(inp.add(i))));
+                    vst1q_f32(op.add(i + 4), vrndpq_f32(vld1q_f32(inp.add(i + 4))));
+                    vst1q_f32(op.add(i + 8), vrndpq_f32(vld1q_f32(inp.add(i + 8))));
+                    vst1q_f32(op.add(i + 12), vrndpq_f32(vld1q_f32(inp.add(i + 12))));
+                    i += 16;
+                }
+            }
+            UnaryKind::Round => {
+                while i + 16 <= len {
+                    vst1q_f32(op.add(i), vrndaq_f32(vld1q_f32(inp.add(i))));
+                    vst1q_f32(op.add(i + 4), vrndaq_f32(vld1q_f32(inp.add(i + 4))));
+                    vst1q_f32(op.add(i + 8), vrndaq_f32(vld1q_f32(inp.add(i + 8))));
+                    vst1q_f32(op.add(i + 12), vrndaq_f32(vld1q_f32(inp.add(i + 12))));
+                    i += 16;
+                }
+            }
+            UnaryKind::Sign => {
+                let zero = vdupq_n_f32(0.0);
+                let one = vdupq_n_f32(1.0);
+                let neg_one = vdupq_n_f32(-1.0);
+                while i + 16 <= len {
+                    let v0 = vld1q_f32(inp.add(i));
+                    let v1 = vld1q_f32(inp.add(i + 4));
+                    let v2 = vld1q_f32(inp.add(i + 8));
+                    let v3 = vld1q_f32(inp.add(i + 12));
+                    vst1q_f32(
+                        op.add(i),
+                        vaddq_f32(
+                            vbslq_f32(vcgtq_f32(v0, zero), one, zero),
+                            vbslq_f32(vcltq_f32(v0, zero), neg_one, zero),
+                        ),
+                    );
+                    vst1q_f32(
+                        op.add(i + 4),
+                        vaddq_f32(
+                            vbslq_f32(vcgtq_f32(v1, zero), one, zero),
+                            vbslq_f32(vcltq_f32(v1, zero), neg_one, zero),
+                        ),
+                    );
+                    vst1q_f32(
+                        op.add(i + 8),
+                        vaddq_f32(
+                            vbslq_f32(vcgtq_f32(v2, zero), one, zero),
+                            vbslq_f32(vcltq_f32(v2, zero), neg_one, zero),
+                        ),
+                    );
+                    vst1q_f32(
+                        op.add(i + 12),
+                        vaddq_f32(
+                            vbslq_f32(vcgtq_f32(v3, zero), one, zero),
+                            vbslq_f32(vcltq_f32(v3, zero), neg_one, zero),
+                        ),
+                    );
+                    i += 16;
+                }
+            }
+        }
+
+        // Scalar tail for remaining < 16 elements
+        while i < len {
+            *op.add(i) = match kind {
+                UnaryKind::Neg => -*inp.add(i),
+                UnaryKind::Abs => (*inp.add(i)).abs(),
+                UnaryKind::Sqrt => (*inp.add(i)).sqrt(),
+                UnaryKind::Recip => 1.0 / *inp.add(i),
+                UnaryKind::Floor => (*inp.add(i)).floor(),
+                UnaryKind::Ceil => (*inp.add(i)).ceil(),
+                UnaryKind::Round => (*inp.add(i)).round(),
+                UnaryKind::Sign => {
+                    let v = *inp.add(i);
+                    if v > 0.0 {
+                        1.0
+                    } else if v < 0.0 {
+                        -1.0
+                    } else {
+                        0.0
+                    }
+                }
+            };
+            i += 1;
+        }
     }
-} }
+}

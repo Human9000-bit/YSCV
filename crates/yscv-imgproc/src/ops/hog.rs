@@ -192,76 +192,78 @@ unsafe fn orient_pass_neon(
     #[cfg(target_arch = "arm")]
     use std::arch::arm::*;
     unsafe {
-    let mut b0 = vec![0u8; mh * mw];
-    let mut c0v = vec![0f32; mh * mw];
-    let mut c1v = vec![0f32; mh * mw];
+        let mut b0 = vec![0u8; mh * mw];
+        let mut c0v = vec![0f32; mh * mw];
+        let mut c1v = vec![0f32; mh * mw];
 
-    let vpi = vdupq_n_f32(PI);
-    let vhalfpi = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
-    let vscale = vdupq_n_f32(NBINS as f32 / PI);
-    let vclamp = vdupq_n_f32(NBINS as f32 - 1e-4);
-    let (ca, cb, cc) = (
-        vdupq_n_f32(-0.046_496_474_9),
-        vdupq_n_f32(0.159_314_22),
-        vdupq_n_f32(-0.327_622_764),
-    );
-    let vzero = vdupq_n_f32(0.0);
-    let vone = vdupq_n_f32(1.0);
+        let vpi = vdupq_n_f32(PI);
+        let vhalfpi = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+        let vscale = vdupq_n_f32(NBINS as f32 / PI);
+        let vclamp = vdupq_n_f32(NBINS as f32 - 1e-4);
+        let (ca, cb, cc) = (
+            vdupq_n_f32(-0.046_496_474_9),
+            vdupq_n_f32(0.159_314_22),
+            vdupq_n_f32(-0.327_622_764),
+        );
+        let vzero = vdupq_n_f32(0.0);
+        let vone = vdupq_n_f32(1.0);
 
-    for y in 0..mh {
-        let (row, orow) = (y * w, y * mw);
-        let mut x = 0;
-        while x + 4 <= mw {
-            let gxv = vld1q_f32(gx.as_ptr().add(row + x));
-            let gyv = vld1q_f32(gy.as_ptr().add(row + x));
-            let mag =
-                super::neon_compat::sqrtq_f32(vaddq_f32(vmulq_f32(gxv, gxv), vmulq_f32(gyv, gyv)));
+        for y in 0..mh {
+            let (row, orow) = (y * w, y * mw);
+            let mut x = 0;
+            while x + 4 <= mw {
+                let gxv = vld1q_f32(gx.as_ptr().add(row + x));
+                let gyv = vld1q_f32(gy.as_ptr().add(row + x));
+                let mag = super::neon_compat::sqrtq_f32(vaddq_f32(
+                    vmulq_f32(gxv, gxv),
+                    vmulq_f32(gyv, gyv),
+                ));
 
-            let ax = vabsq_f32(gxv);
-            let ay = vabsq_f32(gyv);
-            let mx = vmaxq_f32(ax, ay);
-            let mn = vminq_f32(ax, ay);
-            let a = vbslq_f32(
-                vcgtq_f32(mx, vzero),
-                super::neon_compat::divq_f32(mn, mx),
-                vzero,
-            );
-            let s = vmulq_f32(a, a);
-            // (((ca*s + cb)*s + cc)*s)*a + a
-            let mut r = vaddq_f32(vmulq_f32(ca, s), cb);
-            r = vaddq_f32(vmulq_f32(r, s), cc);
-            r = vmulq_f32(vmulq_f32(r, s), a);
-            r = vaddq_f32(r, a);
-            r = vbslq_f32(vcgtq_f32(ay, ax), vsubq_f32(vhalfpi, r), r); // ay>ax
-            r = vbslq_f32(vcltq_f32(gxv, vzero), vsubq_f32(vpi, r), r); // x<0
-            r = vbslq_f32(vcltq_f32(gyv, vzero), vsubq_f32(vzero, r), r); // y<0
-            r = vbslq_f32(vcltq_f32(r, vzero), vaddq_f32(r, vpi), r); // fold [0,PI)
+                let ax = vabsq_f32(gxv);
+                let ay = vabsq_f32(gyv);
+                let mx = vmaxq_f32(ax, ay);
+                let mn = vminq_f32(ax, ay);
+                let a = vbslq_f32(
+                    vcgtq_f32(mx, vzero),
+                    super::neon_compat::divq_f32(mn, mx),
+                    vzero,
+                );
+                let s = vmulq_f32(a, a);
+                // (((ca*s + cb)*s + cc)*s)*a + a
+                let mut r = vaddq_f32(vmulq_f32(ca, s), cb);
+                r = vaddq_f32(vmulq_f32(r, s), cc);
+                r = vmulq_f32(vmulq_f32(r, s), a);
+                r = vaddq_f32(r, a);
+                r = vbslq_f32(vcgtq_f32(ay, ax), vsubq_f32(vhalfpi, r), r); // ay>ax
+                r = vbslq_f32(vcltq_f32(gxv, vzero), vsubq_f32(vpi, r), r); // x<0
+                r = vbslq_f32(vcltq_f32(gyv, vzero), vsubq_f32(vzero, r), r); // y<0
+                r = vbslq_f32(vcltq_f32(r, vzero), vaddq_f32(r, vpi), r); // fold [0,PI)
 
-            let b = vminq_f32(vmulq_f32(r, vscale), vclamp);
-            let bi = vcvtq_s32_f32(b); // trunc == floor for b >= 0
-            let w1 = vsubq_f32(b, vcvtq_f32_s32(bi));
-            let c0 = vmulq_f32(mag, vsubq_f32(vone, w1));
-            let c1 = vmulq_f32(mag, w1);
+                let b = vminq_f32(vmulq_f32(r, vscale), vclamp);
+                let bi = vcvtq_s32_f32(b); // trunc == floor for b >= 0
+                let w1 = vsubq_f32(b, vcvtq_f32_s32(bi));
+                let c0 = vmulq_f32(mag, vsubq_f32(vone, w1));
+                let c1 = vmulq_f32(mag, w1);
 
-            vst1q_f32(c0v.as_mut_ptr().add(orow + x), c0);
-            vst1q_f32(c1v.as_mut_ptr().add(orow + x), c1);
-            let mut bins = [0i32; 4];
-            vst1q_s32(bins.as_mut_ptr(), bi);
-            b0[orow + x] = bins[0] as u8;
-            b0[orow + x + 1] = bins[1] as u8;
-            b0[orow + x + 2] = bins[2] as u8;
-            b0[orow + x + 3] = bins[3] as u8;
-            x += 4;
+                vst1q_f32(c0v.as_mut_ptr().add(orow + x), c0);
+                vst1q_f32(c1v.as_mut_ptr().add(orow + x), c1);
+                let mut bins = [0i32; 4];
+                vst1q_s32(bins.as_mut_ptr(), bi);
+                b0[orow + x] = bins[0] as u8;
+                b0[orow + x + 1] = bins[1] as u8;
+                b0[orow + x + 2] = bins[2] as u8;
+                b0[orow + x + 3] = bins[3] as u8;
+                x += 4;
+            }
+            while x < mw {
+                let (bi, a0, a1) = orient_px(gx[row + x], gy[row + x]);
+                b0[orow + x] = bi;
+                c0v[orow + x] = a0;
+                c1v[orow + x] = a1;
+                x += 1;
+            }
         }
-        while x < mw {
-            let (bi, a0, a1) = orient_px(gx[row + x], gy[row + x]);
-            b0[orow + x] = bi;
-            c0v[orow + x] = a0;
-            c1v[orow + x] = a1;
-            x += 1;
-        }
-    }
-    (b0, c0v, c1v)
+        (b0, c0v, c1v)
     }
 }
 

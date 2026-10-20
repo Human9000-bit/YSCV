@@ -89,24 +89,26 @@ unsafe fn add_inplace_avx(dst: &mut [f32], src: &[f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn add_inplace_neon(dst: &mut [f32], src: &[f32]) { unsafe {
-    let len = dst.len();
-    let dp = dst.as_mut_ptr();
-    let sp = src.as_ptr();
-    let mut i = 0usize;
+unsafe fn add_inplace_neon(dst: &mut [f32], src: &[f32]) {
+    unsafe {
+        let len = dst.len();
+        let dp = dst.as_mut_ptr();
+        let sp = src.as_ptr();
+        let mut i = 0usize;
 
-    while i + 4 <= len {
-        let d = vld1q_f32(dp.add(i));
-        let s = vld1q_f32(sp.add(i));
-        vst1q_f32(dp.add(i), vaddq_f32(d, s));
-        i += 4;
-    }
+        while i + 4 <= len {
+            let d = vld1q_f32(dp.add(i));
+            let s = vld1q_f32(sp.add(i));
+            vst1q_f32(dp.add(i), vaddq_f32(d, s));
+            i += 4;
+        }
 
-    while i < len {
-        *dp.add(i) += *sp.add(i);
-        i += 1;
+        while i < len {
+            *dp.add(i) += *sp.add(i);
+            i += 1;
+        }
     }
-} }
+}
 
 // ===========================================================================
 // In-place max: dst[i] = max(dst[i], src[i])
@@ -197,26 +199,28 @@ unsafe fn max_inplace_avx(dst: &mut [f32], src: &[f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn max_inplace_neon(dst: &mut [f32], src: &[f32]) { unsafe {
-    let len = dst.len();
-    let dp = dst.as_mut_ptr();
-    let sp = src.as_ptr();
-    let mut i = 0usize;
+unsafe fn max_inplace_neon(dst: &mut [f32], src: &[f32]) {
+    unsafe {
+        let len = dst.len();
+        let dp = dst.as_mut_ptr();
+        let sp = src.as_ptr();
+        let mut i = 0usize;
 
-    while i + 4 <= len {
-        let d = vld1q_f32(dp.add(i));
-        let s = vld1q_f32(sp.add(i));
-        vst1q_f32(dp.add(i), vmaxq_f32(d, s));
-        i += 4;
-    }
+        while i + 4 <= len {
+            let d = vld1q_f32(dp.add(i));
+            let s = vld1q_f32(sp.add(i));
+            vst1q_f32(dp.add(i), vmaxq_f32(d, s));
+            i += 4;
+        }
 
-    while i < len {
-        let d = *dp.add(i);
-        let s = *sp.add(i);
-        *dp.add(i) = if d > s { d } else { s };
-        i += 1;
+        while i < len {
+            let d = *dp.add(i);
+            let s = *sp.add(i);
+            *dp.add(i) = if d > s { d } else { s };
+            i += 1;
+        }
     }
-} }
+}
 
 // ===========================================================================
 // In-place ReLU: v[i] = max(v[i], 0)
@@ -302,24 +306,26 @@ unsafe fn relu_inplace_avx(values: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn relu_inplace_neon(values: &mut [f32]) { unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let zero = vdupq_n_f32(0.0);
-    let mut i = 0usize;
+unsafe fn relu_inplace_neon(values: &mut [f32]) {
+    unsafe {
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let zero = vdupq_n_f32(0.0);
+        let mut i = 0usize;
 
-    while i + 4 <= len {
-        let v = vld1q_f32(ptr.add(i));
-        vst1q_f32(ptr.add(i), vmaxq_f32(v, zero));
-        i += 4;
-    }
+        while i + 4 <= len {
+            let v = vld1q_f32(ptr.add(i));
+            vst1q_f32(ptr.add(i), vmaxq_f32(v, zero));
+            i += 4;
+        }
 
-    while i < len {
-        let v = *ptr.add(i);
-        *ptr.add(i) = if v > 0.0 { v } else { 0.0 };
-        i += 1;
+        while i < len {
+            let v = *ptr.add(i);
+            *ptr.add(i) = if v > 0.0 { v } else { 0.0 };
+            i += 1;
+        }
     }
-} }
+}
 
 // ===========================================================================
 // In-place scalar ops: v[i] += s, v[i] *= s
@@ -402,22 +408,24 @@ unsafe fn add_scalar_inplace_avx(values: &mut [f32], s: f32) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn add_scalar_inplace_neon(values: &mut [f32], s: f32) { unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let sv = vdupq_n_f32(s);
-    let mut i = 0usize;
+unsafe fn add_scalar_inplace_neon(values: &mut [f32], s: f32) {
+    unsafe {
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let sv = vdupq_n_f32(s);
+        let mut i = 0usize;
 
-    while i + 4 <= len {
-        let v = vld1q_f32(ptr.add(i));
-        vst1q_f32(ptr.add(i), vaddq_f32(v, sv));
-        i += 4;
+        while i + 4 <= len {
+            let v = vld1q_f32(ptr.add(i));
+            vst1q_f32(ptr.add(i), vaddq_f32(v, sv));
+            i += 4;
+        }
+        while i < len {
+            *ptr.add(i) += s;
+            i += 1;
+        }
     }
-    while i < len {
-        *ptr.add(i) += s;
-        i += 1;
-    }
-} }
+}
 
 #[allow(unsafe_code)]
 #[inline]
@@ -496,19 +504,21 @@ unsafe fn mul_scalar_inplace_avx(values: &mut [f32], s: f32) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn mul_scalar_inplace_neon(values: &mut [f32], s: f32) { unsafe {
-    let len = values.len();
-    let ptr = values.as_mut_ptr();
-    let sv = vdupq_n_f32(s);
-    let mut i = 0usize;
+unsafe fn mul_scalar_inplace_neon(values: &mut [f32], s: f32) {
+    unsafe {
+        let len = values.len();
+        let ptr = values.as_mut_ptr();
+        let sv = vdupq_n_f32(s);
+        let mut i = 0usize;
 
-    while i + 4 <= len {
-        let v = vld1q_f32(ptr.add(i));
-        vst1q_f32(ptr.add(i), vmulq_f32(v, sv));
-        i += 4;
+        while i + 4 <= len {
+            let v = vld1q_f32(ptr.add(i));
+            vst1q_f32(ptr.add(i), vmulq_f32(v, sv));
+            i += 4;
+        }
+        while i < len {
+            *ptr.add(i) *= s;
+            i += 1;
+        }
     }
-    while i < len {
-        *ptr.add(i) *= s;
-        i += 1;
-    }
-} }
+}

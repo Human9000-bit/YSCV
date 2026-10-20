@@ -97,26 +97,28 @@ unsafe fn sum_avx(data: &[f32]) -> f32 {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn sum_neon(data: &[f32]) -> f32 { unsafe {
-    use std::arch::aarch64::vaddvq_f32;
+unsafe fn sum_neon(data: &[f32]) -> f32 {
+    unsafe {
+        use std::arch::aarch64::vaddvq_f32;
 
-    let len = data.len();
-    let ptr = data.as_ptr();
-    let mut i = 0usize;
-    let mut acc = vdupq_n_f32(0.0);
+        let len = data.len();
+        let ptr = data.as_ptr();
+        let mut i = 0usize;
+        let mut acc = vdupq_n_f32(0.0);
 
-    while i + 4 <= len {
-        acc = vaddq_f32(acc, vld1q_f32(ptr.add(i)));
-        i += 4;
+        while i + 4 <= len {
+            acc = vaddq_f32(acc, vld1q_f32(ptr.add(i)));
+            i += 4;
+        }
+
+        let mut result = vaddvq_f32(acc);
+        while i < len {
+            result += *ptr.add(i);
+            i += 1;
+        }
+        result
     }
-
-    let mut result = vaddvq_f32(acc);
-    while i < len {
-        result += *ptr.add(i);
-        i += 1;
-    }
-    result
-} }
+}
 
 // ===========================================================================
 // Max reduction
@@ -216,26 +218,28 @@ unsafe fn max_avx(data: &[f32]) -> f32 {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn max_neon(data: &[f32]) -> f32 { unsafe {
-    use std::arch::aarch64::vmaxvq_f32;
+unsafe fn max_neon(data: &[f32]) -> f32 {
+    unsafe {
+        use std::arch::aarch64::vmaxvq_f32;
 
-    let len = data.len();
-    let ptr = data.as_ptr();
-    let mut i = 0usize;
-    let mut acc = vdupq_n_f32(f32::NEG_INFINITY);
+        let len = data.len();
+        let ptr = data.as_ptr();
+        let mut i = 0usize;
+        let mut acc = vdupq_n_f32(f32::NEG_INFINITY);
 
-    while i + 4 <= len {
-        acc = vmaxq_f32(acc, vld1q_f32(ptr.add(i)));
-        i += 4;
+        while i + 4 <= len {
+            acc = vmaxq_f32(acc, vld1q_f32(ptr.add(i)));
+            i += 4;
+        }
+
+        let mut result = vmaxvq_f32(acc);
+        while i < len {
+            result = result.max(*ptr.add(i));
+            i += 1;
+        }
+        result
     }
-
-    let mut result = vmaxvq_f32(acc);
-    while i < len {
-        result = result.max(*ptr.add(i));
-        i += 1;
-    }
-    result
-} }
+}
 
 // ===========================================================================
 // Min reduction
@@ -335,23 +339,25 @@ unsafe fn min_avx(data: &[f32]) -> f32 {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn min_neon(data: &[f32]) -> f32 { unsafe {
-    use std::arch::aarch64::vminvq_f32;
+unsafe fn min_neon(data: &[f32]) -> f32 {
+    unsafe {
+        use std::arch::aarch64::vminvq_f32;
 
-    let len = data.len();
-    let ptr = data.as_ptr();
-    let mut i = 0usize;
-    let mut acc = vdupq_n_f32(f32::INFINITY);
+        let len = data.len();
+        let ptr = data.as_ptr();
+        let mut i = 0usize;
+        let mut acc = vdupq_n_f32(f32::INFINITY);
 
-    while i + 4 <= len {
-        acc = vminq_f32(acc, vld1q_f32(ptr.add(i)));
-        i += 4;
+        while i + 4 <= len {
+            acc = vminq_f32(acc, vld1q_f32(ptr.add(i)));
+            i += 4;
+        }
+
+        let mut result = vminvq_f32(acc);
+        while i < len {
+            result = result.min(*ptr.add(i));
+            i += 1;
+        }
+        result
     }
-
-    let mut result = vminvq_f32(acc);
-    while i < len {
-        result = result.min(*ptr.add(i));
-        i += 1;
-    }
-    result
-} }
+}

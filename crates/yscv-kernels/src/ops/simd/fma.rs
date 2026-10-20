@@ -87,23 +87,23 @@ pub fn fma_slice_dispatch(a: &[f32], b: &[f32], acc: &mut [f32]) {
 #[allow(unsafe_code, dead_code)]
 pub(super) unsafe fn fma_slice_scalar(a: &[f32], b: &[f32], acc: &mut [f32]) {
     unsafe {
-    let len = a.len();
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
-    let acc_ptr = acc.as_mut_ptr();
-    let mut index = 0usize;
+        let len = a.len();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+        let acc_ptr = acc.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        *acc_ptr.add(index) += *a_ptr.add(index) * *b_ptr.add(index);
-        *acc_ptr.add(index + 1) += *a_ptr.add(index + 1) * *b_ptr.add(index + 1);
-        *acc_ptr.add(index + 2) += *a_ptr.add(index + 2) * *b_ptr.add(index + 2);
-        *acc_ptr.add(index + 3) += *a_ptr.add(index + 3) * *b_ptr.add(index + 3);
-        index += 4;
-    }
-    while index < len {
-        *acc_ptr.add(index) += *a_ptr.add(index) * *b_ptr.add(index);
-        index += 1;
-    }
+        while index + 4 <= len {
+            *acc_ptr.add(index) += *a_ptr.add(index) * *b_ptr.add(index);
+            *acc_ptr.add(index + 1) += *a_ptr.add(index + 1) * *b_ptr.add(index + 1);
+            *acc_ptr.add(index + 2) += *a_ptr.add(index + 2) * *b_ptr.add(index + 2);
+            *acc_ptr.add(index + 3) += *a_ptr.add(index + 3) * *b_ptr.add(index + 3);
+            index += 4;
+        }
+        while index < len {
+            *acc_ptr.add(index) += *a_ptr.add(index) * *b_ptr.add(index);
+            index += 1;
+        }
     }
 }
 
@@ -116,24 +116,24 @@ pub(super) unsafe fn fma_slice_scalar(a: &[f32], b: &[f32], acc: &mut [f32]) {
 #[target_feature(enable = "sse")]
 unsafe fn fma_slice_sse(a: &[f32], b: &[f32], acc: &mut [f32]) {
     unsafe {
-    let len = a.len();
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
-    let acc_ptr = acc.as_mut_ptr();
-    let mut index = 0usize;
+        let len = a.len();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+        let acc_ptr = acc.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        let av = _mm_loadu_ps(a_ptr.add(index));
-        let bv = _mm_loadu_ps(b_ptr.add(index));
-        let cv = _mm_loadu_ps(acc_ptr.add(index));
-        let result = _mm_add_ps(cv, _mm_mul_ps(av, bv));
-        _mm_storeu_ps(acc_ptr.add(index), result);
-        index += 4;
-    }
+        while index + 4 <= len {
+            let av = _mm_loadu_ps(a_ptr.add(index));
+            let bv = _mm_loadu_ps(b_ptr.add(index));
+            let cv = _mm_loadu_ps(acc_ptr.add(index));
+            let result = _mm_add_ps(cv, _mm_mul_ps(av, bv));
+            _mm_storeu_ps(acc_ptr.add(index), result);
+            index += 4;
+        }
 
-    if index < len {
-        fma_slice_scalar(&a[index..], &b[index..], &mut acc[index..]);
-    }
+        if index < len {
+            fma_slice_scalar(&a[index..], &b[index..], &mut acc[index..]);
+        }
     }
 }
 
@@ -142,24 +142,24 @@ unsafe fn fma_slice_sse(a: &[f32], b: &[f32], acc: &mut [f32]) {
 #[target_feature(enable = "avx")]
 unsafe fn fma_slice_avx(a: &[f32], b: &[f32], acc: &mut [f32]) {
     unsafe {
-    let len = a.len();
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
-    let acc_ptr = acc.as_mut_ptr();
-    let mut index = 0usize;
+        let len = a.len();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+        let acc_ptr = acc.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 8 <= len {
-        let av = _mm256_loadu_ps(a_ptr.add(index));
-        let bv = _mm256_loadu_ps(b_ptr.add(index));
-        let cv = _mm256_loadu_ps(acc_ptr.add(index));
-        let result = _mm256_add_ps(cv, _mm256_mul_ps(av, bv));
-        _mm256_storeu_ps(acc_ptr.add(index), result);
-        index += 8;
-    }
+        while index + 8 <= len {
+            let av = _mm256_loadu_ps(a_ptr.add(index));
+            let bv = _mm256_loadu_ps(b_ptr.add(index));
+            let cv = _mm256_loadu_ps(acc_ptr.add(index));
+            let result = _mm256_add_ps(cv, _mm256_mul_ps(av, bv));
+            _mm256_storeu_ps(acc_ptr.add(index), result);
+            index += 8;
+        }
 
-    if index < len {
-        fma_slice_sse(&a[index..], &b[index..], &mut acc[index..]);
-    }
+        if index < len {
+            fma_slice_sse(&a[index..], &b[index..], &mut acc[index..]);
+        }
     }
 }
 
@@ -168,24 +168,24 @@ unsafe fn fma_slice_avx(a: &[f32], b: &[f32], acc: &mut [f32]) {
 #[target_feature(enable = "neon")]
 unsafe fn fma_slice_neon(a: &[f32], b: &[f32], acc: &mut [f32]) {
     unsafe {
-    let len = a.len();
-    let a_ptr = a.as_ptr();
-    let b_ptr = b.as_ptr();
-    let acc_ptr = acc.as_mut_ptr();
-    let mut index = 0usize;
+        let len = a.len();
+        let a_ptr = a.as_ptr();
+        let b_ptr = b.as_ptr();
+        let acc_ptr = acc.as_mut_ptr();
+        let mut index = 0usize;
 
-    while index + 4 <= len {
-        let av = vld1q_f32(a_ptr.add(index));
-        let bv = vld1q_f32(b_ptr.add(index));
-        let cv = vld1q_f32(acc_ptr.add(index));
-        let result = vfmaq_f32(cv, av, bv);
-        vst1q_f32(acc_ptr.add(index), result);
-        index += 4;
-    }
+        while index + 4 <= len {
+            let av = vld1q_f32(a_ptr.add(index));
+            let bv = vld1q_f32(b_ptr.add(index));
+            let cv = vld1q_f32(acc_ptr.add(index));
+            let result = vfmaq_f32(cv, av, bv);
+            vst1q_f32(acc_ptr.add(index), result);
+            index += 4;
+        }
 
-    if index < len {
-        fma_slice_scalar(&a[index..], &b[index..], &mut acc[index..]);
-    }
+        if index < len {
+            fma_slice_scalar(&a[index..], &b[index..], &mut acc[index..]);
+        }
     }
 }
 
@@ -217,34 +217,34 @@ pub unsafe fn matmul_row_dispatch(
     n: usize,
 ) {
     unsafe {
-    if cfg!(miri) {
+        if cfg!(miri) {
+            matmul_row_scalar(left_row, right, out_row, k, n);
+            return;
+        }
+
+        let path = dispatch_path(false, false);
+
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        {
+            if path.is_avx() {
+                matmul_row_avx(left_row, right, out_row, k, n);
+                return;
+            }
+            if path == SimdDispatchPath::Sse {
+                matmul_row_sse(left_row, right, out_row, k, n);
+                return;
+            }
+        }
+
+        #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
+        {
+            if path == SimdDispatchPath::Neon {
+                matmul_row_neon(left_row, right, out_row, k, n);
+                return;
+            }
+        }
+
         matmul_row_scalar(left_row, right, out_row, k, n);
-        return;
-    }
-
-    let path = dispatch_path(false, false);
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        if path.is_avx() {
-            matmul_row_avx(left_row, right, out_row, k, n);
-            return;
-        }
-        if path == SimdDispatchPath::Sse {
-            matmul_row_sse(left_row, right, out_row, k, n);
-            return;
-        }
-    }
-
-    #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-    {
-        if path == SimdDispatchPath::Neon {
-            matmul_row_neon(left_row, right, out_row, k, n);
-            return;
-        }
-    }
-
-    matmul_row_scalar(left_row, right, out_row, k, n);
     }
 }
 
@@ -258,23 +258,23 @@ unsafe fn matmul_row_scalar(
     n: usize,
 ) {
     unsafe {
-    for p in 0..k {
-        let a_val = *left_row.add(p);
-        let b_row = right.add(p * n);
+        for p in 0..k {
+            let a_val = *left_row.add(p);
+            let b_row = right.add(p * n);
 
-        let mut col = 0usize;
-        while col + 4 <= n {
-            *out_row.add(col) += a_val * *b_row.add(col);
-            *out_row.add(col + 1) += a_val * *b_row.add(col + 1);
-            *out_row.add(col + 2) += a_val * *b_row.add(col + 2);
-            *out_row.add(col + 3) += a_val * *b_row.add(col + 3);
-            col += 4;
+            let mut col = 0usize;
+            while col + 4 <= n {
+                *out_row.add(col) += a_val * *b_row.add(col);
+                *out_row.add(col + 1) += a_val * *b_row.add(col + 1);
+                *out_row.add(col + 2) += a_val * *b_row.add(col + 2);
+                *out_row.add(col + 3) += a_val * *b_row.add(col + 3);
+                col += 4;
+            }
+            while col < n {
+                *out_row.add(col) += a_val * *b_row.add(col);
+                col += 1;
+            }
         }
-        while col < n {
-            *out_row.add(col) += a_val * *b_row.add(col);
-            col += 1;
-        }
-    }
     }
 }
 
@@ -289,40 +289,40 @@ unsafe fn matmul_row_sse(
     n: usize,
 ) {
     unsafe {
-    let mut col = 0usize;
-    while col + 8 <= n {
-        let mut acc0 = _mm_setzero_ps();
-        let mut acc1 = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            let b_base = right.add(p * n + col);
-            acc0 = _mm_add_ps(acc0, _mm_mul_ps(a, _mm_loadu_ps(b_base)));
-            acc1 = _mm_add_ps(acc1, _mm_mul_ps(a, _mm_loadu_ps(b_base.add(4))));
+        let mut col = 0usize;
+        while col + 8 <= n {
+            let mut acc0 = _mm_setzero_ps();
+            let mut acc1 = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                let b_base = right.add(p * n + col);
+                acc0 = _mm_add_ps(acc0, _mm_mul_ps(a, _mm_loadu_ps(b_base)));
+                acc1 = _mm_add_ps(acc1, _mm_mul_ps(a, _mm_loadu_ps(b_base.add(4))));
+            }
+            let o0 = _mm_loadu_ps(out_row.add(col));
+            let o1 = _mm_loadu_ps(out_row.add(col + 4));
+            _mm_storeu_ps(out_row.add(col), _mm_add_ps(o0, acc0));
+            _mm_storeu_ps(out_row.add(col + 4), _mm_add_ps(o1, acc1));
+            col += 8;
         }
-        let o0 = _mm_loadu_ps(out_row.add(col));
-        let o1 = _mm_loadu_ps(out_row.add(col + 4));
-        _mm_storeu_ps(out_row.add(col), _mm_add_ps(o0, acc0));
-        _mm_storeu_ps(out_row.add(col + 4), _mm_add_ps(o1, acc1));
-        col += 8;
-    }
-    while col + 4 <= n {
-        let mut acc = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            acc = _mm_add_ps(acc, _mm_mul_ps(a, _mm_loadu_ps(right.add(p * n + col))));
+        while col + 4 <= n {
+            let mut acc = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                acc = _mm_add_ps(acc, _mm_mul_ps(a, _mm_loadu_ps(right.add(p * n + col))));
+            }
+            let out_vec = _mm_loadu_ps(out_row.add(col));
+            _mm_storeu_ps(out_row.add(col), _mm_add_ps(out_vec, acc));
+            col += 4;
         }
-        let out_vec = _mm_loadu_ps(out_row.add(col));
-        _mm_storeu_ps(out_row.add(col), _mm_add_ps(out_vec, acc));
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) += sum;
+            col += 1;
         }
-        *out_row.add(col) += sum;
-        col += 1;
-    }
     }
 }
 
@@ -337,42 +337,42 @@ unsafe fn matmul_row_avx(
     n: usize,
 ) {
     unsafe {
-    if crate::host_cpu().features.fma {
-        matmul_row_avx_fma(left_row, right, out_row, k, n);
-        return;
-    }
-    // Accumulate in registers (N-first loop order) — single store per output element.
-    let mut col = 0usize;
-    while col + 8 <= n {
-        let mut acc = _mm256_setzero_ps();
-        for p in 0..k {
-            let a = _mm256_set1_ps(*left_row.add(p));
-            let b = _mm256_loadu_ps(right.add(p * n + col));
-            acc = _mm256_add_ps(acc, _mm256_mul_ps(a, b));
+        if crate::host_cpu().features.fma {
+            matmul_row_avx_fma(left_row, right, out_row, k, n);
+            return;
         }
-        let out_vec = _mm256_loadu_ps(out_row.add(col));
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(out_vec, acc));
-        col += 8;
-    }
-    while col + 4 <= n {
-        let mut acc = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            let b = _mm_loadu_ps(right.add(p * n + col));
-            acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+        // Accumulate in registers (N-first loop order) — single store per output element.
+        let mut col = 0usize;
+        while col + 8 <= n {
+            let mut acc = _mm256_setzero_ps();
+            for p in 0..k {
+                let a = _mm256_set1_ps(*left_row.add(p));
+                let b = _mm256_loadu_ps(right.add(p * n + col));
+                acc = _mm256_add_ps(acc, _mm256_mul_ps(a, b));
+            }
+            let out_vec = _mm256_loadu_ps(out_row.add(col));
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(out_vec, acc));
+            col += 8;
         }
-        let out_vec = _mm_loadu_ps(out_row.add(col));
-        _mm_storeu_ps(out_row.add(col), _mm_add_ps(out_vec, acc));
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
+        while col + 4 <= n {
+            let mut acc = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                let b = _mm_loadu_ps(right.add(p * n + col));
+                acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+            }
+            let out_vec = _mm_loadu_ps(out_row.add(col));
+            _mm_storeu_ps(out_row.add(col), _mm_add_ps(out_vec, acc));
+            col += 4;
         }
-        *out_row.add(col) += sum;
-        col += 1;
-    }
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) += sum;
+            col += 1;
+        }
     }
 }
 
@@ -387,110 +387,110 @@ unsafe fn matmul_row_avx_fma(
     n: usize,
 ) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm256_fmadd_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm256_fmadd_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm256_fmadd_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm256_fmadd_ps;
 
-    let mut col = 0usize;
-    while col + 48 <= n {
-        let mut acc0 = _mm256_setzero_ps();
-        let mut acc1 = _mm256_setzero_ps();
-        let mut acc2 = _mm256_setzero_ps();
-        let mut acc3 = _mm256_setzero_ps();
-        let mut acc4 = _mm256_setzero_ps();
-        let mut acc5 = _mm256_setzero_ps();
-        for p in 0..k {
-            let a = _mm256_set1_ps(*left_row.add(p));
-            let b_base = right.add(p * n + col);
-            acc0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base), acc0);
-            acc1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(8)), acc1);
-            acc2 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(16)), acc2);
-            acc3 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(24)), acc3);
-            acc4 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(32)), acc4);
-            acc5 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(40)), acc5);
+        let mut col = 0usize;
+        while col + 48 <= n {
+            let mut acc0 = _mm256_setzero_ps();
+            let mut acc1 = _mm256_setzero_ps();
+            let mut acc2 = _mm256_setzero_ps();
+            let mut acc3 = _mm256_setzero_ps();
+            let mut acc4 = _mm256_setzero_ps();
+            let mut acc5 = _mm256_setzero_ps();
+            for p in 0..k {
+                let a = _mm256_set1_ps(*left_row.add(p));
+                let b_base = right.add(p * n + col);
+                acc0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base), acc0);
+                acc1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(8)), acc1);
+                acc2 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(16)), acc2);
+                acc3 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(24)), acc3);
+                acc4 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(32)), acc4);
+                acc5 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(40)), acc5);
+            }
+            let o0 = _mm256_loadu_ps(out_row.add(col));
+            let o1 = _mm256_loadu_ps(out_row.add(col + 8));
+            let o2 = _mm256_loadu_ps(out_row.add(col + 16));
+            let o3 = _mm256_loadu_ps(out_row.add(col + 24));
+            let o4 = _mm256_loadu_ps(out_row.add(col + 32));
+            let o5 = _mm256_loadu_ps(out_row.add(col + 40));
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(o0, acc0));
+            _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(o1, acc1));
+            _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(o2, acc2));
+            _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(o3, acc3));
+            _mm256_storeu_ps(out_row.add(col + 32), _mm256_add_ps(o4, acc4));
+            _mm256_storeu_ps(out_row.add(col + 40), _mm256_add_ps(o5, acc5));
+            col += 48;
         }
-        let o0 = _mm256_loadu_ps(out_row.add(col));
-        let o1 = _mm256_loadu_ps(out_row.add(col + 8));
-        let o2 = _mm256_loadu_ps(out_row.add(col + 16));
-        let o3 = _mm256_loadu_ps(out_row.add(col + 24));
-        let o4 = _mm256_loadu_ps(out_row.add(col + 32));
-        let o5 = _mm256_loadu_ps(out_row.add(col + 40));
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(o0, acc0));
-        _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(o1, acc1));
-        _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(o2, acc2));
-        _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(o3, acc3));
-        _mm256_storeu_ps(out_row.add(col + 32), _mm256_add_ps(o4, acc4));
-        _mm256_storeu_ps(out_row.add(col + 40), _mm256_add_ps(o5, acc5));
-        col += 48;
-    }
-    while col + 32 <= n {
-        let mut acc0 = _mm256_setzero_ps();
-        let mut acc1 = _mm256_setzero_ps();
-        let mut acc2 = _mm256_setzero_ps();
-        let mut acc3 = _mm256_setzero_ps();
-        for p in 0..k {
-            let a = _mm256_set1_ps(*left_row.add(p));
-            let b_base = right.add(p * n + col);
-            acc0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base), acc0);
-            acc1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(8)), acc1);
-            acc2 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(16)), acc2);
-            acc3 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(24)), acc3);
+        while col + 32 <= n {
+            let mut acc0 = _mm256_setzero_ps();
+            let mut acc1 = _mm256_setzero_ps();
+            let mut acc2 = _mm256_setzero_ps();
+            let mut acc3 = _mm256_setzero_ps();
+            for p in 0..k {
+                let a = _mm256_set1_ps(*left_row.add(p));
+                let b_base = right.add(p * n + col);
+                acc0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base), acc0);
+                acc1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(8)), acc1);
+                acc2 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(16)), acc2);
+                acc3 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(24)), acc3);
+            }
+            let o0 = _mm256_loadu_ps(out_row.add(col));
+            let o1 = _mm256_loadu_ps(out_row.add(col + 8));
+            let o2 = _mm256_loadu_ps(out_row.add(col + 16));
+            let o3 = _mm256_loadu_ps(out_row.add(col + 24));
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(o0, acc0));
+            _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(o1, acc1));
+            _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(o2, acc2));
+            _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(o3, acc3));
+            col += 32;
         }
-        let o0 = _mm256_loadu_ps(out_row.add(col));
-        let o1 = _mm256_loadu_ps(out_row.add(col + 8));
-        let o2 = _mm256_loadu_ps(out_row.add(col + 16));
-        let o3 = _mm256_loadu_ps(out_row.add(col + 24));
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(o0, acc0));
-        _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(o1, acc1));
-        _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(o2, acc2));
-        _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(o3, acc3));
-        col += 32;
-    }
-    while col + 16 <= n {
-        let mut acc0 = _mm256_setzero_ps();
-        let mut acc1 = _mm256_setzero_ps();
-        for p in 0..k {
-            let a = _mm256_set1_ps(*left_row.add(p));
-            let b_base = right.add(p * n + col);
-            acc0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base), acc0);
-            acc1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(8)), acc1);
+        while col + 16 <= n {
+            let mut acc0 = _mm256_setzero_ps();
+            let mut acc1 = _mm256_setzero_ps();
+            for p in 0..k {
+                let a = _mm256_set1_ps(*left_row.add(p));
+                let b_base = right.add(p * n + col);
+                acc0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base), acc0);
+                acc1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b_base.add(8)), acc1);
+            }
+            let o0 = _mm256_loadu_ps(out_row.add(col));
+            let o1 = _mm256_loadu_ps(out_row.add(col + 8));
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(o0, acc0));
+            _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(o1, acc1));
+            col += 16;
         }
-        let o0 = _mm256_loadu_ps(out_row.add(col));
-        let o1 = _mm256_loadu_ps(out_row.add(col + 8));
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(o0, acc0));
-        _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(o1, acc1));
-        col += 16;
-    }
-    while col + 8 <= n {
-        let mut acc = _mm256_setzero_ps();
-        for p in 0..k {
-            let a = _mm256_set1_ps(*left_row.add(p));
-            acc = _mm256_fmadd_ps(a, _mm256_loadu_ps(right.add(p * n + col)), acc);
+        while col + 8 <= n {
+            let mut acc = _mm256_setzero_ps();
+            for p in 0..k {
+                let a = _mm256_set1_ps(*left_row.add(p));
+                acc = _mm256_fmadd_ps(a, _mm256_loadu_ps(right.add(p * n + col)), acc);
+            }
+            let out_vec = _mm256_loadu_ps(out_row.add(col));
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(out_vec, acc));
+            col += 8;
         }
-        let out_vec = _mm256_loadu_ps(out_row.add(col));
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(out_vec, acc));
-        col += 8;
-    }
-    while col + 4 <= n {
-        let mut acc = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            let b = _mm_loadu_ps(right.add(p * n + col));
-            acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+        while col + 4 <= n {
+            let mut acc = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                let b = _mm_loadu_ps(right.add(p * n + col));
+                acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+            }
+            let out_vec = _mm_loadu_ps(out_row.add(col));
+            _mm_storeu_ps(out_row.add(col), _mm_add_ps(out_vec, acc));
+            col += 4;
         }
-        let out_vec = _mm_loadu_ps(out_row.add(col));
-        _mm_storeu_ps(out_row.add(col), _mm_add_ps(out_vec, acc));
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) += sum;
+            col += 1;
         }
-        *out_row.add(col) += sum;
-        col += 1;
-    }
     }
 }
 
@@ -505,23 +505,23 @@ unsafe fn matmul_row_neon(
     n: usize,
 ) {
     unsafe {
-    for p in 0..k {
-        let a_val: float32x4_t = vdupq_n_f32(*left_row.add(p));
-        let b_row = right.add(p * n);
+        for p in 0..k {
+            let a_val: float32x4_t = vdupq_n_f32(*left_row.add(p));
+            let b_row = right.add(p * n);
 
-        let mut col = 0usize;
-        while col + 4 <= n {
-            let b_vec = vld1q_f32(b_row.add(col));
-            let out_vec = vld1q_f32(out_row.add(col));
-            let result = vfmaq_f32(out_vec, a_val, b_vec);
-            vst1q_f32(out_row.add(col), result);
-            col += 4;
+            let mut col = 0usize;
+            while col + 4 <= n {
+                let b_vec = vld1q_f32(b_row.add(col));
+                let out_vec = vld1q_f32(out_row.add(col));
+                let result = vfmaq_f32(out_vec, a_val, b_vec);
+                vst1q_f32(out_row.add(col), result);
+                col += 4;
+            }
+            while col < n {
+                *out_row.add(col) += *left_row.add(p) * *b_row.add(col);
+                col += 1;
+            }
         }
-        while col < n {
-            *out_row.add(col) += *left_row.add(p) * *b_row.add(col);
-            col += 1;
-        }
-    }
     }
 }
 
@@ -540,58 +540,58 @@ pub unsafe fn matmul_row_set_dispatch(
     n: usize,
 ) {
     unsafe {
-    if cfg!(miri) {
-        matmul_row_set_scalar(left_row, right, out_row, k, n);
-        return;
-    }
+        if cfg!(miri) {
+            matmul_row_set_scalar(left_row, right, out_row, k, n);
+            return;
+        }
 
-    let path = dispatch_path(true, false);
+        let path = dispatch_path(true, false);
 
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    {
-        // AVX-512 gate: the AVX-512 row-set kernel only wins at very wide
-        // shapes (k>=4096 || n>=4096). At smaller shapes the AVX FMA 6×8 tile
-        // beats the AVX-512 4×16 — more accumulator chains hide latency better
-        // at small K, and the AVX FMA path has SW prefetch the row-set kernel
-        // lacks. Threshold tunable via `YSCV_AVX512_ROWGEMM_MIN_DIM`; kill via
-        // `YSCV_AVX512_ROWGEMM_OFF=1`.
-        static AVX512_OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-        let avx512_off =
-            *AVX512_OFF.get_or_init(|| std::env::var_os("YSCV_AVX512_ROWGEMM_OFF").is_some());
-        static AVX512_MIN_DIM: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
-        let min_dim = *AVX512_MIN_DIM.get_or_init(|| {
-            std::env::var("YSCV_AVX512_ROWGEMM_MIN_DIM")
-                .ok()
-                .and_then(|v| v.parse::<usize>().ok())
-                .unwrap_or(4096)
-        });
-        if !avx512_off
-            && (n >= min_dim || k >= min_dim)
-            && path == SimdDispatchPath::Avx512
-            && crate::host_cpu().features.fma
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
         {
-            matmul_row_set_avx512(left_row, right, out_row, k, n);
-            return;
+            // AVX-512 gate: the AVX-512 row-set kernel only wins at very wide
+            // shapes (k>=4096 || n>=4096). At smaller shapes the AVX FMA 6×8 tile
+            // beats the AVX-512 4×16 — more accumulator chains hide latency better
+            // at small K, and the AVX FMA path has SW prefetch the row-set kernel
+            // lacks. Threshold tunable via `YSCV_AVX512_ROWGEMM_MIN_DIM`; kill via
+            // `YSCV_AVX512_ROWGEMM_OFF=1`.
+            static AVX512_OFF: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+            let avx512_off =
+                *AVX512_OFF.get_or_init(|| std::env::var_os("YSCV_AVX512_ROWGEMM_OFF").is_some());
+            static AVX512_MIN_DIM: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+            let min_dim = *AVX512_MIN_DIM.get_or_init(|| {
+                std::env::var("YSCV_AVX512_ROWGEMM_MIN_DIM")
+                    .ok()
+                    .and_then(|v| v.parse::<usize>().ok())
+                    .unwrap_or(4096)
+            });
+            if !avx512_off
+                && (n >= min_dim || k >= min_dim)
+                && path == SimdDispatchPath::Avx512
+                && crate::host_cpu().features.fma
+            {
+                matmul_row_set_avx512(left_row, right, out_row, k, n);
+                return;
+            }
+            if path.is_avx() {
+                matmul_row_set_avx(left_row, right, out_row, k, n);
+                return;
+            }
+            if path == SimdDispatchPath::Sse {
+                matmul_row_set_sse(left_row, right, out_row, k, n);
+                return;
+            }
         }
-        if path.is_avx() {
-            matmul_row_set_avx(left_row, right, out_row, k, n);
-            return;
-        }
-        if path == SimdDispatchPath::Sse {
-            matmul_row_set_sse(left_row, right, out_row, k, n);
-            return;
-        }
-    }
 
-    #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-    {
-        if path == SimdDispatchPath::Neon {
-            matmul_row_set_neon(left_row, right, out_row, k, n);
-            return;
+        #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
+        {
+            if path == SimdDispatchPath::Neon {
+                matmul_row_set_neon(left_row, right, out_row, k, n);
+                return;
+            }
         }
-    }
 
-    matmul_row_set_scalar(left_row, right, out_row, k, n);
+        matmul_row_set_scalar(left_row, right, out_row, k, n);
     }
 }
 
@@ -604,13 +604,13 @@ unsafe fn matmul_row_set_scalar(
     n: usize,
 ) {
     unsafe {
-    for col in 0..n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
+        for col in 0..n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) = sum;
         }
-        *out_row.add(col) = sum;
-    }
     }
 }
 
@@ -625,37 +625,37 @@ unsafe fn matmul_row_set_sse(
     n: usize,
 ) {
     unsafe {
-    let mut col = 0usize;
-    while col + 8 <= n {
-        let mut acc0 = _mm_setzero_ps();
-        let mut acc1 = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            let b_base = right.add(p * n + col);
-            acc0 = _mm_add_ps(acc0, _mm_mul_ps(a, _mm_loadu_ps(b_base)));
-            acc1 = _mm_add_ps(acc1, _mm_mul_ps(a, _mm_loadu_ps(b_base.add(4))));
+        let mut col = 0usize;
+        while col + 8 <= n {
+            let mut acc0 = _mm_setzero_ps();
+            let mut acc1 = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                let b_base = right.add(p * n + col);
+                acc0 = _mm_add_ps(acc0, _mm_mul_ps(a, _mm_loadu_ps(b_base)));
+                acc1 = _mm_add_ps(acc1, _mm_mul_ps(a, _mm_loadu_ps(b_base.add(4))));
+            }
+            _mm_storeu_ps(out_row.add(col), acc0);
+            _mm_storeu_ps(out_row.add(col + 4), acc1);
+            col += 8;
         }
-        _mm_storeu_ps(out_row.add(col), acc0);
-        _mm_storeu_ps(out_row.add(col + 4), acc1);
-        col += 8;
-    }
-    while col + 4 <= n {
-        let mut acc = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            acc = _mm_add_ps(acc, _mm_mul_ps(a, _mm_loadu_ps(right.add(p * n + col))));
+        while col + 4 <= n {
+            let mut acc = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                acc = _mm_add_ps(acc, _mm_mul_ps(a, _mm_loadu_ps(right.add(p * n + col))));
+            }
+            _mm_storeu_ps(out_row.add(col), acc);
+            col += 4;
         }
-        _mm_storeu_ps(out_row.add(col), acc);
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) = sum;
+            col += 1;
         }
-        *out_row.add(col) = sum;
-        col += 1;
-    }
     }
 }
 
@@ -670,39 +670,39 @@ unsafe fn matmul_row_set_avx(
     n: usize,
 ) {
     unsafe {
-    if crate::host_cpu().features.fma {
-        matmul_row_set_avx_fma(left_row, right, out_row, k, n);
-        return;
-    }
-    let mut col = 0usize;
-    while col + 8 <= n {
-        let mut acc = _mm256_setzero_ps();
-        for p in 0..k {
-            let a = _mm256_set1_ps(*left_row.add(p));
-            let b = _mm256_loadu_ps(right.add(p * n + col));
-            acc = _mm256_add_ps(acc, _mm256_mul_ps(a, b));
+        if crate::host_cpu().features.fma {
+            matmul_row_set_avx_fma(left_row, right, out_row, k, n);
+            return;
         }
-        _mm256_storeu_ps(out_row.add(col), acc);
-        col += 8;
-    }
-    while col + 4 <= n {
-        let mut acc = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            let b = _mm_loadu_ps(right.add(p * n + col));
-            acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+        let mut col = 0usize;
+        while col + 8 <= n {
+            let mut acc = _mm256_setzero_ps();
+            for p in 0..k {
+                let a = _mm256_set1_ps(*left_row.add(p));
+                let b = _mm256_loadu_ps(right.add(p * n + col));
+                acc = _mm256_add_ps(acc, _mm256_mul_ps(a, b));
+            }
+            _mm256_storeu_ps(out_row.add(col), acc);
+            col += 8;
         }
-        _mm_storeu_ps(out_row.add(col), acc);
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
+        while col + 4 <= n {
+            let mut acc = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                let b = _mm_loadu_ps(right.add(p * n + col));
+                acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+            }
+            _mm_storeu_ps(out_row.add(col), acc);
+            col += 4;
         }
-        *out_row.add(col) = sum;
-        col += 1;
-    }
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) = sum;
+            col += 1;
+        }
     }
 }
 
@@ -717,178 +717,178 @@ unsafe fn matmul_row_set_avx_fma(
     n: usize,
 ) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::_mm256_fmadd_ps;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::_mm256_fmadd_ps;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::_mm256_fmadd_ps;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::_mm256_fmadd_ps;
 
-    let mut col = 0usize;
-    while col + 48 <= n {
-        let mut a0 = _mm256_setzero_ps();
-        let mut a1 = _mm256_setzero_ps();
-        let mut a2 = _mm256_setzero_ps();
-        let mut a3 = _mm256_setzero_ps();
-        let mut a4 = _mm256_setzero_ps();
-        let mut a5 = _mm256_setzero_ps();
-        let mut b0 = _mm256_setzero_ps();
-        let mut b1 = _mm256_setzero_ps();
-        let mut b2 = _mm256_setzero_ps();
-        let mut b3 = _mm256_setzero_ps();
-        let mut b4 = _mm256_setzero_ps();
-        let mut b5 = _mm256_setzero_ps();
-        let k2 = k & !1;
-        let mut p = 0usize;
-        while p < k2 {
-            let va = _mm256_set1_ps(*left_row.add(p));
-            let bb = right.add(p * n + col);
-            a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
-            a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
-            a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
-            a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
-            a4 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(32)), a4);
-            a5 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(40)), a5);
-            let vb = _mm256_set1_ps(*left_row.add(p + 1));
-            let bc = right.add((p + 1) * n + col);
-            b0 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc), b0);
-            b1 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(8)), b1);
-            b2 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(16)), b2);
-            b3 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(24)), b3);
-            b4 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(32)), b4);
-            b5 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(40)), b5);
-            p += 2;
+        let mut col = 0usize;
+        while col + 48 <= n {
+            let mut a0 = _mm256_setzero_ps();
+            let mut a1 = _mm256_setzero_ps();
+            let mut a2 = _mm256_setzero_ps();
+            let mut a3 = _mm256_setzero_ps();
+            let mut a4 = _mm256_setzero_ps();
+            let mut a5 = _mm256_setzero_ps();
+            let mut b0 = _mm256_setzero_ps();
+            let mut b1 = _mm256_setzero_ps();
+            let mut b2 = _mm256_setzero_ps();
+            let mut b3 = _mm256_setzero_ps();
+            let mut b4 = _mm256_setzero_ps();
+            let mut b5 = _mm256_setzero_ps();
+            let k2 = k & !1;
+            let mut p = 0usize;
+            while p < k2 {
+                let va = _mm256_set1_ps(*left_row.add(p));
+                let bb = right.add(p * n + col);
+                a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
+                a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+                a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
+                a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
+                a4 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(32)), a4);
+                a5 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(40)), a5);
+                let vb = _mm256_set1_ps(*left_row.add(p + 1));
+                let bc = right.add((p + 1) * n + col);
+                b0 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc), b0);
+                b1 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(8)), b1);
+                b2 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(16)), b2);
+                b3 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(24)), b3);
+                b4 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(32)), b4);
+                b5 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(40)), b5);
+                p += 2;
+            }
+            if p < k {
+                let va = _mm256_set1_ps(*left_row.add(p));
+                let bb = right.add(p * n + col);
+                a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
+                a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+                a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
+                a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
+                a4 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(32)), a4);
+                a5 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(40)), a5);
+            }
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
+            _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(a1, b1));
+            _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(a2, b2));
+            _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(a3, b3));
+            _mm256_storeu_ps(out_row.add(col + 32), _mm256_add_ps(a4, b4));
+            _mm256_storeu_ps(out_row.add(col + 40), _mm256_add_ps(a5, b5));
+            col += 48;
         }
-        if p < k {
-            let va = _mm256_set1_ps(*left_row.add(p));
-            let bb = right.add(p * n + col);
-            a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
-            a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
-            a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
-            a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
-            a4 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(32)), a4);
-            a5 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(40)), a5);
+        while col + 32 <= n {
+            let mut a0 = _mm256_setzero_ps();
+            let mut a1 = _mm256_setzero_ps();
+            let mut a2 = _mm256_setzero_ps();
+            let mut a3 = _mm256_setzero_ps();
+            let mut b0 = _mm256_setzero_ps();
+            let mut b1 = _mm256_setzero_ps();
+            let mut b2 = _mm256_setzero_ps();
+            let mut b3 = _mm256_setzero_ps();
+            let k2 = k & !1;
+            let mut p = 0usize;
+            while p < k2 {
+                let va = _mm256_set1_ps(*left_row.add(p));
+                let bb = right.add(p * n + col);
+                a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
+                a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+                a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
+                a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
+                let vb = _mm256_set1_ps(*left_row.add(p + 1));
+                let bc = right.add((p + 1) * n + col);
+                b0 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc), b0);
+                b1 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(8)), b1);
+                b2 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(16)), b2);
+                b3 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(24)), b3);
+                p += 2;
+            }
+            if p < k {
+                let va = _mm256_set1_ps(*left_row.add(p));
+                let bb = right.add(p * n + col);
+                a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
+                a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+                a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
+                a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
+            }
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
+            _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(a1, b1));
+            _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(a2, b2));
+            _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(a3, b3));
+            col += 32;
         }
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
-        _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(a1, b1));
-        _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(a2, b2));
-        _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(a3, b3));
-        _mm256_storeu_ps(out_row.add(col + 32), _mm256_add_ps(a4, b4));
-        _mm256_storeu_ps(out_row.add(col + 40), _mm256_add_ps(a5, b5));
-        col += 48;
-    }
-    while col + 32 <= n {
-        let mut a0 = _mm256_setzero_ps();
-        let mut a1 = _mm256_setzero_ps();
-        let mut a2 = _mm256_setzero_ps();
-        let mut a3 = _mm256_setzero_ps();
-        let mut b0 = _mm256_setzero_ps();
-        let mut b1 = _mm256_setzero_ps();
-        let mut b2 = _mm256_setzero_ps();
-        let mut b3 = _mm256_setzero_ps();
-        let k2 = k & !1;
-        let mut p = 0usize;
-        while p < k2 {
-            let va = _mm256_set1_ps(*left_row.add(p));
-            let bb = right.add(p * n + col);
-            a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
-            a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
-            a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
-            a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
-            let vb = _mm256_set1_ps(*left_row.add(p + 1));
-            let bc = right.add((p + 1) * n + col);
-            b0 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc), b0);
-            b1 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(8)), b1);
-            b2 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(16)), b2);
-            b3 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(24)), b3);
-            p += 2;
+        while col + 16 <= n {
+            let mut a0 = _mm256_setzero_ps();
+            let mut a1 = _mm256_setzero_ps();
+            let mut b0 = _mm256_setzero_ps();
+            let mut b1 = _mm256_setzero_ps();
+            let k2 = k & !1;
+            let mut p = 0usize;
+            while p < k2 {
+                let va = _mm256_set1_ps(*left_row.add(p));
+                let bb = right.add(p * n + col);
+                a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
+                a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+                let vb = _mm256_set1_ps(*left_row.add(p + 1));
+                let bc = right.add((p + 1) * n + col);
+                b0 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc), b0);
+                b1 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(8)), b1);
+                p += 2;
+            }
+            if p < k {
+                let va = _mm256_set1_ps(*left_row.add(p));
+                let bb = right.add(p * n + col);
+                a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
+                a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+            }
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
+            _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(a1, b1));
+            col += 16;
         }
-        if p < k {
-            let va = _mm256_set1_ps(*left_row.add(p));
-            let bb = right.add(p * n + col);
-            a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
-            a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
-            a2 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(16)), a2);
-            a3 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(24)), a3);
+        while col + 8 <= n {
+            let mut a0 = _mm256_setzero_ps();
+            let mut b0 = _mm256_setzero_ps();
+            let k2 = k & !1;
+            let mut p = 0usize;
+            while p < k2 {
+                a0 = _mm256_fmadd_ps(
+                    _mm256_set1_ps(*left_row.add(p)),
+                    _mm256_loadu_ps(right.add(p * n + col)),
+                    a0,
+                );
+                b0 = _mm256_fmadd_ps(
+                    _mm256_set1_ps(*left_row.add(p + 1)),
+                    _mm256_loadu_ps(right.add((p + 1) * n + col)),
+                    b0,
+                );
+                p += 2;
+            }
+            if p < k {
+                a0 = _mm256_fmadd_ps(
+                    _mm256_set1_ps(*left_row.add(p)),
+                    _mm256_loadu_ps(right.add(p * n + col)),
+                    a0,
+                );
+            }
+            _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
+            col += 8;
         }
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
-        _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(a1, b1));
-        _mm256_storeu_ps(out_row.add(col + 16), _mm256_add_ps(a2, b2));
-        _mm256_storeu_ps(out_row.add(col + 24), _mm256_add_ps(a3, b3));
-        col += 32;
-    }
-    while col + 16 <= n {
-        let mut a0 = _mm256_setzero_ps();
-        let mut a1 = _mm256_setzero_ps();
-        let mut b0 = _mm256_setzero_ps();
-        let mut b1 = _mm256_setzero_ps();
-        let k2 = k & !1;
-        let mut p = 0usize;
-        while p < k2 {
-            let va = _mm256_set1_ps(*left_row.add(p));
-            let bb = right.add(p * n + col);
-            a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
-            a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
-            let vb = _mm256_set1_ps(*left_row.add(p + 1));
-            let bc = right.add((p + 1) * n + col);
-            b0 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc), b0);
-            b1 = _mm256_fmadd_ps(vb, _mm256_loadu_ps(bc.add(8)), b1);
-            p += 2;
+        while col + 4 <= n {
+            let mut acc = _mm_setzero_ps();
+            for p in 0..k {
+                let a = _mm_set1_ps(*left_row.add(p));
+                let b = _mm_loadu_ps(right.add(p * n + col));
+                acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
+            }
+            _mm_storeu_ps(out_row.add(col), acc);
+            col += 4;
         }
-        if p < k {
-            let va = _mm256_set1_ps(*left_row.add(p));
-            let bb = right.add(p * n + col);
-            a0 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb), a0);
-            a1 = _mm256_fmadd_ps(va, _mm256_loadu_ps(bb.add(8)), a1);
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) = sum;
+            col += 1;
         }
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
-        _mm256_storeu_ps(out_row.add(col + 8), _mm256_add_ps(a1, b1));
-        col += 16;
-    }
-    while col + 8 <= n {
-        let mut a0 = _mm256_setzero_ps();
-        let mut b0 = _mm256_setzero_ps();
-        let k2 = k & !1;
-        let mut p = 0usize;
-        while p < k2 {
-            a0 = _mm256_fmadd_ps(
-                _mm256_set1_ps(*left_row.add(p)),
-                _mm256_loadu_ps(right.add(p * n + col)),
-                a0,
-            );
-            b0 = _mm256_fmadd_ps(
-                _mm256_set1_ps(*left_row.add(p + 1)),
-                _mm256_loadu_ps(right.add((p + 1) * n + col)),
-                b0,
-            );
-            p += 2;
-        }
-        if p < k {
-            a0 = _mm256_fmadd_ps(
-                _mm256_set1_ps(*left_row.add(p)),
-                _mm256_loadu_ps(right.add(p * n + col)),
-                a0,
-            );
-        }
-        _mm256_storeu_ps(out_row.add(col), _mm256_add_ps(a0, b0));
-        col += 8;
-    }
-    while col + 4 <= n {
-        let mut acc = _mm_setzero_ps();
-        for p in 0..k {
-            let a = _mm_set1_ps(*left_row.add(p));
-            let b = _mm_loadu_ps(right.add(p * n + col));
-            acc = _mm_add_ps(acc, _mm_mul_ps(a, b));
-        }
-        _mm_storeu_ps(out_row.add(col), acc);
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
-        }
-        *out_row.add(col) = sum;
-        col += 1;
-    }
     }
 }
 
@@ -914,70 +914,70 @@ unsafe fn matmul_row_set_avx512(
     n: usize,
 ) {
     unsafe {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::*;
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::*;
+        #[cfg(target_arch = "x86")]
+        use std::arch::x86::*;
+        #[cfg(target_arch = "x86_64")]
+        use std::arch::x86_64::*;
 
-    let mut col = 0usize;
-    while col + 64 <= n {
-        let mut a0 = _mm512_setzero_ps();
-        let mut a1 = _mm512_setzero_ps();
-        let mut a2 = _mm512_setzero_ps();
-        let mut a3 = _mm512_setzero_ps();
-        let mut b0 = _mm512_setzero_ps();
-        let mut b1 = _mm512_setzero_ps();
-        let mut b2 = _mm512_setzero_ps();
-        let mut b3 = _mm512_setzero_ps();
-        let k2 = k & !1;
-        let mut p = 0usize;
-        while p < k2 {
-            let va = _mm512_set1_ps(*left_row.add(p));
-            let row = right.add(p * n + col);
-            a0 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row), a0);
-            a1 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(16)), a1);
-            a2 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(32)), a2);
-            a3 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(48)), a3);
-            let vb = _mm512_set1_ps(*left_row.add(p + 1));
-            let row1 = right.add((p + 1) * n + col);
-            b0 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1), b0);
-            b1 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1.add(16)), b1);
-            b2 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1.add(32)), b2);
-            b3 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1.add(48)), b3);
-            p += 2;
+        let mut col = 0usize;
+        while col + 64 <= n {
+            let mut a0 = _mm512_setzero_ps();
+            let mut a1 = _mm512_setzero_ps();
+            let mut a2 = _mm512_setzero_ps();
+            let mut a3 = _mm512_setzero_ps();
+            let mut b0 = _mm512_setzero_ps();
+            let mut b1 = _mm512_setzero_ps();
+            let mut b2 = _mm512_setzero_ps();
+            let mut b3 = _mm512_setzero_ps();
+            let k2 = k & !1;
+            let mut p = 0usize;
+            while p < k2 {
+                let va = _mm512_set1_ps(*left_row.add(p));
+                let row = right.add(p * n + col);
+                a0 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row), a0);
+                a1 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(16)), a1);
+                a2 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(32)), a2);
+                a3 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(48)), a3);
+                let vb = _mm512_set1_ps(*left_row.add(p + 1));
+                let row1 = right.add((p + 1) * n + col);
+                b0 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1), b0);
+                b1 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1.add(16)), b1);
+                b2 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1.add(32)), b2);
+                b3 = _mm512_fmadd_ps(vb, _mm512_loadu_ps(row1.add(48)), b3);
+                p += 2;
+            }
+            if p < k {
+                let va = _mm512_set1_ps(*left_row.add(p));
+                let row = right.add(p * n + col);
+                a0 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row), a0);
+                a1 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(16)), a1);
+                a2 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(32)), a2);
+                a3 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(48)), a3);
+            }
+            _mm512_storeu_ps(out_row.add(col), _mm512_add_ps(a0, b0));
+            _mm512_storeu_ps(out_row.add(col + 16), _mm512_add_ps(a1, b1));
+            _mm512_storeu_ps(out_row.add(col + 32), _mm512_add_ps(a2, b2));
+            _mm512_storeu_ps(out_row.add(col + 48), _mm512_add_ps(a3, b3));
+            col += 64;
         }
-        if p < k {
-            let va = _mm512_set1_ps(*left_row.add(p));
-            let row = right.add(p * n + col);
-            a0 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row), a0);
-            a1 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(16)), a1);
-            a2 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(32)), a2);
-            a3 = _mm512_fmadd_ps(va, _mm512_loadu_ps(row.add(48)), a3);
+        while col + 16 <= n {
+            let mut acc = _mm512_setzero_ps();
+            for p in 0..k {
+                let a = _mm512_set1_ps(*left_row.add(p));
+                let b = _mm512_loadu_ps(right.add(p * n + col));
+                acc = _mm512_fmadd_ps(a, b, acc);
+            }
+            _mm512_storeu_ps(out_row.add(col), acc);
+            col += 16;
         }
-        _mm512_storeu_ps(out_row.add(col), _mm512_add_ps(a0, b0));
-        _mm512_storeu_ps(out_row.add(col + 16), _mm512_add_ps(a1, b1));
-        _mm512_storeu_ps(out_row.add(col + 32), _mm512_add_ps(a2, b2));
-        _mm512_storeu_ps(out_row.add(col + 48), _mm512_add_ps(a3, b3));
-        col += 64;
-    }
-    while col + 16 <= n {
-        let mut acc = _mm512_setzero_ps();
-        for p in 0..k {
-            let a = _mm512_set1_ps(*left_row.add(p));
-            let b = _mm512_loadu_ps(right.add(p * n + col));
-            acc = _mm512_fmadd_ps(a, b, acc);
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) = sum;
+            col += 1;
         }
-        _mm512_storeu_ps(out_row.add(col), acc);
-        col += 16;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
-        }
-        *out_row.add(col) = sum;
-        col += 1;
-    }
     }
 }
 
@@ -992,38 +992,38 @@ unsafe fn matmul_row_set_neon(
     n: usize,
 ) {
     unsafe {
-    // `right` is read down a column at stride `n * 4` bytes, which the in-order
-    // A53/A55 prefetcher misses once `n` grows. The split keeps the hint out of
-    // the k-loop body: a per-iteration branch here costs that core more than the
-    // hint recovers, and out-of-order cores need neither.
-    let sp = prefetch_split(
-        crate::host_cpu().uarch.is_in_order() && !matmul_prefetch_disabled(),
-        k,
-    );
-    let mut col = 0usize;
-    while col + 4 <= n {
-        let mut acc = vdupq_n_f32(0.0);
-        for p in 0..sp {
-            prefetch_l1_keep(right.add((p + PREFETCH_AHEAD) * n + col));
-            let a = vdupq_n_f32(*left_row.add(p));
-            let b = vld1q_f32(right.add(p * n + col));
-            acc = vfmaq_f32(acc, a, b);
+        // `right` is read down a column at stride `n * 4` bytes, which the in-order
+        // A53/A55 prefetcher misses once `n` grows. The split keeps the hint out of
+        // the k-loop body: a per-iteration branch here costs that core more than the
+        // hint recovers, and out-of-order cores need neither.
+        let sp = prefetch_split(
+            crate::host_cpu().uarch.is_in_order() && !matmul_prefetch_disabled(),
+            k,
+        );
+        let mut col = 0usize;
+        while col + 4 <= n {
+            let mut acc = vdupq_n_f32(0.0);
+            for p in 0..sp {
+                prefetch_l1_keep(right.add((p + PREFETCH_AHEAD) * n + col));
+                let a = vdupq_n_f32(*left_row.add(p));
+                let b = vld1q_f32(right.add(p * n + col));
+                acc = vfmaq_f32(acc, a, b);
+            }
+            for p in sp..k {
+                let a = vdupq_n_f32(*left_row.add(p));
+                let b = vld1q_f32(right.add(p * n + col));
+                acc = vfmaq_f32(acc, a, b);
+            }
+            vst1q_f32(out_row.add(col), acc);
+            col += 4;
         }
-        for p in sp..k {
-            let a = vdupq_n_f32(*left_row.add(p));
-            let b = vld1q_f32(right.add(p * n + col));
-            acc = vfmaq_f32(acc, a, b);
+        while col < n {
+            let mut sum = 0.0f32;
+            for p in 0..k {
+                sum += *left_row.add(p) * *right.add(p * n + col);
+            }
+            *out_row.add(col) = sum;
+            col += 1;
         }
-        vst1q_f32(out_row.add(col), acc);
-        col += 4;
-    }
-    while col < n {
-        let mut sum = 0.0f32;
-        for p in 0..k {
-            sum += *left_row.add(p) * *right.add(p * n + col);
-        }
-        *out_row.add(col) = sum;
-        col += 1;
-    }
     }
 }

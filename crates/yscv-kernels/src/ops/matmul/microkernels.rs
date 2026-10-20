@@ -35,210 +35,145 @@ pub(super) unsafe fn gebp_kernel_raw(
     is_last_k: bool,
 ) {
     unsafe {
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    let use_4x16 = crate::host_cpu().features.fma && crate::host_cpu().features.avx;
-    #[cfg(target_arch = "aarch64")]
-    let use_4x16 = crate::host_cpu().features.neon;
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
-    let use_4x16 = false;
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let use_4x16 = crate::host_cpu().features.fma && crate::host_cpu().features.avx;
+        #[cfg(target_arch = "aarch64")]
+        let use_4x16 = crate::host_cpu().features.neon;
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+        let use_4x16 = false;
 
-    // The 4×24 tile needs 24 acc + 6 B + 4 A = 34 vector registers. x86 AVX has
-    // them; aarch64 has only 32, so on NEON it spills every k-iteration. Cap
-    // aarch64 at the 4×16 tile (24 regs, fits) unless opted back in for A/B.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    let use_4x24 = use_4x16;
-    #[cfg(target_arch = "aarch64")]
-    let use_4x24 = std::env::var_os("YSCV_NEON_4X24_ON").is_some();
-    #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
-    let use_4x24 = false;
+        // The 4×24 tile needs 24 acc + 6 B + 4 A = 34 vector registers. x86 AVX has
+        // them; aarch64 has only 32, so on NEON it spills every k-iteration. Cap
+        // aarch64 at the 4×16 tile (24 regs, fits) unless opted back in for A/B.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let use_4x24 = use_4x16;
+        #[cfg(target_arch = "aarch64")]
+        let use_4x24 = std::env::var_os("YSCV_NEON_4X24_ON").is_some();
+        #[cfg(not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")))]
+        let use_4x24 = false;
 
-    // AVX-512 detection — cached (CPUID once, then atomic-load hot path).
-    // Env override `YSCV_NO_AVX512=1` disables for A/B benchmarking.
-    #[cfg(all(target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
-    let use_avx512 = avx512_enabled();
-    #[cfg(not(all(target_arch = "x86_64", any(target_os = "linux", target_os = "macos"))))]
-    let use_avx512 = false;
-    let _ = use_avx512;
-
-    let mut jr = 0usize;
-    while jr < nc {
-        let nr = NR.min(nc - jr);
-        let b_off = (jr / NR) * kc * NR;
-        let col_offset = jc + jr;
-
-        // AVX-512 4×32 fast path. The `.S` kernel now has INLINE bias+Relu
-        // epilogue (Phase 2.F) so it CAN handle Conv_Relu — but on Zen 4
-        // the AVX-512 backend is double-pumped and measured 9% slower than
-        // our 4×24 AVX2 intrinsic at Conv_Relu shapes. We keep the gate at
-        // IDENTITY only; on true-AVX-512 hardware (Intel Sapphire Rapids,
-        // Zen 5 with non-double-pumped 512-bit FMA) a relaxed gate
-        // `!matches!(epilogue.activation, Activation::Silu)` would win.
-        // Env override `YSCV_AVX512_RELU=1` forces the relaxed gate for
-        // hand measurement / Intel validation.
+        // AVX-512 detection — cached (CPUID once, then atomic-load hot path).
+        // Env override `YSCV_NO_AVX512=1` disables for A/B benchmarking.
         #[cfg(all(target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
-        if use_avx512
-            && nr == NR
-            && jr + 4 * NR <= nc
-            && ((epilogue.bias.is_none() && matches!(epilogue.activation, Activation::None))
-                || (avx512_relu_enabled() && !matches!(epilogue.activation, Activation::Silu)))
-        {
+        let use_avx512 = avx512_enabled();
+        #[cfg(not(all(target_arch = "x86_64", any(target_os = "linux", target_os = "macos"))))]
+        let use_avx512 = false;
+        let _ = use_avx512;
+
+        let mut jr = 0usize;
+        while jr < nc {
+            let nr = NR.min(nc - jr);
             let b_off = (jr / NR) * kc * NR;
-            let activation_id: usize = match epilogue.activation {
-                Activation::None => 0,
-                Activation::Relu => 1,
-                Activation::Silu => 0, // unreachable (outer gate)
-            };
-            let is_last_k_flag: usize = if is_last_k { 1 } else { 0 };
-            for ir in (0..mc).step_by(MR) {
-                let mr = MR.min(mc - ir);
-                let a_off = (ir / MR) * kc * MR;
-                let c_ptr = output.add((ic + ir) * n + jc + jr);
-                if mr == MR {
-                    let bias_ptr: *const f32 = match epilogue.bias {
-                        Some(b) => b.add(jc + jr),
-                        None => std::ptr::null(),
-                    };
-                    if accumulate {
-                        sgemm_asm_avx512::yscv_sgemm_4x32_avx512_acc(
-                            packed_a.add(a_off),
-                            packed_b.add(b_off),
-                            c_ptr,
-                            n,
-                            kc,
-                            bias_ptr,
-                            activation_id,
-                            is_last_k_flag,
-                        );
+            let col_offset = jc + jr;
+
+            // AVX-512 4×32 fast path. The `.S` kernel now has INLINE bias+Relu
+            // epilogue (Phase 2.F) so it CAN handle Conv_Relu — but on Zen 4
+            // the AVX-512 backend is double-pumped and measured 9% slower than
+            // our 4×24 AVX2 intrinsic at Conv_Relu shapes. We keep the gate at
+            // IDENTITY only; on true-AVX-512 hardware (Intel Sapphire Rapids,
+            // Zen 5 with non-double-pumped 512-bit FMA) a relaxed gate
+            // `!matches!(epilogue.activation, Activation::Silu)` would win.
+            // Env override `YSCV_AVX512_RELU=1` forces the relaxed gate for
+            // hand measurement / Intel validation.
+            #[cfg(all(target_arch = "x86_64", any(target_os = "linux", target_os = "macos")))]
+            if use_avx512
+                && nr == NR
+                && jr + 4 * NR <= nc
+                && ((epilogue.bias.is_none() && matches!(epilogue.activation, Activation::None))
+                    || (avx512_relu_enabled() && !matches!(epilogue.activation, Activation::Silu)))
+            {
+                let b_off = (jr / NR) * kc * NR;
+                let activation_id: usize = match epilogue.activation {
+                    Activation::None => 0,
+                    Activation::Relu => 1,
+                    Activation::Silu => 0, // unreachable (outer gate)
+                };
+                let is_last_k_flag: usize = if is_last_k { 1 } else { 0 };
+                for ir in (0..mc).step_by(MR) {
+                    let mr = MR.min(mc - ir);
+                    let a_off = (ir / MR) * kc * MR;
+                    let c_ptr = output.add((ic + ir) * n + jc + jr);
+                    if mr == MR {
+                        let bias_ptr: *const f32 = match epilogue.bias {
+                            Some(b) => b.add(jc + jr),
+                            None => std::ptr::null(),
+                        };
+                        if accumulate {
+                            sgemm_asm_avx512::yscv_sgemm_4x32_avx512_acc(
+                                packed_a.add(a_off),
+                                packed_b.add(b_off),
+                                c_ptr,
+                                n,
+                                kc,
+                                bias_ptr,
+                                activation_id,
+                                is_last_k_flag,
+                            );
+                        } else {
+                            sgemm_asm_avx512::yscv_sgemm_4x32_avx512_set(
+                                packed_a.add(a_off),
+                                packed_b.add(b_off),
+                                c_ptr,
+                                n,
+                                kc,
+                                bias_ptr,
+                                activation_id,
+                                is_last_k_flag,
+                            );
+                        }
                     } else {
-                        sgemm_asm_avx512::yscv_sgemm_4x32_avx512_set(
-                            packed_a.add(a_off),
-                            packed_b.add(b_off),
-                            c_ptr,
-                            n,
-                            kc,
-                            bias_ptr,
-                            activation_id,
-                            is_last_k_flag,
-                        );
-                    }
-                } else {
-                    // Partial-row tail: fall back to four scalar NR-panel calls.
-                    for panel in 0..4 {
-                        let poff = ((jr + panel * NR) / NR) * kc * NR;
-                        microkernel_scalar_partial(
-                            packed_a.add(a_off),
-                            packed_b.add(poff),
-                            c_ptr.add(panel * NR),
-                            n,
-                            mr,
-                            NR,
-                            kc,
-                            accumulate,
-                            epilogue,
-                            is_last_k,
-                            jc + jr + panel * NR,
-                            epilogue
-                                .residual
-                                .map(|r| r.add((ic + ir) * n + jc + jr + panel * NR)),
-                        );
+                        // Partial-row tail: fall back to four scalar NR-panel calls.
+                        for panel in 0..4 {
+                            let poff = ((jr + panel * NR) / NR) * kc * NR;
+                            microkernel_scalar_partial(
+                                packed_a.add(a_off),
+                                packed_b.add(poff),
+                                c_ptr.add(panel * NR),
+                                n,
+                                mr,
+                                NR,
+                                kc,
+                                accumulate,
+                                epilogue,
+                                is_last_k,
+                                jc + jr + panel * NR,
+                                epilogue
+                                    .residual
+                                    .map(|r| r.add((ic + ir) * n + jc + jr + panel * NR)),
+                            );
+                        }
                     }
                 }
+                jr += 4 * NR;
+                continue;
             }
-            jr += 4 * NR;
-            continue;
-        }
 
-        // Try tripled 4×24 when three full NR=8 tiles are available.
-        #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
-        if use_4x24 && nr == NR && jr + 3 * NR <= nc {
-            let b_off_1 = ((jr + NR) / NR) * kc * NR;
-            let b_off_2 = ((jr + 2 * NR) / NR) * kc * NR;
-            for ir in (0..mc).step_by(MR) {
-                let mr = MR.min(mc - ir);
-                let a_off = (ir / MR) * kc * MR;
-                let c_ptr = output.add((ic + ir) * n + col_offset);
-                // Per-tile residual pointer — same row/col math as output.
-                // x86 4×24 tile uses `residual_tile` for in-kernel residual
-                // fold; aarch64 NEON 4×24 still routes residual via the
-                // matmul guard (falls back to row_gemm) — unused there.
-                #[cfg_attr(not(target_arch = "x86_64"), allow(unused_variables))]
-                let residual_tile = epilogue.residual.map(|r| r.add((ic + ir) * n + col_offset));
-                if mr == MR {
-                    // Windows-MSVC has no `.S` kernel linked (cl.exe can't
-                    // speak GAS); take the intrinsics 4×24 path directly so
-                    // `link.exe` doesn't hunt for `yscv_sgemm_4x24_avx2_*`.
-                    #[cfg(all(target_arch = "x86_64", target_os = "windows", target_env = "msvc"))]
-                    {
-                        microkernel_4x24_avx_fma(
-                            packed_a.add(a_off),
-                            packed_b.add(b_off),
-                            packed_b.add(b_off_1),
-                            packed_b.add(b_off_2),
-                            c_ptr,
-                            n,
-                            kc,
-                            accumulate,
-                            epilogue,
-                            is_last_k,
-                            col_offset,
-                            residual_tile,
-                        );
-                    }
-
-                    #[cfg(all(
-                        target_arch = "x86_64",
-                        not(all(target_os = "windows", target_env = "msvc"))
-                    ))]
-                    {
-                        // Pure-.S path: hand-scheduled 4×24 with fused
-                        // bias + residual + Relu epilogue. SiLU still routes
-                        // to intrinsics (bit-trick SiLU not yet in .S).
-                        let use_asm =
-                            asm_4x24_enabled() && !matches!(epilogue.activation, Activation::Silu);
-                        if use_asm {
-                            let activation_id: usize = match epilogue.activation {
-                                Activation::Relu => 1,
-                                _ => 0,
-                            };
-                            let is_last_k_flag: usize = if is_last_k { 1 } else { 0 };
-                            let bias_ptr: *const f32 = match epilogue.bias {
-                                Some(b) if is_last_k => b.add(col_offset),
-                                _ => std::ptr::null(),
-                            };
-                            let residual_ptr: *const f32 = match residual_tile {
-                                Some(r) if is_last_k => r,
-                                _ => std::ptr::null(),
-                            };
-                            if accumulate {
-                                sgemm_asm::yscv_sgemm_4x24_avx2_acc_fused(
-                                    packed_a.add(a_off),
-                                    packed_b.add(b_off),
-                                    packed_b.add(b_off_1),
-                                    packed_b.add(b_off_2),
-                                    c_ptr,
-                                    n,
-                                    kc,
-                                    bias_ptr,
-                                    residual_ptr,
-                                    activation_id,
-                                    is_last_k_flag,
-                                );
-                            } else {
-                                sgemm_asm::yscv_sgemm_4x24_avx2_set_fused(
-                                    packed_a.add(a_off),
-                                    packed_b.add(b_off),
-                                    packed_b.add(b_off_1),
-                                    packed_b.add(b_off_2),
-                                    c_ptr,
-                                    n,
-                                    kc,
-                                    bias_ptr,
-                                    residual_ptr,
-                                    activation_id,
-                                    is_last_k_flag,
-                                );
-                            }
-                        } else {
+            // Try tripled 4×24 when three full NR=8 tiles are available.
+            #[cfg(any(target_arch = "x86_64", target_arch = "aarch64"))]
+            if use_4x24 && nr == NR && jr + 3 * NR <= nc {
+                let b_off_1 = ((jr + NR) / NR) * kc * NR;
+                let b_off_2 = ((jr + 2 * NR) / NR) * kc * NR;
+                for ir in (0..mc).step_by(MR) {
+                    let mr = MR.min(mc - ir);
+                    let a_off = (ir / MR) * kc * MR;
+                    let c_ptr = output.add((ic + ir) * n + col_offset);
+                    // Per-tile residual pointer — same row/col math as output.
+                    // x86 4×24 tile uses `residual_tile` for in-kernel residual
+                    // fold; aarch64 NEON 4×24 still routes residual via the
+                    // matmul guard (falls back to row_gemm) — unused there.
+                    #[cfg_attr(not(target_arch = "x86_64"), allow(unused_variables))]
+                    let residual_tile =
+                        epilogue.residual.map(|r| r.add((ic + ir) * n + col_offset));
+                    if mr == MR {
+                        // Windows-MSVC has no `.S` kernel linked (cl.exe can't
+                        // speak GAS); take the intrinsics 4×24 path directly so
+                        // `link.exe` doesn't hunt for `yscv_sgemm_4x24_avx2_*`.
+                        #[cfg(all(
+                            target_arch = "x86_64",
+                            target_os = "windows",
+                            target_env = "msvc"
+                        ))]
+                        {
                             microkernel_4x24_avx_fma(
                                 packed_a.add(a_off),
                                 packed_b.add(b_off),
@@ -254,28 +189,62 @@ pub(super) unsafe fn gebp_kernel_raw(
                                 residual_tile,
                             );
                         }
-                    }
-                    #[cfg(target_arch = "aarch64")]
-                    {
-                        // Fast path: hand-tuned `.S` kernel for pure GEMM (no
-                        // bias/activation). Dispatch on epilogue shape, mirroring
-                        // the x86_64 4×8 fast path.
-                        if epilogue.bias.is_none()
-                            && epilogue.residual.is_none()
-                            && matches!(epilogue.activation, Activation::None)
+
+                        #[cfg(all(
+                            target_arch = "x86_64",
+                            not(all(target_os = "windows", target_env = "msvc"))
+                        ))]
                         {
-                            if accumulate {
-                                sgemm_asm_aarch64::yscv_sgemm_4x24_neon_acc(
-                                    packed_a.add(a_off),
-                                    packed_b.add(b_off),
-                                    packed_b.add(b_off_1),
-                                    packed_b.add(b_off_2),
-                                    c_ptr,
-                                    n,
-                                    kc,
-                                );
+                            // Pure-.S path: hand-scheduled 4×24 with fused
+                            // bias + residual + Relu epilogue. SiLU still routes
+                            // to intrinsics (bit-trick SiLU not yet in .S).
+                            let use_asm = asm_4x24_enabled()
+                                && !matches!(epilogue.activation, Activation::Silu);
+                            if use_asm {
+                                let activation_id: usize = match epilogue.activation {
+                                    Activation::Relu => 1,
+                                    _ => 0,
+                                };
+                                let is_last_k_flag: usize = if is_last_k { 1 } else { 0 };
+                                let bias_ptr: *const f32 = match epilogue.bias {
+                                    Some(b) if is_last_k => b.add(col_offset),
+                                    _ => std::ptr::null(),
+                                };
+                                let residual_ptr: *const f32 = match residual_tile {
+                                    Some(r) if is_last_k => r,
+                                    _ => std::ptr::null(),
+                                };
+                                if accumulate {
+                                    sgemm_asm::yscv_sgemm_4x24_avx2_acc_fused(
+                                        packed_a.add(a_off),
+                                        packed_b.add(b_off),
+                                        packed_b.add(b_off_1),
+                                        packed_b.add(b_off_2),
+                                        c_ptr,
+                                        n,
+                                        kc,
+                                        bias_ptr,
+                                        residual_ptr,
+                                        activation_id,
+                                        is_last_k_flag,
+                                    );
+                                } else {
+                                    sgemm_asm::yscv_sgemm_4x24_avx2_set_fused(
+                                        packed_a.add(a_off),
+                                        packed_b.add(b_off),
+                                        packed_b.add(b_off_1),
+                                        packed_b.add(b_off_2),
+                                        c_ptr,
+                                        n,
+                                        kc,
+                                        bias_ptr,
+                                        residual_ptr,
+                                        activation_id,
+                                        is_last_k_flag,
+                                    );
+                                }
                             } else {
-                                sgemm_asm_aarch64::yscv_sgemm_4x24_neon_set(
+                                microkernel_4x24_avx_fma(
                                     packed_a.add(a_off),
                                     packed_b.add(b_off),
                                     packed_b.add(b_off_1),
@@ -283,32 +252,136 @@ pub(super) unsafe fn gebp_kernel_raw(
                                     c_ptr,
                                     n,
                                     kc,
+                                    accumulate,
+                                    epilogue,
+                                    is_last_k,
+                                    col_offset,
+                                    residual_tile,
                                 );
                             }
-                        } else {
-                            microkernel_4x24_neon(
+                        }
+                        #[cfg(target_arch = "aarch64")]
+                        {
+                            // Fast path: hand-tuned `.S` kernel for pure GEMM (no
+                            // bias/activation). Dispatch on epilogue shape, mirroring
+                            // the x86_64 4×8 fast path.
+                            if epilogue.bias.is_none()
+                                && epilogue.residual.is_none()
+                                && matches!(epilogue.activation, Activation::None)
+                            {
+                                if accumulate {
+                                    sgemm_asm_aarch64::yscv_sgemm_4x24_neon_acc(
+                                        packed_a.add(a_off),
+                                        packed_b.add(b_off),
+                                        packed_b.add(b_off_1),
+                                        packed_b.add(b_off_2),
+                                        c_ptr,
+                                        n,
+                                        kc,
+                                    );
+                                } else {
+                                    sgemm_asm_aarch64::yscv_sgemm_4x24_neon_set(
+                                        packed_a.add(a_off),
+                                        packed_b.add(b_off),
+                                        packed_b.add(b_off_1),
+                                        packed_b.add(b_off_2),
+                                        c_ptr,
+                                        n,
+                                        kc,
+                                    );
+                                }
+                            } else {
+                                microkernel_4x24_neon(
+                                    packed_a.add(a_off),
+                                    packed_b.add(b_off),
+                                    packed_b.add(b_off_1),
+                                    packed_b.add(b_off_2),
+                                    c_ptr,
+                                    n,
+                                    kc,
+                                    accumulate,
+                                    epilogue,
+                                    is_last_k,
+                                    col_offset,
+                                    residual_tile,
+                                );
+                            }
+                        }
+                    } else {
+                        for panel in 0..3 {
+                            let poff = [b_off, b_off_1, b_off_2][panel];
+                            microkernel_scalar_partial(
                                 packed_a.add(a_off),
-                                packed_b.add(b_off),
-                                packed_b.add(b_off_1),
-                                packed_b.add(b_off_2),
-                                c_ptr,
+                                packed_b.add(poff),
+                                c_ptr.add(panel * NR),
                                 n,
+                                mr,
+                                NR,
                                 kc,
                                 accumulate,
                                 epilogue,
                                 is_last_k,
-                                col_offset,
-                                residual_tile,
+                                col_offset + panel * NR,
+                                residual_tile.map(|r| r.add(panel * NR)),
                             );
                         }
                     }
-                } else {
-                    for panel in 0..3 {
-                        let poff = [b_off, b_off_1, b_off_2][panel];
+                }
+                jr += 3 * NR;
+                continue;
+            }
+
+            // Try paired 4×16 when two full NR=8 tiles are available.
+            #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
+            if use_4x16 && nr == NR && jr + 2 * NR <= nc {
+                let b_off_1 = ((jr + NR) / NR) * kc * NR;
+                for ir in (0..mc).step_by(MR) {
+                    let mr = MR.min(mc - ir);
+                    let a_off = (ir / MR) * kc * MR;
+                    let c_ptr = output.add((ic + ir) * n + col_offset);
+                    // x86 4×16 tile uses `residual_tile` for in-kernel residual
+                    // fold; aarch64 NEON 4×16 still routes residual via the
+                    // matmul guard (falls back to row_gemm) — unused there.
+                    #[cfg_attr(
+                        not(any(target_arch = "x86", target_arch = "x86_64")),
+                        allow(unused_variables)
+                    )]
+                    let residual_tile =
+                        epilogue.residual.map(|r| r.add((ic + ir) * n + col_offset));
+                    if mr == MR {
+                        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+                        microkernel_4x16_avx_fma(
+                            packed_a.add(a_off),
+                            packed_b.add(b_off),
+                            packed_b.add(b_off_1),
+                            c_ptr,
+                            n,
+                            kc,
+                            accumulate,
+                            epilogue,
+                            is_last_k,
+                            col_offset,
+                            residual_tile,
+                        );
+                        #[cfg(target_arch = "aarch64")]
+                        microkernel_4x16_neon(
+                            packed_a.add(a_off),
+                            packed_b.add(b_off),
+                            packed_b.add(b_off_1),
+                            c_ptr,
+                            n,
+                            kc,
+                            accumulate,
+                            epilogue,
+                            is_last_k,
+                            col_offset,
+                            residual_tile,
+                        );
+                    } else {
                         microkernel_scalar_partial(
                             packed_a.add(a_off),
-                            packed_b.add(poff),
-                            c_ptr.add(panel * NR),
+                            packed_b.add(b_off),
+                            c_ptr,
                             n,
                             mr,
                             NR,
@@ -316,52 +389,48 @@ pub(super) unsafe fn gebp_kernel_raw(
                             accumulate,
                             epilogue,
                             is_last_k,
-                            col_offset + panel * NR,
-                            residual_tile.map(|r| r.add(panel * NR)),
+                            col_offset,
+                            residual_tile,
+                        );
+                        microkernel_scalar_partial(
+                            packed_a.add(a_off),
+                            packed_b.add(b_off_1),
+                            c_ptr.add(NR),
+                            n,
+                            mr,
+                            NR,
+                            kc,
+                            accumulate,
+                            epilogue,
+                            is_last_k,
+                            col_offset + NR,
+                            residual_tile.map(|r| r.add(NR)),
                         );
                     }
                 }
+                jr += 2 * NR;
+                continue;
             }
-            jr += 3 * NR;
-            continue;
-        }
+            let _ = use_4x16;
 
-        // Try paired 4×16 when two full NR=8 tiles are available.
-        #[cfg(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64"))]
-        if use_4x16 && nr == NR && jr + 2 * NR <= nc {
-            let b_off_1 = ((jr + NR) / NR) * kc * NR;
             for ir in (0..mc).step_by(MR) {
                 let mr = MR.min(mc - ir);
                 let a_off = (ir / MR) * kc * MR;
                 let c_ptr = output.add((ic + ir) * n + col_offset);
-                // x86 4×16 tile uses `residual_tile` for in-kernel residual
-                // fold; aarch64 NEON 4×16 still routes residual via the
-                // matmul guard (falls back to row_gemm) — unused there.
                 #[cfg_attr(
-                    not(any(target_arch = "x86", target_arch = "x86_64")),
+                    not(any(
+                        target_arch = "x86",
+                        target_arch = "x86_64",
+                        target_arch = "aarch64"
+                    )),
                     allow(unused_variables)
                 )]
                 let residual_tile = epilogue.residual.map(|r| r.add((ic + ir) * n + col_offset));
-                if mr == MR {
-                    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-                    microkernel_4x16_avx_fma(
+
+                if mr == MR && nr == NR {
+                    microkernel_4x8_dispatch(
                         packed_a.add(a_off),
                         packed_b.add(b_off),
-                        packed_b.add(b_off_1),
-                        c_ptr,
-                        n,
-                        kc,
-                        accumulate,
-                        epilogue,
-                        is_last_k,
-                        col_offset,
-                        residual_tile,
-                    );
-                    #[cfg(target_arch = "aarch64")]
-                    microkernel_4x16_neon(
-                        packed_a.add(a_off),
-                        packed_b.add(b_off),
-                        packed_b.add(b_off_1),
                         c_ptr,
                         n,
                         kc,
@@ -378,7 +447,7 @@ pub(super) unsafe fn gebp_kernel_raw(
                         c_ptr,
                         n,
                         mr,
-                        NR,
+                        nr,
                         kc,
                         accumulate,
                         epilogue,
@@ -386,69 +455,10 @@ pub(super) unsafe fn gebp_kernel_raw(
                         col_offset,
                         residual_tile,
                     );
-                    microkernel_scalar_partial(
-                        packed_a.add(a_off),
-                        packed_b.add(b_off_1),
-                        c_ptr.add(NR),
-                        n,
-                        mr,
-                        NR,
-                        kc,
-                        accumulate,
-                        epilogue,
-                        is_last_k,
-                        col_offset + NR,
-                        residual_tile.map(|r| r.add(NR)),
-                    );
                 }
             }
-            jr += 2 * NR;
-            continue;
+            jr += NR;
         }
-        let _ = use_4x16;
-
-        for ir in (0..mc).step_by(MR) {
-            let mr = MR.min(mc - ir);
-            let a_off = (ir / MR) * kc * MR;
-            let c_ptr = output.add((ic + ir) * n + col_offset);
-            #[cfg_attr(
-                not(any(target_arch = "x86", target_arch = "x86_64", target_arch = "aarch64")),
-                allow(unused_variables)
-            )]
-            let residual_tile = epilogue.residual.map(|r| r.add((ic + ir) * n + col_offset));
-
-            if mr == MR && nr == NR {
-                microkernel_4x8_dispatch(
-                    packed_a.add(a_off),
-                    packed_b.add(b_off),
-                    c_ptr,
-                    n,
-                    kc,
-                    accumulate,
-                    epilogue,
-                    is_last_k,
-                    col_offset,
-                    residual_tile,
-                );
-            } else {
-                microkernel_scalar_partial(
-                    packed_a.add(a_off),
-                    packed_b.add(b_off),
-                    c_ptr,
-                    n,
-                    mr,
-                    nr,
-                    kc,
-                    accumulate,
-                    epilogue,
-                    is_last_k,
-                    col_offset,
-                    residual_tile,
-                );
-            }
-        }
-        jr += NR;
-    }
     }
 }
 
@@ -478,95 +488,95 @@ unsafe fn microkernel_4x8_dispatch(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    // Residual is fused by `microkernel_4x24_avx_fma` / `microkernel_4x16_avx_fma`
-    // and by the scalar/NEON 4×8 variants. The x86 SIMD/ASM 4×8 paths below
-    // (`sgemm_4x8_set/acc`, `microkernel_4x8_avx_fma`, `microkernel_4x8_avx`,
-    // `microkernel_4x8_sse`) do NOT read `residual_tile`, so when the caller
-    // hands in a residual we must skip them and fall through to the scalar
-    // kernel to avoid silent-dropping the add. Gated on `is_last_k` because
-    // residual is only applied on the final k-block.
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    let needs_scalar_for_residual = residual_tile.is_some() && is_last_k;
+        // Residual is fused by `microkernel_4x24_avx_fma` / `microkernel_4x16_avx_fma`
+        // and by the scalar/NEON 4×8 variants. The x86 SIMD/ASM 4×8 paths below
+        // (`sgemm_4x8_set/acc`, `microkernel_4x8_avx_fma`, `microkernel_4x8_avx`,
+        // `microkernel_4x8_sse`) do NOT read `residual_tile`, so when the caller
+        // hands in a residual we must skip them and fall through to the scalar
+        // kernel to avoid silent-dropping the add. Gated on `is_last_k` because
+        // residual is only applied on the final k-block.
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        let needs_scalar_for_residual = residual_tile.is_some() && is_last_k;
 
-    // Fast path: hand-tuned `.S` microkernel for no-epilogue case (pure GEMM).
-    // Separate SET/ACC entry points → no branch in hot path. Covers SysV
-    // (Linux, macOS) and Win64 (Windows); the Win64 variant translates args
-    // internally so call sites are ABI-agnostic.
-    #[cfg(all(
-        target_arch = "x86_64",
-        any(
-            target_os = "linux",
-            target_os = "macos",
-            all(target_os = "windows", not(target_env = "msvc"))
-        )
-    ))]
-    if !needs_scalar_for_residual
-        && epilogue.bias.is_none()
-        && matches!(epilogue.activation, Activation::None)
-        && crate::host_cpu().features.fma
-        && crate::host_cpu().features.avx
-    {
-        if accumulate {
-            sgemm_asm::yscv_sgemm_4x8_acc(a_panel, b_panel, c, ldc, kc);
-        } else {
-            sgemm_asm::yscv_sgemm_4x8_set(a_panel, b_panel, c, ldc, kc);
-        }
-        return;
-    }
-
-    #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-    if !needs_scalar_for_residual {
-        if crate::host_cpu().features.fma && crate::host_cpu().features.avx {
-            microkernel_4x8_avx_fma(
-                a_panel, b_panel, c, ldc, kc, accumulate, epilogue, is_last_k, col_offset,
-            );
+        // Fast path: hand-tuned `.S` microkernel for no-epilogue case (pure GEMM).
+        // Separate SET/ACC entry points → no branch in hot path. Covers SysV
+        // (Linux, macOS) and Win64 (Windows); the Win64 variant translates args
+        // internally so call sites are ABI-agnostic.
+        #[cfg(all(
+            target_arch = "x86_64",
+            any(
+                target_os = "linux",
+                target_os = "macos",
+                all(target_os = "windows", not(target_env = "msvc"))
+            )
+        ))]
+        if !needs_scalar_for_residual
+            && epilogue.bias.is_none()
+            && matches!(epilogue.activation, Activation::None)
+            && crate::host_cpu().features.fma
+            && crate::host_cpu().features.avx
+        {
+            if accumulate {
+                sgemm_asm::yscv_sgemm_4x8_acc(a_panel, b_panel, c, ldc, kc);
+            } else {
+                sgemm_asm::yscv_sgemm_4x8_set(a_panel, b_panel, c, ldc, kc);
+            }
             return;
         }
-        if crate::host_cpu().features.avx {
-            microkernel_4x8_avx(
-                a_panel, b_panel, c, ldc, kc, accumulate, epilogue, is_last_k, col_offset,
-            );
-            return;
-        }
-        if crate::host_cpu().features.sse {
-            microkernel_4x8_sse(
-                a_panel, b_panel, c, ldc, kc, accumulate, epilogue, is_last_k, col_offset,
-            );
-            return;
-        }
-    }
 
-    #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
-    {
-        if crate::host_cpu().features.neon {
-            microkernel_4x8_neon(
-                a_panel,
-                b_panel,
-                c,
-                ldc,
-                kc,
-                accumulate,
-                epilogue,
-                is_last_k,
-                col_offset,
-                residual_tile,
-            );
-            return;
+        #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+        if !needs_scalar_for_residual {
+            if crate::host_cpu().features.fma && crate::host_cpu().features.avx {
+                microkernel_4x8_avx_fma(
+                    a_panel, b_panel, c, ldc, kc, accumulate, epilogue, is_last_k, col_offset,
+                );
+                return;
+            }
+            if crate::host_cpu().features.avx {
+                microkernel_4x8_avx(
+                    a_panel, b_panel, c, ldc, kc, accumulate, epilogue, is_last_k, col_offset,
+                );
+                return;
+            }
+            if crate::host_cpu().features.sse {
+                microkernel_4x8_sse(
+                    a_panel, b_panel, c, ldc, kc, accumulate, epilogue, is_last_k, col_offset,
+                );
+                return;
+            }
         }
-    }
 
-    microkernel_4x8_scalar(
-        a_panel,
-        b_panel,
-        c,
-        ldc,
-        kc,
-        accumulate,
-        epilogue,
-        is_last_k,
-        col_offset,
-        residual_tile,
-    );
+        #[cfg(any(target_arch = "aarch64", all(target_arch = "arm", feature = "neon-v7")))]
+        {
+            if crate::host_cpu().features.neon {
+                microkernel_4x8_neon(
+                    a_panel,
+                    b_panel,
+                    c,
+                    ldc,
+                    kc,
+                    accumulate,
+                    epilogue,
+                    is_last_k,
+                    col_offset,
+                    residual_tile,
+                );
+                return;
+            }
+        }
+
+        microkernel_4x8_scalar(
+            a_panel,
+            b_panel,
+            c,
+            ldc,
+            kc,
+            accumulate,
+            epilogue,
+            is_last_k,
+            col_offset,
+            residual_tile,
+        );
     }
 }
 
@@ -584,30 +594,30 @@ unsafe fn apply_epilogue_scalar(
     residual_tile_row: Option<*const f32>,
 ) {
     unsafe {
-    if let Some(bias) = epilogue.bias {
-        for (j, v) in row.iter_mut().enumerate() {
-            *v += *bias.add(col_offset + j);
-        }
-    }
-    if let Some(res) = residual_tile_row {
-        for (j, v) in row.iter_mut().enumerate() {
-            *v += *res.add(j);
-        }
-    }
-    match epilogue.activation {
-        Activation::Relu => {
-            for v in row.iter_mut() {
-                *v = v.max(0.0);
+        if let Some(bias) = epilogue.bias {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v += *bias.add(col_offset + j);
             }
         }
-        Activation::Silu => {
-            for v in row.iter_mut() {
-                let sig = 1.0 / (1.0 + (-*v).exp());
-                *v *= sig;
+        if let Some(res) = residual_tile_row {
+            for (j, v) in row.iter_mut().enumerate() {
+                *v += *res.add(j);
             }
         }
-        Activation::None => {}
-    }
+        match epilogue.activation {
+            Activation::Relu => {
+                for v in row.iter_mut() {
+                    *v = v.max(0.0);
+                }
+            }
+            Activation::Silu => {
+                for v in row.iter_mut() {
+                    let sig = 1.0 / (1.0 + (-*v).exp());
+                    *v *= sig;
+                }
+            }
+            Activation::None => {}
+        }
     }
 }
 
@@ -629,34 +639,34 @@ unsafe fn microkernel_4x8_scalar(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    let mut acc = [[0.0f32; NR]; MR];
+        let mut acc = [[0.0f32; NR]; MR];
 
-    for p in 0..kc {
-        let a_base = p * MR;
-        let b_base = p * NR;
+        for p in 0..kc {
+            let a_base = p * MR;
+            let b_base = p * NR;
+            for i in 0..MR {
+                let a_val = *a_panel.add(a_base + i);
+                for j in 0..NR {
+                    acc[i][j] += a_val * *b_panel.add(b_base + j);
+                }
+            }
+        }
+
         for i in 0..MR {
-            let a_val = *a_panel.add(a_base + i);
+            let row_ptr = c.add(i * ldc);
+            if accumulate {
+                for j in 0..NR {
+                    acc[i][j] += *row_ptr.add(j);
+                }
+            }
+            if is_last_k {
+                let residual_row = residual_tile.map(|r| r.add(i * ldc));
+                apply_epilogue_scalar(&mut acc[i][..NR], &epilogue, col_offset, residual_row);
+            }
             for j in 0..NR {
-                acc[i][j] += a_val * *b_panel.add(b_base + j);
+                *row_ptr.add(j) = acc[i][j];
             }
         }
-    }
-
-    for i in 0..MR {
-        let row_ptr = c.add(i * ldc);
-        if accumulate {
-            for j in 0..NR {
-                acc[i][j] += *row_ptr.add(j);
-            }
-        }
-        if is_last_k {
-            let residual_row = residual_tile.map(|r| r.add(i * ldc));
-            apply_epilogue_scalar(&mut acc[i][..NR], &epilogue, col_offset, residual_row);
-        }
-        for j in 0..NR {
-            *row_ptr.add(j) = acc[i][j];
-        }
-    }
     }
 }
 
@@ -683,39 +693,39 @@ pub(super) unsafe fn microkernel_scalar_nr12_partial_mr8(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    const MR8: usize = 8;
-    const NR12: usize = 12;
-    debug_assert!(mr <= MR8);
-    debug_assert!(nr <= NR12);
+        const MR8: usize = 8;
+        const NR12: usize = 12;
+        debug_assert!(mr <= MR8);
+        debug_assert!(nr <= NR12);
 
-    let mut acc = [[0.0f32; NR12]; MR8];
+        let mut acc = [[0.0f32; NR12]; MR8];
 
-    for p in 0..kc {
-        let a_base = p * MR8;
-        let b_base = p * NR12;
+        for p in 0..kc {
+            let a_base = p * MR8;
+            let b_base = p * NR12;
+            for i in 0..mr {
+                let a_val = *a_panel.add(a_base + i);
+                for j in 0..nr {
+                    acc[i][j] += a_val * *b_panel.add(b_base + j);
+                }
+            }
+        }
+
         for i in 0..mr {
-            let a_val = *a_panel.add(a_base + i);
+            let row_ptr = c.add(i * ldc);
+            if accumulate {
+                for j in 0..nr {
+                    acc[i][j] += *row_ptr.add(j);
+                }
+            }
+            if is_last_k {
+                let residual_row = residual_tile.map(|r| r.add(i * ldc));
+                apply_epilogue_scalar(&mut acc[i][..nr], &epilogue, col_offset, residual_row);
+            }
             for j in 0..nr {
-                acc[i][j] += a_val * *b_panel.add(b_base + j);
+                *row_ptr.add(j) = acc[i][j];
             }
         }
-    }
-
-    for i in 0..mr {
-        let row_ptr = c.add(i * ldc);
-        if accumulate {
-            for j in 0..nr {
-                acc[i][j] += *row_ptr.add(j);
-            }
-        }
-        if is_last_k {
-            let residual_row = residual_tile.map(|r| r.add(i * ldc));
-            apply_epilogue_scalar(&mut acc[i][..nr], &epilogue, col_offset, residual_row);
-        }
-        for j in 0..nr {
-            *row_ptr.add(j) = acc[i][j];
-        }
-    }
     }
 }
 
@@ -736,21 +746,21 @@ unsafe fn microkernel_scalar_partial(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    microkernel_scalar_partial_stride(
-        a_panel,
-        b_panel,
-        c,
-        ldc,
-        mr,
-        nr,
-        kc,
-        MR,
-        accumulate,
-        epilogue,
-        is_last_k,
-        col_offset,
-        residual_tile,
-    );
+        microkernel_scalar_partial_stride(
+            a_panel,
+            b_panel,
+            c,
+            ldc,
+            mr,
+            nr,
+            kc,
+            MR,
+            accumulate,
+            epilogue,
+            is_last_k,
+            col_offset,
+            residual_tile,
+        );
     }
 }
 
@@ -771,35 +781,35 @@ pub(super) unsafe fn microkernel_scalar_partial_stride(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    // Sized for max(MR=4 x86/scalar, MR=8 aarch64 mr8 path). Real rows bounded by `mr`.
-    let mut acc = [[0.0f32; NR]; 8];
+        // Sized for max(MR=4 x86/scalar, MR=8 aarch64 mr8 path). Real rows bounded by `mr`.
+        let mut acc = [[0.0f32; NR]; 8];
 
-    for p in 0..kc {
-        let a_base = p * a_stride;
-        let b_base = p * NR;
+        for p in 0..kc {
+            let a_base = p * a_stride;
+            let b_base = p * NR;
+            for i in 0..mr {
+                let a_val = *a_panel.add(a_base + i);
+                for j in 0..nr {
+                    acc[i][j] += a_val * *b_panel.add(b_base + j);
+                }
+            }
+        }
+
         for i in 0..mr {
-            let a_val = *a_panel.add(a_base + i);
+            let row_ptr = c.add(i * ldc);
+            if accumulate {
+                for j in 0..nr {
+                    acc[i][j] += *row_ptr.add(j);
+                }
+            }
+            if is_last_k {
+                let residual_row = residual_tile.map(|r| r.add(i * ldc));
+                apply_epilogue_scalar(&mut acc[i][..nr], &epilogue, col_offset, residual_row);
+            }
             for j in 0..nr {
-                acc[i][j] += a_val * *b_panel.add(b_base + j);
+                *row_ptr.add(j) = acc[i][j];
             }
         }
-    }
-
-    for i in 0..mr {
-        let row_ptr = c.add(i * ldc);
-        if accumulate {
-            for j in 0..nr {
-                acc[i][j] += *row_ptr.add(j);
-            }
-        }
-        if is_last_k {
-            let residual_row = residual_tile.map(|r| r.add(i * ldc));
-            apply_epilogue_scalar(&mut acc[i][..nr], &epilogue, col_offset, residual_row);
-        }
-        for j in 0..nr {
-            *row_ptr.add(j) = acc[i][j];
-        }
-    }
     }
 }
 
@@ -827,224 +837,224 @@ unsafe fn microkernel_4x16_avx_fma(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    // 8 accumulators: ymm0-ymm7 (c00,c01,c10,c11,c20,c21,c30,c31)
-    // Temp: ymm8,ymm9 (b0,b1), ymm10 (a broadcast)
-    let mut c00: __m256;
-    let mut c01: __m256;
-    let mut c10: __m256;
-    let mut c11: __m256;
-    let mut c20: __m256;
-    let mut c21: __m256;
-    let mut c30: __m256;
-    let mut c31: __m256;
+        // 8 accumulators: ymm0-ymm7 (c00,c01,c10,c11,c20,c21,c30,c31)
+        // Temp: ymm8,ymm9 (b0,b1), ymm10 (a broadcast)
+        let mut c00: __m256;
+        let mut c01: __m256;
+        let mut c10: __m256;
+        let mut c11: __m256;
+        let mut c20: __m256;
+        let mut c21: __m256;
+        let mut c30: __m256;
+        let mut c31: __m256;
 
-    #[cfg(target_arch = "x86_64")]
-    std::arch::asm!(
-        "vxorps {c00}, {c00}, {c00}",
-        "vxorps {c01}, {c01}, {c01}",
-        "vxorps {c10}, {c10}, {c10}",
-        "vxorps {c11}, {c11}, {c11}",
-        "vxorps {c20}, {c20}, {c20}",
-        "vxorps {c21}, {c21}, {c21}",
-        "vxorps {c30}, {c30}, {c30}",
-        "vxorps {c31}, {c31}, {c31}",
+        #[cfg(target_arch = "x86_64")]
+        std::arch::asm!(
+            "vxorps {c00}, {c00}, {c00}",
+            "vxorps {c01}, {c01}, {c01}",
+            "vxorps {c10}, {c10}, {c10}",
+            "vxorps {c11}, {c11}, {c11}",
+            "vxorps {c20}, {c20}, {c20}",
+            "vxorps {c21}, {c21}, {c21}",
+            "vxorps {c30}, {c30}, {c30}",
+            "vxorps {c31}, {c31}, {c31}",
 
-        "mov {pairs}, {kc}",
-        "shr {pairs}, 1",
-        "test {pairs}, {pairs}",
-        "jz 12f",
+            "mov {pairs}, {kc}",
+            "shr {pairs}, 1",
+            "test {pairs}, {pairs}",
+            "jz 12f",
 
-        ".p2align 4",
-        "13:",
-        // 2-way unrolled k-loop with DOUBLE-BUFFERED B loads.
-        // b0a/b1a hold B[k]; we preload B[k+1] into b0b/b1b EARLY (interleaved
-        // with FMAs on b0a/b1a) so k+1's FMAs can start immediately after k's
-        // finish. 8 acc + 4 B + 1 A = 13 YMM, 3 free for OoO scheduling.
-        //
-        // --- k-step 0: load B[k] AND B[k+1] (into b0b, b1b) ---
-        "vmovups {b0a}, [{bp0}]",
-        "vmovups {b1a}, [{bp1}]",
-        "vmovups {b0b}, [{bp0} + 32]",         // B[k+1] panel 0 — starts loading
-        "vbroadcastss {av}, [{ap}]",
-        "vfmadd231ps {c00}, {b0a}, {av}",
-        "vfmadd231ps {c01}, {b1a}, {av}",
-        "vmovups {b1b}, [{bp1} + 32]",         // B[k+1] panel 1 — interleaved with FMAs
-        "vbroadcastss {av}, [{ap} + 4]",
-        "vfmadd231ps {c10}, {b0a}, {av}",
-        "vfmadd231ps {c11}, {b1a}, {av}",
-        "vbroadcastss {av}, [{ap} + 8]",
-        "vfmadd231ps {c20}, {b0a}, {av}",
-        "vfmadd231ps {c21}, {b1a}, {av}",
-        "prefetcht0 [{ap} + 64]",              // prefetch next A panel chunk
-        "vbroadcastss {av}, [{ap} + 12]",
-        "vfmadd231ps {c30}, {b0a}, {av}",
-        "vfmadd231ps {c31}, {b1a}, {av}",
-        // --- k-step 1: b0b, b1b already have B[k+1] (loaded above) ---
-        "vbroadcastss {av}, [{ap} + 16]",
-        "vfmadd231ps {c00}, {b0b}, {av}",
-        "vfmadd231ps {c01}, {b1b}, {av}",
-        "vbroadcastss {av}, [{ap} + 20]",
-        "vfmadd231ps {c10}, {b0b}, {av}",
-        "vfmadd231ps {c11}, {b1b}, {av}",
-        "vbroadcastss {av}, [{ap} + 24]",
-        "vfmadd231ps {c20}, {b0b}, {av}",
-        "vfmadd231ps {c21}, {b1b}, {av}",
-        "vbroadcastss {av}, [{ap} + 28]",
-        "vfmadd231ps {c30}, {b0b}, {av}",
-        "vfmadd231ps {c31}, {b1b}, {av}",
-        "add {ap}, 32",
-        "add {bp0}, 64",
-        "add {bp1}, 64",
-        "dec {pairs}",
-        "jnz 13b",
+            ".p2align 4",
+            "13:",
+            // 2-way unrolled k-loop with DOUBLE-BUFFERED B loads.
+            // b0a/b1a hold B[k]; we preload B[k+1] into b0b/b1b EARLY (interleaved
+            // with FMAs on b0a/b1a) so k+1's FMAs can start immediately after k's
+            // finish. 8 acc + 4 B + 1 A = 13 YMM, 3 free for OoO scheduling.
+            //
+            // --- k-step 0: load B[k] AND B[k+1] (into b0b, b1b) ---
+            "vmovups {b0a}, [{bp0}]",
+            "vmovups {b1a}, [{bp1}]",
+            "vmovups {b0b}, [{bp0} + 32]",         // B[k+1] panel 0 — starts loading
+            "vbroadcastss {av}, [{ap}]",
+            "vfmadd231ps {c00}, {b0a}, {av}",
+            "vfmadd231ps {c01}, {b1a}, {av}",
+            "vmovups {b1b}, [{bp1} + 32]",         // B[k+1] panel 1 — interleaved with FMAs
+            "vbroadcastss {av}, [{ap} + 4]",
+            "vfmadd231ps {c10}, {b0a}, {av}",
+            "vfmadd231ps {c11}, {b1a}, {av}",
+            "vbroadcastss {av}, [{ap} + 8]",
+            "vfmadd231ps {c20}, {b0a}, {av}",
+            "vfmadd231ps {c21}, {b1a}, {av}",
+            "prefetcht0 [{ap} + 64]",              // prefetch next A panel chunk
+            "vbroadcastss {av}, [{ap} + 12]",
+            "vfmadd231ps {c30}, {b0a}, {av}",
+            "vfmadd231ps {c31}, {b1a}, {av}",
+            // --- k-step 1: b0b, b1b already have B[k+1] (loaded above) ---
+            "vbroadcastss {av}, [{ap} + 16]",
+            "vfmadd231ps {c00}, {b0b}, {av}",
+            "vfmadd231ps {c01}, {b1b}, {av}",
+            "vbroadcastss {av}, [{ap} + 20]",
+            "vfmadd231ps {c10}, {b0b}, {av}",
+            "vfmadd231ps {c11}, {b1b}, {av}",
+            "vbroadcastss {av}, [{ap} + 24]",
+            "vfmadd231ps {c20}, {b0b}, {av}",
+            "vfmadd231ps {c21}, {b1b}, {av}",
+            "vbroadcastss {av}, [{ap} + 28]",
+            "vfmadd231ps {c30}, {b0b}, {av}",
+            "vfmadd231ps {c31}, {b1b}, {av}",
+            "add {ap}, 32",
+            "add {bp0}, 64",
+            "add {bp1}, 64",
+            "dec {pairs}",
+            "jnz 13b",
 
-        "12:",
-        "test {kc}, 1",
-        "jz 14f",
-        "vmovups {b0a}, [{bp0}]",
-        "vmovups {b1a}, [{bp1}]",
-        "vbroadcastss {av}, [{ap}]",
-        "vfmadd231ps {c00}, {b0a}, {av}",
-        "vfmadd231ps {c01}, {b1a}, {av}",
-        "vbroadcastss {av}, [{ap} + 4]",
-        "vfmadd231ps {c10}, {b0a}, {av}",
-        "vfmadd231ps {c11}, {b1a}, {av}",
-        "vbroadcastss {av}, [{ap} + 8]",
-        "vfmadd231ps {c20}, {b0a}, {av}",
-        "vfmadd231ps {c21}, {b1a}, {av}",
-        "vbroadcastss {av}, [{ap} + 12]",
-        "vfmadd231ps {c30}, {b0a}, {av}",
-        "vfmadd231ps {c31}, {b1a}, {av}",
-        "14:",
+            "12:",
+            "test {kc}, 1",
+            "jz 14f",
+            "vmovups {b0a}, [{bp0}]",
+            "vmovups {b1a}, [{bp1}]",
+            "vbroadcastss {av}, [{ap}]",
+            "vfmadd231ps {c00}, {b0a}, {av}",
+            "vfmadd231ps {c01}, {b1a}, {av}",
+            "vbroadcastss {av}, [{ap} + 4]",
+            "vfmadd231ps {c10}, {b0a}, {av}",
+            "vfmadd231ps {c11}, {b1a}, {av}",
+            "vbroadcastss {av}, [{ap} + 8]",
+            "vfmadd231ps {c20}, {b0a}, {av}",
+            "vfmadd231ps {c21}, {b1a}, {av}",
+            "vbroadcastss {av}, [{ap} + 12]",
+            "vfmadd231ps {c30}, {b0a}, {av}",
+            "vfmadd231ps {c31}, {b1a}, {av}",
+            "14:",
 
-        ap = inout(reg) a_panel => _,
-        bp0 = inout(reg) b_panel_0 => _,
-        bp1 = inout(reg) b_panel_1 => _,
-        kc = in(reg) kc,
-        pairs = out(reg) _,
-        c00 = out(ymm_reg) c00,
-        c01 = out(ymm_reg) c01,
-        c10 = out(ymm_reg) c10,
-        c11 = out(ymm_reg) c11,
-        c20 = out(ymm_reg) c20,
-        c21 = out(ymm_reg) c21,
-        c30 = out(ymm_reg) c30,
-        c31 = out(ymm_reg) c31,
-        b0a = out(ymm_reg) _,
-        b1a = out(ymm_reg) _,
-        b0b = out(ymm_reg) _,
-        b1b = out(ymm_reg) _,
-        av = out(ymm_reg) _,
-        options(nostack),
-    );
+            ap = inout(reg) a_panel => _,
+            bp0 = inout(reg) b_panel_0 => _,
+            bp1 = inout(reg) b_panel_1 => _,
+            kc = in(reg) kc,
+            pairs = out(reg) _,
+            c00 = out(ymm_reg) c00,
+            c01 = out(ymm_reg) c01,
+            c10 = out(ymm_reg) c10,
+            c11 = out(ymm_reg) c11,
+            c20 = out(ymm_reg) c20,
+            c21 = out(ymm_reg) c21,
+            c30 = out(ymm_reg) c30,
+            c31 = out(ymm_reg) c31,
+            b0a = out(ymm_reg) _,
+            b1a = out(ymm_reg) _,
+            b0b = out(ymm_reg) _,
+            b1b = out(ymm_reg) _,
+            av = out(ymm_reg) _,
+            options(nostack),
+        );
 
-    #[cfg(target_arch = "x86")]
-    {
-        // x86 32-bit fallback
-        c00 = _mm256_setzero_ps();
-        c01 = _mm256_setzero_ps();
-        c10 = _mm256_setzero_ps();
-        c11 = _mm256_setzero_ps();
-        c20 = _mm256_setzero_ps();
-        c21 = _mm256_setzero_ps();
-        c30 = _mm256_setzero_ps();
-        c31 = _mm256_setzero_ps();
-        for p in 0..kc {
-            let b0 = _mm256_loadu_ps(b_panel_0.add(p * NR));
-            let b1 = _mm256_loadu_ps(b_panel_1.add(p * NR));
-            let a0 = _mm256_set1_ps(*a_panel.add(p * MR));
-            c00 = _mm256_fmadd_ps(a0, b0, c00);
-            c01 = _mm256_fmadd_ps(a0, b1, c01);
-            let a1 = _mm256_set1_ps(*a_panel.add(p * MR + 1));
-            c10 = _mm256_fmadd_ps(a1, b0, c10);
-            c11 = _mm256_fmadd_ps(a1, b1, c11);
-            let a2 = _mm256_set1_ps(*a_panel.add(p * MR + 2));
-            c20 = _mm256_fmadd_ps(a2, b0, c20);
-            c21 = _mm256_fmadd_ps(a2, b1, c21);
-            let a3 = _mm256_set1_ps(*a_panel.add(p * MR + 3));
-            c30 = _mm256_fmadd_ps(a3, b0, c30);
-            c31 = _mm256_fmadd_ps(a3, b1, c31);
-        }
-    }
-
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
-
-    if accumulate {
-        c00 = _mm256_add_ps(_mm256_loadu_ps(cp0), c00);
-        c01 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(8)), c01);
-        c10 = _mm256_add_ps(_mm256_loadu_ps(cp1), c10);
-        c11 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(8)), c11);
-        c20 = _mm256_add_ps(_mm256_loadu_ps(cp2), c20);
-        c21 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(8)), c21);
-        c30 = _mm256_add_ps(_mm256_loadu_ps(cp3), c30);
-        c31 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(8)), c31);
-    }
-
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv0 = _mm256_loadu_ps(bias.add(col_offset));
-            let bv1 = _mm256_loadu_ps(bias.add(col_offset + 8));
-            c00 = _mm256_add_ps(c00, bv0);
-            c01 = _mm256_add_ps(c01, bv1);
-            c10 = _mm256_add_ps(c10, bv0);
-            c11 = _mm256_add_ps(c11, bv1);
-            c20 = _mm256_add_ps(c20, bv0);
-            c21 = _mm256_add_ps(c21, bv1);
-            c30 = _mm256_add_ps(c30, bv0);
-            c31 = _mm256_add_ps(c31, bv1);
-        }
-        // Residual add (Phase 1.2): 8 YMMs from per-tile residual base.
-        if let Some(res_tile) = residual_tile {
-            let rp0 = res_tile;
-            let rp1 = res_tile.add(ldc);
-            let rp2 = res_tile.add(2 * ldc);
-            let rp3 = res_tile.add(3 * ldc);
-            c00 = _mm256_add_ps(c00, _mm256_loadu_ps(rp0));
-            c01 = _mm256_add_ps(c01, _mm256_loadu_ps(rp0.add(8)));
-            c10 = _mm256_add_ps(c10, _mm256_loadu_ps(rp1));
-            c11 = _mm256_add_ps(c11, _mm256_loadu_ps(rp1.add(8)));
-            c20 = _mm256_add_ps(c20, _mm256_loadu_ps(rp2));
-            c21 = _mm256_add_ps(c21, _mm256_loadu_ps(rp2.add(8)));
-            c30 = _mm256_add_ps(c30, _mm256_loadu_ps(rp3));
-            c31 = _mm256_add_ps(c31, _mm256_loadu_ps(rp3.add(8)));
-        }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm256_setzero_ps();
-                c00 = _mm256_max_ps(c00, zero);
-                c01 = _mm256_max_ps(c01, zero);
-                c10 = _mm256_max_ps(c10, zero);
-                c11 = _mm256_max_ps(c11, zero);
-                c20 = _mm256_max_ps(c20, zero);
-                c21 = _mm256_max_ps(c21, zero);
-                c30 = _mm256_max_ps(c30, zero);
-                c31 = _mm256_max_ps(c31, zero);
+        #[cfg(target_arch = "x86")]
+        {
+            // x86 32-bit fallback
+            c00 = _mm256_setzero_ps();
+            c01 = _mm256_setzero_ps();
+            c10 = _mm256_setzero_ps();
+            c11 = _mm256_setzero_ps();
+            c20 = _mm256_setzero_ps();
+            c21 = _mm256_setzero_ps();
+            c30 = _mm256_setzero_ps();
+            c31 = _mm256_setzero_ps();
+            for p in 0..kc {
+                let b0 = _mm256_loadu_ps(b_panel_0.add(p * NR));
+                let b1 = _mm256_loadu_ps(b_panel_1.add(p * NR));
+                let a0 = _mm256_set1_ps(*a_panel.add(p * MR));
+                c00 = _mm256_fmadd_ps(a0, b0, c00);
+                c01 = _mm256_fmadd_ps(a0, b1, c01);
+                let a1 = _mm256_set1_ps(*a_panel.add(p * MR + 1));
+                c10 = _mm256_fmadd_ps(a1, b0, c10);
+                c11 = _mm256_fmadd_ps(a1, b1, c11);
+                let a2 = _mm256_set1_ps(*a_panel.add(p * MR + 2));
+                c20 = _mm256_fmadd_ps(a2, b0, c20);
+                c21 = _mm256_fmadd_ps(a2, b1, c21);
+                let a3 = _mm256_set1_ps(*a_panel.add(p * MR + 3));
+                c30 = _mm256_fmadd_ps(a3, b0, c30);
+                c31 = _mm256_fmadd_ps(a3, b1, c31);
             }
-            Activation::Silu => {
-                c00 = silu_avx_fma(c00);
-                c01 = silu_avx_fma(c01);
-                c10 = silu_avx_fma(c10);
-                c11 = silu_avx_fma(c11);
-                c20 = silu_avx_fma(c20);
-                c21 = silu_avx_fma(c21);
-                c30 = silu_avx_fma(c30);
-                c31 = silu_avx_fma(c31);
-            }
-            Activation::None => {}
         }
-    }
 
-    _mm256_storeu_ps(cp0, c00);
-    _mm256_storeu_ps(cp0.add(8), c01);
-    _mm256_storeu_ps(cp1, c10);
-    _mm256_storeu_ps(cp1.add(8), c11);
-    _mm256_storeu_ps(cp2, c20);
-    _mm256_storeu_ps(cp2.add(8), c21);
-    _mm256_storeu_ps(cp3, c30);
-    _mm256_storeu_ps(cp3.add(8), c31);
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
+
+        if accumulate {
+            c00 = _mm256_add_ps(_mm256_loadu_ps(cp0), c00);
+            c01 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(8)), c01);
+            c10 = _mm256_add_ps(_mm256_loadu_ps(cp1), c10);
+            c11 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(8)), c11);
+            c20 = _mm256_add_ps(_mm256_loadu_ps(cp2), c20);
+            c21 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(8)), c21);
+            c30 = _mm256_add_ps(_mm256_loadu_ps(cp3), c30);
+            c31 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(8)), c31);
+        }
+
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv0 = _mm256_loadu_ps(bias.add(col_offset));
+                let bv1 = _mm256_loadu_ps(bias.add(col_offset + 8));
+                c00 = _mm256_add_ps(c00, bv0);
+                c01 = _mm256_add_ps(c01, bv1);
+                c10 = _mm256_add_ps(c10, bv0);
+                c11 = _mm256_add_ps(c11, bv1);
+                c20 = _mm256_add_ps(c20, bv0);
+                c21 = _mm256_add_ps(c21, bv1);
+                c30 = _mm256_add_ps(c30, bv0);
+                c31 = _mm256_add_ps(c31, bv1);
+            }
+            // Residual add (Phase 1.2): 8 YMMs from per-tile residual base.
+            if let Some(res_tile) = residual_tile {
+                let rp0 = res_tile;
+                let rp1 = res_tile.add(ldc);
+                let rp2 = res_tile.add(2 * ldc);
+                let rp3 = res_tile.add(3 * ldc);
+                c00 = _mm256_add_ps(c00, _mm256_loadu_ps(rp0));
+                c01 = _mm256_add_ps(c01, _mm256_loadu_ps(rp0.add(8)));
+                c10 = _mm256_add_ps(c10, _mm256_loadu_ps(rp1));
+                c11 = _mm256_add_ps(c11, _mm256_loadu_ps(rp1.add(8)));
+                c20 = _mm256_add_ps(c20, _mm256_loadu_ps(rp2));
+                c21 = _mm256_add_ps(c21, _mm256_loadu_ps(rp2.add(8)));
+                c30 = _mm256_add_ps(c30, _mm256_loadu_ps(rp3));
+                c31 = _mm256_add_ps(c31, _mm256_loadu_ps(rp3.add(8)));
+            }
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm256_setzero_ps();
+                    c00 = _mm256_max_ps(c00, zero);
+                    c01 = _mm256_max_ps(c01, zero);
+                    c10 = _mm256_max_ps(c10, zero);
+                    c11 = _mm256_max_ps(c11, zero);
+                    c20 = _mm256_max_ps(c20, zero);
+                    c21 = _mm256_max_ps(c21, zero);
+                    c30 = _mm256_max_ps(c30, zero);
+                    c31 = _mm256_max_ps(c31, zero);
+                }
+                Activation::Silu => {
+                    c00 = silu_avx_fma(c00);
+                    c01 = silu_avx_fma(c01);
+                    c10 = silu_avx_fma(c10);
+                    c11 = silu_avx_fma(c11);
+                    c20 = silu_avx_fma(c20);
+                    c21 = silu_avx_fma(c21);
+                    c30 = silu_avx_fma(c30);
+                    c31 = silu_avx_fma(c31);
+                }
+                Activation::None => {}
+            }
+        }
+
+        _mm256_storeu_ps(cp0, c00);
+        _mm256_storeu_ps(cp0.add(8), c01);
+        _mm256_storeu_ps(cp1, c10);
+        _mm256_storeu_ps(cp1.add(8), c11);
+        _mm256_storeu_ps(cp2, c20);
+        _mm256_storeu_ps(cp2.add(8), c21);
+        _mm256_storeu_ps(cp3, c30);
+        _mm256_storeu_ps(cp3.add(8), c31);
     }
 }
 
@@ -1089,163 +1099,163 @@ pub(super) unsafe fn microkernel_6x16_avx_fma(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    // 12 accumulators, 6 rows × 2 NR panels of 8 cols.
-    let mut c00: __m256 = _mm256_setzero_ps();
-    let mut c01: __m256 = _mm256_setzero_ps();
-    let mut c10: __m256 = _mm256_setzero_ps();
-    let mut c11: __m256 = _mm256_setzero_ps();
-    let mut c20: __m256 = _mm256_setzero_ps();
-    let mut c21: __m256 = _mm256_setzero_ps();
-    let mut c30: __m256 = _mm256_setzero_ps();
-    let mut c31: __m256 = _mm256_setzero_ps();
-    let mut c40: __m256 = _mm256_setzero_ps();
-    let mut c41: __m256 = _mm256_setzero_ps();
-    let mut c50: __m256 = _mm256_setzero_ps();
-    let mut c51: __m256 = _mm256_setzero_ps();
+        // 12 accumulators, 6 rows × 2 NR panels of 8 cols.
+        let mut c00: __m256 = _mm256_setzero_ps();
+        let mut c01: __m256 = _mm256_setzero_ps();
+        let mut c10: __m256 = _mm256_setzero_ps();
+        let mut c11: __m256 = _mm256_setzero_ps();
+        let mut c20: __m256 = _mm256_setzero_ps();
+        let mut c21: __m256 = _mm256_setzero_ps();
+        let mut c30: __m256 = _mm256_setzero_ps();
+        let mut c31: __m256 = _mm256_setzero_ps();
+        let mut c40: __m256 = _mm256_setzero_ps();
+        let mut c41: __m256 = _mm256_setzero_ps();
+        let mut c50: __m256 = _mm256_setzero_ps();
+        let mut c51: __m256 = _mm256_setzero_ps();
 
-    // K-loop: 12 FMAs per k-step, 2 B-panel loads, 6 A broadcasts.
-    // Pack-A stride is MR6=6 floats per k-step.
-    for p in 0..kc {
-        let a_off = p * MR6;
-        let b_off = p * NR;
-        let b0 = _mm256_loadu_ps(b_panel_0.add(b_off));
-        let b1 = _mm256_loadu_ps(b_panel_1.add(b_off));
+        // K-loop: 12 FMAs per k-step, 2 B-panel loads, 6 A broadcasts.
+        // Pack-A stride is MR6=6 floats per k-step.
+        for p in 0..kc {
+            let a_off = p * MR6;
+            let b_off = p * NR;
+            let b0 = _mm256_loadu_ps(b_panel_0.add(b_off));
+            let b1 = _mm256_loadu_ps(b_panel_1.add(b_off));
 
-        let a0 = _mm256_broadcast_ss(&*a_panel.add(a_off));
-        c00 = _mm256_fmadd_ps(b0, a0, c00);
-        c01 = _mm256_fmadd_ps(b1, a0, c01);
+            let a0 = _mm256_broadcast_ss(&*a_panel.add(a_off));
+            c00 = _mm256_fmadd_ps(b0, a0, c00);
+            c01 = _mm256_fmadd_ps(b1, a0, c01);
 
-        let a1 = _mm256_broadcast_ss(&*a_panel.add(a_off + 1));
-        c10 = _mm256_fmadd_ps(b0, a1, c10);
-        c11 = _mm256_fmadd_ps(b1, a1, c11);
+            let a1 = _mm256_broadcast_ss(&*a_panel.add(a_off + 1));
+            c10 = _mm256_fmadd_ps(b0, a1, c10);
+            c11 = _mm256_fmadd_ps(b1, a1, c11);
 
-        let a2 = _mm256_broadcast_ss(&*a_panel.add(a_off + 2));
-        c20 = _mm256_fmadd_ps(b0, a2, c20);
-        c21 = _mm256_fmadd_ps(b1, a2, c21);
+            let a2 = _mm256_broadcast_ss(&*a_panel.add(a_off + 2));
+            c20 = _mm256_fmadd_ps(b0, a2, c20);
+            c21 = _mm256_fmadd_ps(b1, a2, c21);
 
-        let a3 = _mm256_broadcast_ss(&*a_panel.add(a_off + 3));
-        c30 = _mm256_fmadd_ps(b0, a3, c30);
-        c31 = _mm256_fmadd_ps(b1, a3, c31);
+            let a3 = _mm256_broadcast_ss(&*a_panel.add(a_off + 3));
+            c30 = _mm256_fmadd_ps(b0, a3, c30);
+            c31 = _mm256_fmadd_ps(b1, a3, c31);
 
-        let a4 = _mm256_broadcast_ss(&*a_panel.add(a_off + 4));
-        c40 = _mm256_fmadd_ps(b0, a4, c40);
-        c41 = _mm256_fmadd_ps(b1, a4, c41);
+            let a4 = _mm256_broadcast_ss(&*a_panel.add(a_off + 4));
+            c40 = _mm256_fmadd_ps(b0, a4, c40);
+            c41 = _mm256_fmadd_ps(b1, a4, c41);
 
-        let a5 = _mm256_broadcast_ss(&*a_panel.add(a_off + 5));
-        c50 = _mm256_fmadd_ps(b0, a5, c50);
-        c51 = _mm256_fmadd_ps(b1, a5, c51);
-    }
-
-    // Row pointers for C.
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
-    let cp4 = c.add(4 * ldc);
-    let cp5 = c.add(5 * ldc);
-
-    // Accumulate existing C when running non-first k-block.
-    if accumulate {
-        c00 = _mm256_add_ps(_mm256_loadu_ps(cp0), c00);
-        c01 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(8)), c01);
-        c10 = _mm256_add_ps(_mm256_loadu_ps(cp1), c10);
-        c11 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(8)), c11);
-        c20 = _mm256_add_ps(_mm256_loadu_ps(cp2), c20);
-        c21 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(8)), c21);
-        c30 = _mm256_add_ps(_mm256_loadu_ps(cp3), c30);
-        c31 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(8)), c31);
-        c40 = _mm256_add_ps(_mm256_loadu_ps(cp4), c40);
-        c41 = _mm256_add_ps(_mm256_loadu_ps(cp4.add(8)), c41);
-        c50 = _mm256_add_ps(_mm256_loadu_ps(cp5), c50);
-        c51 = _mm256_add_ps(_mm256_loadu_ps(cp5.add(8)), c51);
-    }
-
-    // Epilogue (bias + residual + activation) only on last k-block.
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv0 = _mm256_loadu_ps(bias.add(col_offset));
-            let bv1 = _mm256_loadu_ps(bias.add(col_offset + 8));
-            c00 = _mm256_add_ps(c00, bv0);
-            c01 = _mm256_add_ps(c01, bv1);
-            c10 = _mm256_add_ps(c10, bv0);
-            c11 = _mm256_add_ps(c11, bv1);
-            c20 = _mm256_add_ps(c20, bv0);
-            c21 = _mm256_add_ps(c21, bv1);
-            c30 = _mm256_add_ps(c30, bv0);
-            c31 = _mm256_add_ps(c31, bv1);
-            c40 = _mm256_add_ps(c40, bv0);
-            c41 = _mm256_add_ps(c41, bv1);
-            c50 = _mm256_add_ps(c50, bv0);
-            c51 = _mm256_add_ps(c51, bv1);
+            let a5 = _mm256_broadcast_ss(&*a_panel.add(a_off + 5));
+            c50 = _mm256_fmadd_ps(b0, a5, c50);
+            c51 = _mm256_fmadd_ps(b1, a5, c51);
         }
-        // Residual is already shifted by caller to this tile's base.
-        // Stride matches ldc (= n).
-        if let Some(res_tile) = residual_tile {
-            let rp0 = res_tile;
-            let rp1 = res_tile.add(ldc);
-            let rp2 = res_tile.add(2 * ldc);
-            let rp3 = res_tile.add(3 * ldc);
-            let rp4 = res_tile.add(4 * ldc);
-            let rp5 = res_tile.add(5 * ldc);
-            c00 = _mm256_add_ps(c00, _mm256_loadu_ps(rp0));
-            c01 = _mm256_add_ps(c01, _mm256_loadu_ps(rp0.add(8)));
-            c10 = _mm256_add_ps(c10, _mm256_loadu_ps(rp1));
-            c11 = _mm256_add_ps(c11, _mm256_loadu_ps(rp1.add(8)));
-            c20 = _mm256_add_ps(c20, _mm256_loadu_ps(rp2));
-            c21 = _mm256_add_ps(c21, _mm256_loadu_ps(rp2.add(8)));
-            c30 = _mm256_add_ps(c30, _mm256_loadu_ps(rp3));
-            c31 = _mm256_add_ps(c31, _mm256_loadu_ps(rp3.add(8)));
-            c40 = _mm256_add_ps(c40, _mm256_loadu_ps(rp4));
-            c41 = _mm256_add_ps(c41, _mm256_loadu_ps(rp4.add(8)));
-            c50 = _mm256_add_ps(c50, _mm256_loadu_ps(rp5));
-            c51 = _mm256_add_ps(c51, _mm256_loadu_ps(rp5.add(8)));
+
+        // Row pointers for C.
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
+        let cp4 = c.add(4 * ldc);
+        let cp5 = c.add(5 * ldc);
+
+        // Accumulate existing C when running non-first k-block.
+        if accumulate {
+            c00 = _mm256_add_ps(_mm256_loadu_ps(cp0), c00);
+            c01 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(8)), c01);
+            c10 = _mm256_add_ps(_mm256_loadu_ps(cp1), c10);
+            c11 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(8)), c11);
+            c20 = _mm256_add_ps(_mm256_loadu_ps(cp2), c20);
+            c21 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(8)), c21);
+            c30 = _mm256_add_ps(_mm256_loadu_ps(cp3), c30);
+            c31 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(8)), c31);
+            c40 = _mm256_add_ps(_mm256_loadu_ps(cp4), c40);
+            c41 = _mm256_add_ps(_mm256_loadu_ps(cp4.add(8)), c41);
+            c50 = _mm256_add_ps(_mm256_loadu_ps(cp5), c50);
+            c51 = _mm256_add_ps(_mm256_loadu_ps(cp5.add(8)), c51);
         }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm256_setzero_ps();
-                c00 = _mm256_max_ps(c00, zero);
-                c01 = _mm256_max_ps(c01, zero);
-                c10 = _mm256_max_ps(c10, zero);
-                c11 = _mm256_max_ps(c11, zero);
-                c20 = _mm256_max_ps(c20, zero);
-                c21 = _mm256_max_ps(c21, zero);
-                c30 = _mm256_max_ps(c30, zero);
-                c31 = _mm256_max_ps(c31, zero);
-                c40 = _mm256_max_ps(c40, zero);
-                c41 = _mm256_max_ps(c41, zero);
-                c50 = _mm256_max_ps(c50, zero);
-                c51 = _mm256_max_ps(c51, zero);
+
+        // Epilogue (bias + residual + activation) only on last k-block.
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv0 = _mm256_loadu_ps(bias.add(col_offset));
+                let bv1 = _mm256_loadu_ps(bias.add(col_offset + 8));
+                c00 = _mm256_add_ps(c00, bv0);
+                c01 = _mm256_add_ps(c01, bv1);
+                c10 = _mm256_add_ps(c10, bv0);
+                c11 = _mm256_add_ps(c11, bv1);
+                c20 = _mm256_add_ps(c20, bv0);
+                c21 = _mm256_add_ps(c21, bv1);
+                c30 = _mm256_add_ps(c30, bv0);
+                c31 = _mm256_add_ps(c31, bv1);
+                c40 = _mm256_add_ps(c40, bv0);
+                c41 = _mm256_add_ps(c41, bv1);
+                c50 = _mm256_add_ps(c50, bv0);
+                c51 = _mm256_add_ps(c51, bv1);
             }
-            Activation::Silu => {
-                c00 = silu_avx_fma(c00);
-                c01 = silu_avx_fma(c01);
-                c10 = silu_avx_fma(c10);
-                c11 = silu_avx_fma(c11);
-                c20 = silu_avx_fma(c20);
-                c21 = silu_avx_fma(c21);
-                c30 = silu_avx_fma(c30);
-                c31 = silu_avx_fma(c31);
-                c40 = silu_avx_fma(c40);
-                c41 = silu_avx_fma(c41);
-                c50 = silu_avx_fma(c50);
-                c51 = silu_avx_fma(c51);
+            // Residual is already shifted by caller to this tile's base.
+            // Stride matches ldc (= n).
+            if let Some(res_tile) = residual_tile {
+                let rp0 = res_tile;
+                let rp1 = res_tile.add(ldc);
+                let rp2 = res_tile.add(2 * ldc);
+                let rp3 = res_tile.add(3 * ldc);
+                let rp4 = res_tile.add(4 * ldc);
+                let rp5 = res_tile.add(5 * ldc);
+                c00 = _mm256_add_ps(c00, _mm256_loadu_ps(rp0));
+                c01 = _mm256_add_ps(c01, _mm256_loadu_ps(rp0.add(8)));
+                c10 = _mm256_add_ps(c10, _mm256_loadu_ps(rp1));
+                c11 = _mm256_add_ps(c11, _mm256_loadu_ps(rp1.add(8)));
+                c20 = _mm256_add_ps(c20, _mm256_loadu_ps(rp2));
+                c21 = _mm256_add_ps(c21, _mm256_loadu_ps(rp2.add(8)));
+                c30 = _mm256_add_ps(c30, _mm256_loadu_ps(rp3));
+                c31 = _mm256_add_ps(c31, _mm256_loadu_ps(rp3.add(8)));
+                c40 = _mm256_add_ps(c40, _mm256_loadu_ps(rp4));
+                c41 = _mm256_add_ps(c41, _mm256_loadu_ps(rp4.add(8)));
+                c50 = _mm256_add_ps(c50, _mm256_loadu_ps(rp5));
+                c51 = _mm256_add_ps(c51, _mm256_loadu_ps(rp5.add(8)));
             }
-            Activation::None => {}
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm256_setzero_ps();
+                    c00 = _mm256_max_ps(c00, zero);
+                    c01 = _mm256_max_ps(c01, zero);
+                    c10 = _mm256_max_ps(c10, zero);
+                    c11 = _mm256_max_ps(c11, zero);
+                    c20 = _mm256_max_ps(c20, zero);
+                    c21 = _mm256_max_ps(c21, zero);
+                    c30 = _mm256_max_ps(c30, zero);
+                    c31 = _mm256_max_ps(c31, zero);
+                    c40 = _mm256_max_ps(c40, zero);
+                    c41 = _mm256_max_ps(c41, zero);
+                    c50 = _mm256_max_ps(c50, zero);
+                    c51 = _mm256_max_ps(c51, zero);
+                }
+                Activation::Silu => {
+                    c00 = silu_avx_fma(c00);
+                    c01 = silu_avx_fma(c01);
+                    c10 = silu_avx_fma(c10);
+                    c11 = silu_avx_fma(c11);
+                    c20 = silu_avx_fma(c20);
+                    c21 = silu_avx_fma(c21);
+                    c30 = silu_avx_fma(c30);
+                    c31 = silu_avx_fma(c31);
+                    c40 = silu_avx_fma(c40);
+                    c41 = silu_avx_fma(c41);
+                    c50 = silu_avx_fma(c50);
+                    c51 = silu_avx_fma(c51);
+                }
+                Activation::None => {}
+            }
         }
-    }
 
-    _mm256_storeu_ps(cp0, c00);
-    _mm256_storeu_ps(cp0.add(8), c01);
-    _mm256_storeu_ps(cp1, c10);
-    _mm256_storeu_ps(cp1.add(8), c11);
-    _mm256_storeu_ps(cp2, c20);
-    _mm256_storeu_ps(cp2.add(8), c21);
-    _mm256_storeu_ps(cp3, c30);
-    _mm256_storeu_ps(cp3.add(8), c31);
-    _mm256_storeu_ps(cp4, c40);
-    _mm256_storeu_ps(cp4.add(8), c41);
-    _mm256_storeu_ps(cp5, c50);
-    _mm256_storeu_ps(cp5.add(8), c51);
+        _mm256_storeu_ps(cp0, c00);
+        _mm256_storeu_ps(cp0.add(8), c01);
+        _mm256_storeu_ps(cp1, c10);
+        _mm256_storeu_ps(cp1.add(8), c11);
+        _mm256_storeu_ps(cp2, c20);
+        _mm256_storeu_ps(cp2.add(8), c21);
+        _mm256_storeu_ps(cp3, c30);
+        _mm256_storeu_ps(cp3.add(8), c31);
+        _mm256_storeu_ps(cp4, c40);
+        _mm256_storeu_ps(cp4.add(8), c41);
+        _mm256_storeu_ps(cp5, c50);
+        _mm256_storeu_ps(cp5.add(8), c51);
     }
 }
 
@@ -1273,130 +1283,130 @@ unsafe fn microkernel_4x8_avx_fma(
     col_offset: usize,
 ) {
     unsafe {
-    // Accumulator registers: ymm0-ymm3 (c0-c3)
-    // Temp registers: ymm4 (b_vec), ymm5-ymm8 (a broadcasts)
-    let mut c0: std::arch::x86_64::__m256;
-    let mut c1: std::arch::x86_64::__m256;
-    let mut c2: std::arch::x86_64::__m256;
-    let mut c3: std::arch::x86_64::__m256;
+        // Accumulator registers: ymm0-ymm3 (c0-c3)
+        // Temp registers: ymm4 (b_vec), ymm5-ymm8 (a broadcasts)
+        let mut c0: std::arch::x86_64::__m256;
+        let mut c1: std::arch::x86_64::__m256;
+        let mut c2: std::arch::x86_64::__m256;
+        let mut c3: std::arch::x86_64::__m256;
 
-    // K-loop in inline asm — no stack frame, pure register computation.
-    // a_panel: MR=4 packed floats per k (16 bytes stride)
-    // b_panel: NR=8 packed floats per k (32 bytes stride)
-    std::arch::asm!(
-        // Zero accumulators
-        "vxorps {c0}, {c0}, {c0}",
-        "vxorps {c1}, {c1}, {c1}",
-        "vxorps {c2}, {c2}, {c2}",
-        "vxorps {c3}, {c3}, {c3}",
+        // K-loop in inline asm — no stack frame, pure register computation.
+        // a_panel: MR=4 packed floats per k (16 bytes stride)
+        // b_panel: NR=8 packed floats per k (32 bytes stride)
+        std::arch::asm!(
+            // Zero accumulators
+            "vxorps {c0}, {c0}, {c0}",
+            "vxorps {c1}, {c1}, {c1}",
+            "vxorps {c2}, {c2}, {c2}",
+            "vxorps {c3}, {c3}, {c3}",
 
-        // kc_pairs = kc >> 1
-        "mov {pairs}, {kc}",
-        "shr {pairs}, 1",
-        "test {pairs}, {pairs}",
-        "jz 2f",
+            // kc_pairs = kc >> 1
+            "mov {pairs}, {kc}",
+            "shr {pairs}, 1",
+            "test {pairs}, {pairs}",
+            "jz 2f",
 
-        // Main loop: 2 k-steps per iteration
-        ".p2align 4",
-        "3:",
-        // k-step 0
-        "vmovups {bv}, [{bp}]",
-        "vbroadcastss {t0}, [{ap}]",
-        "vfmadd231ps {c0}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 4]",
-        "vfmadd231ps {c1}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 8]",
-        "vfmadd231ps {c2}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 12]",
-        "vfmadd231ps {c3}, {bv}, {t0}",
-        // k-step 1 with prefetch
-        "vmovups {bv}, [{bp} + 32]",
-        "prefetcht0 [{ap} + 64]",
-        "vbroadcastss {t0}, [{ap} + 16]",
-        "vfmadd231ps {c0}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 20]",
-        "vfmadd231ps {c1}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 24]",
-        "vfmadd231ps {c2}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 28]",
-        "vfmadd231ps {c3}, {bv}, {t0}",
-        // Advance pointers
-        "add {ap}, 32",  // 2 * MR * 4 bytes
-        "add {bp}, 64",  // 2 * NR * 4 bytes
-        "dec {pairs}",
-        "jnz 3b",
+            // Main loop: 2 k-steps per iteration
+            ".p2align 4",
+            "3:",
+            // k-step 0
+            "vmovups {bv}, [{bp}]",
+            "vbroadcastss {t0}, [{ap}]",
+            "vfmadd231ps {c0}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 4]",
+            "vfmadd231ps {c1}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 8]",
+            "vfmadd231ps {c2}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 12]",
+            "vfmadd231ps {c3}, {bv}, {t0}",
+            // k-step 1 with prefetch
+            "vmovups {bv}, [{bp} + 32]",
+            "prefetcht0 [{ap} + 64]",
+            "vbroadcastss {t0}, [{ap} + 16]",
+            "vfmadd231ps {c0}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 20]",
+            "vfmadd231ps {c1}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 24]",
+            "vfmadd231ps {c2}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 28]",
+            "vfmadd231ps {c3}, {bv}, {t0}",
+            // Advance pointers
+            "add {ap}, 32",  // 2 * MR * 4 bytes
+            "add {bp}, 64",  // 2 * NR * 4 bytes
+            "dec {pairs}",
+            "jnz 3b",
 
-        "2:",
-        // Handle odd remainder
-        "test {kc}, 1",
-        "jz 4f",
-        "vmovups {bv}, [{bp}]",
-        "vbroadcastss {t0}, [{ap}]",
-        "vfmadd231ps {c0}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 4]",
-        "vfmadd231ps {c1}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 8]",
-        "vfmadd231ps {c2}, {bv}, {t0}",
-        "vbroadcastss {t0}, [{ap} + 12]",
-        "vfmadd231ps {c3}, {bv}, {t0}",
-        "4:",
+            "2:",
+            // Handle odd remainder
+            "test {kc}, 1",
+            "jz 4f",
+            "vmovups {bv}, [{bp}]",
+            "vbroadcastss {t0}, [{ap}]",
+            "vfmadd231ps {c0}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 4]",
+            "vfmadd231ps {c1}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 8]",
+            "vfmadd231ps {c2}, {bv}, {t0}",
+            "vbroadcastss {t0}, [{ap} + 12]",
+            "vfmadd231ps {c3}, {bv}, {t0}",
+            "4:",
 
-        ap = inout(reg) a_panel => _,
-        bp = inout(reg) b_panel => _,
-        kc = in(reg) kc,
-        pairs = out(reg) _,
-        c0 = out(ymm_reg) c0,
-        c1 = out(ymm_reg) c1,
-        c2 = out(ymm_reg) c2,
-        c3 = out(ymm_reg) c3,
-        bv = out(ymm_reg) _,
-        t0 = out(ymm_reg) _,
-        options(nostack),
-    );
+            ap = inout(reg) a_panel => _,
+            bp = inout(reg) b_panel => _,
+            kc = in(reg) kc,
+            pairs = out(reg) _,
+            c0 = out(ymm_reg) c0,
+            c1 = out(ymm_reg) c1,
+            c2 = out(ymm_reg) c2,
+            c3 = out(ymm_reg) c3,
+            bv = out(ymm_reg) _,
+            t0 = out(ymm_reg) _,
+            options(nostack),
+        );
 
-    // Store phase (Rust intrinsics — LLVM handles well)
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
+        // Store phase (Rust intrinsics — LLVM handles well)
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
 
-    if accumulate {
-        c0 = _mm256_add_ps(_mm256_loadu_ps(cp0), c0);
-        c1 = _mm256_add_ps(_mm256_loadu_ps(cp1), c1);
-        c2 = _mm256_add_ps(_mm256_loadu_ps(cp2), c2);
-        c3 = _mm256_add_ps(_mm256_loadu_ps(cp3), c3);
-    }
-
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv = _mm256_loadu_ps(bias.add(col_offset));
-            c0 = _mm256_add_ps(c0, bv);
-            c1 = _mm256_add_ps(c1, bv);
-            c2 = _mm256_add_ps(c2, bv);
-            c3 = _mm256_add_ps(c3, bv);
+        if accumulate {
+            c0 = _mm256_add_ps(_mm256_loadu_ps(cp0), c0);
+            c1 = _mm256_add_ps(_mm256_loadu_ps(cp1), c1);
+            c2 = _mm256_add_ps(_mm256_loadu_ps(cp2), c2);
+            c3 = _mm256_add_ps(_mm256_loadu_ps(cp3), c3);
         }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm256_setzero_ps();
-                c0 = _mm256_max_ps(c0, zero);
-                c1 = _mm256_max_ps(c1, zero);
-                c2 = _mm256_max_ps(c2, zero);
-                c3 = _mm256_max_ps(c3, zero);
-            }
-            Activation::Silu => {
-                c0 = silu_avx_fma(c0);
-                c1 = silu_avx_fma(c1);
-                c2 = silu_avx_fma(c2);
-                c3 = silu_avx_fma(c3);
-            }
-            Activation::None => {}
-        }
-    }
 
-    _mm256_storeu_ps(cp0, c0);
-    _mm256_storeu_ps(cp1, c1);
-    _mm256_storeu_ps(cp2, c2);
-    _mm256_storeu_ps(cp3, c3);
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv = _mm256_loadu_ps(bias.add(col_offset));
+                c0 = _mm256_add_ps(c0, bv);
+                c1 = _mm256_add_ps(c1, bv);
+                c2 = _mm256_add_ps(c2, bv);
+                c3 = _mm256_add_ps(c3, bv);
+            }
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm256_setzero_ps();
+                    c0 = _mm256_max_ps(c0, zero);
+                    c1 = _mm256_max_ps(c1, zero);
+                    c2 = _mm256_max_ps(c2, zero);
+                    c3 = _mm256_max_ps(c3, zero);
+                }
+                Activation::Silu => {
+                    c0 = silu_avx_fma(c0);
+                    c1 = silu_avx_fma(c1);
+                    c2 = silu_avx_fma(c2);
+                    c3 = silu_avx_fma(c3);
+                }
+                Activation::None => {}
+            }
+        }
+
+        _mm256_storeu_ps(cp0, c0);
+        _mm256_storeu_ps(cp1, c1);
+        _mm256_storeu_ps(cp2, c2);
+        _mm256_storeu_ps(cp3, c3);
     }
 }
 
@@ -1416,60 +1426,60 @@ unsafe fn microkernel_4x8_avx_fma(
     col_offset: usize,
 ) {
     unsafe {
-    // x86 (32-bit) fallback — same logic, Rust intrinsics
-    let mut c0: __m256 = _mm256_setzero_ps();
-    let mut c1: __m256 = _mm256_setzero_ps();
-    let mut c2: __m256 = _mm256_setzero_ps();
-    let mut c3: __m256 = _mm256_setzero_ps();
+        // x86 (32-bit) fallback — same logic, Rust intrinsics
+        let mut c0: __m256 = _mm256_setzero_ps();
+        let mut c1: __m256 = _mm256_setzero_ps();
+        let mut c2: __m256 = _mm256_setzero_ps();
+        let mut c3: __m256 = _mm256_setzero_ps();
 
-    for p in 0..kc {
-        let b_vec = _mm256_loadu_ps(b_panel.add(p * NR));
-        c0 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR)), b_vec, c0);
-        c1 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR + 1)), b_vec, c1);
-        c2 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR + 2)), b_vec, c2);
-        c3 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR + 3)), b_vec, c3);
-    }
-
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
-
-    if accumulate {
-        c0 = _mm256_add_ps(_mm256_loadu_ps(cp0), c0);
-        c1 = _mm256_add_ps(_mm256_loadu_ps(cp1), c1);
-        c2 = _mm256_add_ps(_mm256_loadu_ps(cp2), c2);
-        c3 = _mm256_add_ps(_mm256_loadu_ps(cp3), c3);
-    }
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv = _mm256_loadu_ps(bias.add(col_offset));
-            c0 = _mm256_add_ps(c0, bv);
-            c1 = _mm256_add_ps(c1, bv);
-            c2 = _mm256_add_ps(c2, bv);
-            c3 = _mm256_add_ps(c3, bv);
+        for p in 0..kc {
+            let b_vec = _mm256_loadu_ps(b_panel.add(p * NR));
+            c0 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR)), b_vec, c0);
+            c1 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR + 1)), b_vec, c1);
+            c2 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR + 2)), b_vec, c2);
+            c3 = _mm256_fmadd_ps(_mm256_set1_ps(*a_panel.add(p * MR + 3)), b_vec, c3);
         }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm256_setzero_ps();
-                c0 = _mm256_max_ps(c0, zero);
-                c1 = _mm256_max_ps(c1, zero);
-                c2 = _mm256_max_ps(c2, zero);
-                c3 = _mm256_max_ps(c3, zero);
-            }
-            Activation::Silu => {
-                c0 = silu_avx_fma(c0);
-                c1 = silu_avx_fma(c1);
-                c2 = silu_avx_fma(c2);
-                c3 = silu_avx_fma(c3);
-            }
-            Activation::None => {}
+
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
+
+        if accumulate {
+            c0 = _mm256_add_ps(_mm256_loadu_ps(cp0), c0);
+            c1 = _mm256_add_ps(_mm256_loadu_ps(cp1), c1);
+            c2 = _mm256_add_ps(_mm256_loadu_ps(cp2), c2);
+            c3 = _mm256_add_ps(_mm256_loadu_ps(cp3), c3);
         }
-    }
-    _mm256_storeu_ps(cp0, c0);
-    _mm256_storeu_ps(cp1, c1);
-    _mm256_storeu_ps(cp2, c2);
-    _mm256_storeu_ps(cp3, c3);
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv = _mm256_loadu_ps(bias.add(col_offset));
+                c0 = _mm256_add_ps(c0, bv);
+                c1 = _mm256_add_ps(c1, bv);
+                c2 = _mm256_add_ps(c2, bv);
+                c3 = _mm256_add_ps(c3, bv);
+            }
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm256_setzero_ps();
+                    c0 = _mm256_max_ps(c0, zero);
+                    c1 = _mm256_max_ps(c1, zero);
+                    c2 = _mm256_max_ps(c2, zero);
+                    c3 = _mm256_max_ps(c3, zero);
+                }
+                Activation::Silu => {
+                    c0 = silu_avx_fma(c0);
+                    c1 = silu_avx_fma(c1);
+                    c2 = silu_avx_fma(c2);
+                    c3 = silu_avx_fma(c3);
+                }
+                Activation::None => {}
+            }
+        }
+        _mm256_storeu_ps(cp0, c0);
+        _mm256_storeu_ps(cp1, c1);
+        _mm256_storeu_ps(cp2, c2);
+        _mm256_storeu_ps(cp3, c3);
     }
 }
 
@@ -1492,69 +1502,69 @@ unsafe fn microkernel_4x8_avx(
     col_offset: usize,
 ) {
     unsafe {
-    let mut c0: __m256 = _mm256_setzero_ps();
-    let mut c1: __m256 = _mm256_setzero_ps();
-    let mut c2: __m256 = _mm256_setzero_ps();
-    let mut c3: __m256 = _mm256_setzero_ps();
+        let mut c0: __m256 = _mm256_setzero_ps();
+        let mut c1: __m256 = _mm256_setzero_ps();
+        let mut c2: __m256 = _mm256_setzero_ps();
+        let mut c3: __m256 = _mm256_setzero_ps();
 
-    for p in 0..kc {
-        let b_vec = _mm256_loadu_ps(b_panel.add(p * NR));
+        for p in 0..kc {
+            let b_vec = _mm256_loadu_ps(b_panel.add(p * NR));
 
-        let a0 = _mm256_set1_ps(*a_panel.add(p * MR));
-        c0 = _mm256_add_ps(c0, _mm256_mul_ps(a0, b_vec));
+            let a0 = _mm256_set1_ps(*a_panel.add(p * MR));
+            c0 = _mm256_add_ps(c0, _mm256_mul_ps(a0, b_vec));
 
-        let a1 = _mm256_set1_ps(*a_panel.add(p * MR + 1));
-        c1 = _mm256_add_ps(c1, _mm256_mul_ps(a1, b_vec));
+            let a1 = _mm256_set1_ps(*a_panel.add(p * MR + 1));
+            c1 = _mm256_add_ps(c1, _mm256_mul_ps(a1, b_vec));
 
-        let a2 = _mm256_set1_ps(*a_panel.add(p * MR + 2));
-        c2 = _mm256_add_ps(c2, _mm256_mul_ps(a2, b_vec));
+            let a2 = _mm256_set1_ps(*a_panel.add(p * MR + 2));
+            c2 = _mm256_add_ps(c2, _mm256_mul_ps(a2, b_vec));
 
-        let a3 = _mm256_set1_ps(*a_panel.add(p * MR + 3));
-        c3 = _mm256_add_ps(c3, _mm256_mul_ps(a3, b_vec));
-    }
-
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
-
-    if accumulate {
-        c0 = _mm256_add_ps(_mm256_loadu_ps(cp0), c0);
-        c1 = _mm256_add_ps(_mm256_loadu_ps(cp1), c1);
-        c2 = _mm256_add_ps(_mm256_loadu_ps(cp2), c2);
-        c3 = _mm256_add_ps(_mm256_loadu_ps(cp3), c3);
-    }
-
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv = _mm256_loadu_ps(bias.add(col_offset));
-            c0 = _mm256_add_ps(c0, bv);
-            c1 = _mm256_add_ps(c1, bv);
-            c2 = _mm256_add_ps(c2, bv);
-            c3 = _mm256_add_ps(c3, bv);
+            let a3 = _mm256_set1_ps(*a_panel.add(p * MR + 3));
+            c3 = _mm256_add_ps(c3, _mm256_mul_ps(a3, b_vec));
         }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm256_setzero_ps();
-                c0 = _mm256_max_ps(c0, zero);
-                c1 = _mm256_max_ps(c1, zero);
-                c2 = _mm256_max_ps(c2, zero);
-                c3 = _mm256_max_ps(c3, zero);
-            }
-            Activation::Silu => {
-                c0 = silu_avx(c0);
-                c1 = silu_avx(c1);
-                c2 = silu_avx(c2);
-                c3 = silu_avx(c3);
-            }
-            Activation::None => {}
-        }
-    }
 
-    _mm256_storeu_ps(cp0, c0);
-    _mm256_storeu_ps(cp1, c1);
-    _mm256_storeu_ps(cp2, c2);
-    _mm256_storeu_ps(cp3, c3);
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
+
+        if accumulate {
+            c0 = _mm256_add_ps(_mm256_loadu_ps(cp0), c0);
+            c1 = _mm256_add_ps(_mm256_loadu_ps(cp1), c1);
+            c2 = _mm256_add_ps(_mm256_loadu_ps(cp2), c2);
+            c3 = _mm256_add_ps(_mm256_loadu_ps(cp3), c3);
+        }
+
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv = _mm256_loadu_ps(bias.add(col_offset));
+                c0 = _mm256_add_ps(c0, bv);
+                c1 = _mm256_add_ps(c1, bv);
+                c2 = _mm256_add_ps(c2, bv);
+                c3 = _mm256_add_ps(c3, bv);
+            }
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm256_setzero_ps();
+                    c0 = _mm256_max_ps(c0, zero);
+                    c1 = _mm256_max_ps(c1, zero);
+                    c2 = _mm256_max_ps(c2, zero);
+                    c3 = _mm256_max_ps(c3, zero);
+                }
+                Activation::Silu => {
+                    c0 = silu_avx(c0);
+                    c1 = silu_avx(c1);
+                    c2 = silu_avx(c2);
+                    c3 = silu_avx(c3);
+                }
+                Activation::None => {}
+            }
+        }
+
+        _mm256_storeu_ps(cp0, c0);
+        _mm256_storeu_ps(cp1, c1);
+        _mm256_storeu_ps(cp2, c2);
+        _mm256_storeu_ps(cp3, c3);
     }
 }
 
@@ -1577,100 +1587,100 @@ unsafe fn microkernel_4x8_sse(
     col_offset: usize,
 ) {
     unsafe {
-    let mut c00: __m128 = _mm_setzero_ps();
-    let mut c01: __m128 = _mm_setzero_ps();
-    let mut c10: __m128 = _mm_setzero_ps();
-    let mut c11: __m128 = _mm_setzero_ps();
-    let mut c20: __m128 = _mm_setzero_ps();
-    let mut c21: __m128 = _mm_setzero_ps();
-    let mut c30: __m128 = _mm_setzero_ps();
-    let mut c31: __m128 = _mm_setzero_ps();
+        let mut c00: __m128 = _mm_setzero_ps();
+        let mut c01: __m128 = _mm_setzero_ps();
+        let mut c10: __m128 = _mm_setzero_ps();
+        let mut c11: __m128 = _mm_setzero_ps();
+        let mut c20: __m128 = _mm_setzero_ps();
+        let mut c21: __m128 = _mm_setzero_ps();
+        let mut c30: __m128 = _mm_setzero_ps();
+        let mut c31: __m128 = _mm_setzero_ps();
 
-    for p in 0..kc {
-        let a_base = p * MR;
-        let b_base = p * NR;
+        for p in 0..kc {
+            let a_base = p * MR;
+            let b_base = p * NR;
 
-        let a0 = _mm_set1_ps(*a_panel.add(a_base));
-        let a1 = _mm_set1_ps(*a_panel.add(a_base + 1));
-        let a2 = _mm_set1_ps(*a_panel.add(a_base + 2));
-        let a3 = _mm_set1_ps(*a_panel.add(a_base + 3));
+            let a0 = _mm_set1_ps(*a_panel.add(a_base));
+            let a1 = _mm_set1_ps(*a_panel.add(a_base + 1));
+            let a2 = _mm_set1_ps(*a_panel.add(a_base + 2));
+            let a3 = _mm_set1_ps(*a_panel.add(a_base + 3));
 
-        let b0 = _mm_loadu_ps(b_panel.add(b_base));
-        let b1 = _mm_loadu_ps(b_panel.add(b_base + 4));
+            let b0 = _mm_loadu_ps(b_panel.add(b_base));
+            let b1 = _mm_loadu_ps(b_panel.add(b_base + 4));
 
-        c00 = _mm_add_ps(c00, _mm_mul_ps(a0, b0));
-        c01 = _mm_add_ps(c01, _mm_mul_ps(a0, b1));
-        c10 = _mm_add_ps(c10, _mm_mul_ps(a1, b0));
-        c11 = _mm_add_ps(c11, _mm_mul_ps(a1, b1));
-        c20 = _mm_add_ps(c20, _mm_mul_ps(a2, b0));
-        c21 = _mm_add_ps(c21, _mm_mul_ps(a2, b1));
-        c30 = _mm_add_ps(c30, _mm_mul_ps(a3, b0));
-        c31 = _mm_add_ps(c31, _mm_mul_ps(a3, b1));
-    }
-
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
-
-    if accumulate {
-        c00 = _mm_add_ps(_mm_loadu_ps(cp0), c00);
-        c01 = _mm_add_ps(_mm_loadu_ps(cp0.add(4)), c01);
-        c10 = _mm_add_ps(_mm_loadu_ps(cp1), c10);
-        c11 = _mm_add_ps(_mm_loadu_ps(cp1.add(4)), c11);
-        c20 = _mm_add_ps(_mm_loadu_ps(cp2), c20);
-        c21 = _mm_add_ps(_mm_loadu_ps(cp2.add(4)), c21);
-        c30 = _mm_add_ps(_mm_loadu_ps(cp3), c30);
-        c31 = _mm_add_ps(_mm_loadu_ps(cp3.add(4)), c31);
-    }
-
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv0 = _mm_loadu_ps(bias.add(col_offset));
-            let bv1 = _mm_loadu_ps(bias.add(col_offset + 4));
-            c00 = _mm_add_ps(c00, bv0);
-            c01 = _mm_add_ps(c01, bv1);
-            c10 = _mm_add_ps(c10, bv0);
-            c11 = _mm_add_ps(c11, bv1);
-            c20 = _mm_add_ps(c20, bv0);
-            c21 = _mm_add_ps(c21, bv1);
-            c30 = _mm_add_ps(c30, bv0);
-            c31 = _mm_add_ps(c31, bv1);
+            c00 = _mm_add_ps(c00, _mm_mul_ps(a0, b0));
+            c01 = _mm_add_ps(c01, _mm_mul_ps(a0, b1));
+            c10 = _mm_add_ps(c10, _mm_mul_ps(a1, b0));
+            c11 = _mm_add_ps(c11, _mm_mul_ps(a1, b1));
+            c20 = _mm_add_ps(c20, _mm_mul_ps(a2, b0));
+            c21 = _mm_add_ps(c21, _mm_mul_ps(a2, b1));
+            c30 = _mm_add_ps(c30, _mm_mul_ps(a3, b0));
+            c31 = _mm_add_ps(c31, _mm_mul_ps(a3, b1));
         }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm_setzero_ps();
-                c00 = _mm_max_ps(c00, zero);
-                c01 = _mm_max_ps(c01, zero);
-                c10 = _mm_max_ps(c10, zero);
-                c11 = _mm_max_ps(c11, zero);
-                c20 = _mm_max_ps(c20, zero);
-                c21 = _mm_max_ps(c21, zero);
-                c30 = _mm_max_ps(c30, zero);
-                c31 = _mm_max_ps(c31, zero);
-            }
-            Activation::Silu => {
-                c00 = silu_sse(c00);
-                c01 = silu_sse(c01);
-                c10 = silu_sse(c10);
-                c11 = silu_sse(c11);
-                c20 = silu_sse(c20);
-                c21 = silu_sse(c21);
-                c30 = silu_sse(c30);
-                c31 = silu_sse(c31);
-            }
-            Activation::None => {}
-        }
-    }
 
-    _mm_storeu_ps(cp0, c00);
-    _mm_storeu_ps(cp0.add(4), c01);
-    _mm_storeu_ps(cp1, c10);
-    _mm_storeu_ps(cp1.add(4), c11);
-    _mm_storeu_ps(cp2, c20);
-    _mm_storeu_ps(cp2.add(4), c21);
-    _mm_storeu_ps(cp3, c30);
-    _mm_storeu_ps(cp3.add(4), c31);
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
+
+        if accumulate {
+            c00 = _mm_add_ps(_mm_loadu_ps(cp0), c00);
+            c01 = _mm_add_ps(_mm_loadu_ps(cp0.add(4)), c01);
+            c10 = _mm_add_ps(_mm_loadu_ps(cp1), c10);
+            c11 = _mm_add_ps(_mm_loadu_ps(cp1.add(4)), c11);
+            c20 = _mm_add_ps(_mm_loadu_ps(cp2), c20);
+            c21 = _mm_add_ps(_mm_loadu_ps(cp2.add(4)), c21);
+            c30 = _mm_add_ps(_mm_loadu_ps(cp3), c30);
+            c31 = _mm_add_ps(_mm_loadu_ps(cp3.add(4)), c31);
+        }
+
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv0 = _mm_loadu_ps(bias.add(col_offset));
+                let bv1 = _mm_loadu_ps(bias.add(col_offset + 4));
+                c00 = _mm_add_ps(c00, bv0);
+                c01 = _mm_add_ps(c01, bv1);
+                c10 = _mm_add_ps(c10, bv0);
+                c11 = _mm_add_ps(c11, bv1);
+                c20 = _mm_add_ps(c20, bv0);
+                c21 = _mm_add_ps(c21, bv1);
+                c30 = _mm_add_ps(c30, bv0);
+                c31 = _mm_add_ps(c31, bv1);
+            }
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm_setzero_ps();
+                    c00 = _mm_max_ps(c00, zero);
+                    c01 = _mm_max_ps(c01, zero);
+                    c10 = _mm_max_ps(c10, zero);
+                    c11 = _mm_max_ps(c11, zero);
+                    c20 = _mm_max_ps(c20, zero);
+                    c21 = _mm_max_ps(c21, zero);
+                    c30 = _mm_max_ps(c30, zero);
+                    c31 = _mm_max_ps(c31, zero);
+                }
+                Activation::Silu => {
+                    c00 = silu_sse(c00);
+                    c01 = silu_sse(c01);
+                    c10 = silu_sse(c10);
+                    c11 = silu_sse(c11);
+                    c20 = silu_sse(c20);
+                    c21 = silu_sse(c21);
+                    c30 = silu_sse(c30);
+                    c31 = silu_sse(c31);
+                }
+                Activation::None => {}
+            }
+        }
+
+        _mm_storeu_ps(cp0, c00);
+        _mm_storeu_ps(cp0.add(4), c01);
+        _mm_storeu_ps(cp1, c10);
+        _mm_storeu_ps(cp1.add(4), c11);
+        _mm_storeu_ps(cp2, c20);
+        _mm_storeu_ps(cp2.add(4), c21);
+        _mm_storeu_ps(cp3, c30);
+        _mm_storeu_ps(cp3.add(4), c31);
     }
 }
 
@@ -1704,237 +1714,237 @@ unsafe fn microkernel_4x24_avx_fma(
     residual_tile: Option<*const f32>,
 ) {
     unsafe {
-    // 12 accumulators (4 rows × 3 panels of 8 cols)
-    let mut c00: __m256;
-    let mut c01: __m256;
-    let mut c02: __m256;
-    let mut c10: __m256;
-    let mut c11: __m256;
-    let mut c12: __m256;
-    let mut c20: __m256;
-    let mut c21: __m256;
-    let mut c22: __m256;
-    let mut c30: __m256;
-    let mut c31: __m256;
-    let mut c32: __m256;
+        // 12 accumulators (4 rows × 3 panels of 8 cols)
+        let mut c00: __m256;
+        let mut c01: __m256;
+        let mut c02: __m256;
+        let mut c10: __m256;
+        let mut c11: __m256;
+        let mut c12: __m256;
+        let mut c20: __m256;
+        let mut c21: __m256;
+        let mut c22: __m256;
+        let mut c30: __m256;
+        let mut c31: __m256;
+        let mut c32: __m256;
 
-    std::arch::asm!(
-        // Zero 12 accumulators
-        "vxorps {c00}, {c00}, {c00}",
-        "vxorps {c01}, {c01}, {c01}",
-        "vxorps {c02}, {c02}, {c02}",
-        "vxorps {c10}, {c10}, {c10}",
-        "vxorps {c11}, {c11}, {c11}",
-        "vxorps {c12}, {c12}, {c12}",
-        "vxorps {c20}, {c20}, {c20}",
-        "vxorps {c21}, {c21}, {c21}",
-        "vxorps {c22}, {c22}, {c22}",
-        "vxorps {c30}, {c30}, {c30}",
-        "vxorps {c31}, {c31}, {c31}",
-        "vxorps {c32}, {c32}, {c32}",
+        std::arch::asm!(
+            // Zero 12 accumulators
+            "vxorps {c00}, {c00}, {c00}",
+            "vxorps {c01}, {c01}, {c01}",
+            "vxorps {c02}, {c02}, {c02}",
+            "vxorps {c10}, {c10}, {c10}",
+            "vxorps {c11}, {c11}, {c11}",
+            "vxorps {c12}, {c12}, {c12}",
+            "vxorps {c20}, {c20}, {c20}",
+            "vxorps {c21}, {c21}, {c21}",
+            "vxorps {c22}, {c22}, {c22}",
+            "vxorps {c30}, {c30}, {c30}",
+            "vxorps {c31}, {c31}, {c31}",
+            "vxorps {c32}, {c32}, {c32}",
 
-        "mov {pairs}, {kc}",
-        "shr {pairs}, 1",
-        "test {pairs}, {pairs}",
-        "jz 24f",
+            "mov {pairs}, {kc}",
+            "shr {pairs}, 1",
+            "test {pairs}, {pairs}",
+            "jz 24f",
 
-        ".p2align 4",
-        "23:",
-        // --- k-step 0 ---
-        "vmovups {b0}, [{bp0}]",
-        "vmovups {b1}, [{bp1}]",
-        "vmovups {b2}, [{bp2}]",
-        "vbroadcastss {av}, [{ap}]",
-        "vfmadd231ps {c00}, {b0}, {av}",
-        "vfmadd231ps {c01}, {b1}, {av}",
-        "vfmadd231ps {c02}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 4]",
-        "vfmadd231ps {c10}, {b0}, {av}",
-        "vfmadd231ps {c11}, {b1}, {av}",
-        "vfmadd231ps {c12}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 8]",
-        "vfmadd231ps {c20}, {b0}, {av}",
-        "vfmadd231ps {c21}, {b1}, {av}",
-        "vfmadd231ps {c22}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 12]",
-        "vfmadd231ps {c30}, {b0}, {av}",
-        "vfmadd231ps {c31}, {b1}, {av}",
-        "vfmadd231ps {c32}, {b2}, {av}",
-        // --- k-step 1 ---
-        "vmovups {b0}, [{bp0} + 32]",
-        "vmovups {b1}, [{bp1} + 32]",
-        "vmovups {b2}, [{bp2} + 32]",
-        "vbroadcastss {av}, [{ap} + 16]",
-        "vfmadd231ps {c00}, {b0}, {av}",
-        "vfmadd231ps {c01}, {b1}, {av}",
-        "vfmadd231ps {c02}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 20]",
-        "vfmadd231ps {c10}, {b0}, {av}",
-        "vfmadd231ps {c11}, {b1}, {av}",
-        "vfmadd231ps {c12}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 24]",
-        "vfmadd231ps {c20}, {b0}, {av}",
-        "vfmadd231ps {c21}, {b1}, {av}",
-        "vfmadd231ps {c22}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 28]",
-        "vfmadd231ps {c30}, {b0}, {av}",
-        "vfmadd231ps {c31}, {b1}, {av}",
-        "vfmadd231ps {c32}, {b2}, {av}",
-        // Advance both k-steps at once
-        "add {ap}, 32",   // 2 * MR * 4 bytes
-        "add {bp0}, 64",  // 2 * NR * 4 bytes
-        "add {bp1}, 64",
-        "add {bp2}, 64",
-        "dec {pairs}",
-        "jnz 23b",
+            ".p2align 4",
+            "23:",
+            // --- k-step 0 ---
+            "vmovups {b0}, [{bp0}]",
+            "vmovups {b1}, [{bp1}]",
+            "vmovups {b2}, [{bp2}]",
+            "vbroadcastss {av}, [{ap}]",
+            "vfmadd231ps {c00}, {b0}, {av}",
+            "vfmadd231ps {c01}, {b1}, {av}",
+            "vfmadd231ps {c02}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 4]",
+            "vfmadd231ps {c10}, {b0}, {av}",
+            "vfmadd231ps {c11}, {b1}, {av}",
+            "vfmadd231ps {c12}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 8]",
+            "vfmadd231ps {c20}, {b0}, {av}",
+            "vfmadd231ps {c21}, {b1}, {av}",
+            "vfmadd231ps {c22}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 12]",
+            "vfmadd231ps {c30}, {b0}, {av}",
+            "vfmadd231ps {c31}, {b1}, {av}",
+            "vfmadd231ps {c32}, {b2}, {av}",
+            // --- k-step 1 ---
+            "vmovups {b0}, [{bp0} + 32]",
+            "vmovups {b1}, [{bp1} + 32]",
+            "vmovups {b2}, [{bp2} + 32]",
+            "vbroadcastss {av}, [{ap} + 16]",
+            "vfmadd231ps {c00}, {b0}, {av}",
+            "vfmadd231ps {c01}, {b1}, {av}",
+            "vfmadd231ps {c02}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 20]",
+            "vfmadd231ps {c10}, {b0}, {av}",
+            "vfmadd231ps {c11}, {b1}, {av}",
+            "vfmadd231ps {c12}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 24]",
+            "vfmadd231ps {c20}, {b0}, {av}",
+            "vfmadd231ps {c21}, {b1}, {av}",
+            "vfmadd231ps {c22}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 28]",
+            "vfmadd231ps {c30}, {b0}, {av}",
+            "vfmadd231ps {c31}, {b1}, {av}",
+            "vfmadd231ps {c32}, {b2}, {av}",
+            // Advance both k-steps at once
+            "add {ap}, 32",   // 2 * MR * 4 bytes
+            "add {bp0}, 64",  // 2 * NR * 4 bytes
+            "add {bp1}, 64",
+            "add {bp2}, 64",
+            "dec {pairs}",
+            "jnz 23b",
 
-        "24:",
-        // Handle odd k-remainder (if kc was odd, one final k-step)
-        "test {kc}, 1",
-        "jz 25f",
-        "vmovups {b0}, [{bp0}]",
-        "vmovups {b1}, [{bp1}]",
-        "vmovups {b2}, [{bp2}]",
-        "vbroadcastss {av}, [{ap}]",
-        "vfmadd231ps {c00}, {b0}, {av}",
-        "vfmadd231ps {c01}, {b1}, {av}",
-        "vfmadd231ps {c02}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 4]",
-        "vfmadd231ps {c10}, {b0}, {av}",
-        "vfmadd231ps {c11}, {b1}, {av}",
-        "vfmadd231ps {c12}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 8]",
-        "vfmadd231ps {c20}, {b0}, {av}",
-        "vfmadd231ps {c21}, {b1}, {av}",
-        "vfmadd231ps {c22}, {b2}, {av}",
-        "vbroadcastss {av}, [{ap} + 12]",
-        "vfmadd231ps {c30}, {b0}, {av}",
-        "vfmadd231ps {c31}, {b1}, {av}",
-        "vfmadd231ps {c32}, {b2}, {av}",
-        "25:",
+            "24:",
+            // Handle odd k-remainder (if kc was odd, one final k-step)
+            "test {kc}, 1",
+            "jz 25f",
+            "vmovups {b0}, [{bp0}]",
+            "vmovups {b1}, [{bp1}]",
+            "vmovups {b2}, [{bp2}]",
+            "vbroadcastss {av}, [{ap}]",
+            "vfmadd231ps {c00}, {b0}, {av}",
+            "vfmadd231ps {c01}, {b1}, {av}",
+            "vfmadd231ps {c02}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 4]",
+            "vfmadd231ps {c10}, {b0}, {av}",
+            "vfmadd231ps {c11}, {b1}, {av}",
+            "vfmadd231ps {c12}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 8]",
+            "vfmadd231ps {c20}, {b0}, {av}",
+            "vfmadd231ps {c21}, {b1}, {av}",
+            "vfmadd231ps {c22}, {b2}, {av}",
+            "vbroadcastss {av}, [{ap} + 12]",
+            "vfmadd231ps {c30}, {b0}, {av}",
+            "vfmadd231ps {c31}, {b1}, {av}",
+            "vfmadd231ps {c32}, {b2}, {av}",
+            "25:",
 
-        ap = inout(reg) a_panel => _,
-        bp0 = inout(reg) b_panel_0 => _,
-        bp1 = inout(reg) b_panel_1 => _,
-        bp2 = inout(reg) b_panel_2 => _,
-        kc = in(reg) kc,
-        pairs = out(reg) _,
-        c00 = out(ymm_reg) c00, c01 = out(ymm_reg) c01, c02 = out(ymm_reg) c02,
-        c10 = out(ymm_reg) c10, c11 = out(ymm_reg) c11, c12 = out(ymm_reg) c12,
-        c20 = out(ymm_reg) c20, c21 = out(ymm_reg) c21, c22 = out(ymm_reg) c22,
-        c30 = out(ymm_reg) c30, c31 = out(ymm_reg) c31, c32 = out(ymm_reg) c32,
-        b0 = out(ymm_reg) _, b1 = out(ymm_reg) _, b2 = out(ymm_reg) _,
-        av = out(ymm_reg) _,
-        options(nostack),
-    );
+            ap = inout(reg) a_panel => _,
+            bp0 = inout(reg) b_panel_0 => _,
+            bp1 = inout(reg) b_panel_1 => _,
+            bp2 = inout(reg) b_panel_2 => _,
+            kc = in(reg) kc,
+            pairs = out(reg) _,
+            c00 = out(ymm_reg) c00, c01 = out(ymm_reg) c01, c02 = out(ymm_reg) c02,
+            c10 = out(ymm_reg) c10, c11 = out(ymm_reg) c11, c12 = out(ymm_reg) c12,
+            c20 = out(ymm_reg) c20, c21 = out(ymm_reg) c21, c22 = out(ymm_reg) c22,
+            c30 = out(ymm_reg) c30, c31 = out(ymm_reg) c31, c32 = out(ymm_reg) c32,
+            b0 = out(ymm_reg) _, b1 = out(ymm_reg) _, b2 = out(ymm_reg) _,
+            av = out(ymm_reg) _,
+            options(nostack),
+        );
 
-    // Store phase
-    let cp0 = c;
-    let cp1 = c.add(ldc);
-    let cp2 = c.add(2 * ldc);
-    let cp3 = c.add(3 * ldc);
+        // Store phase
+        let cp0 = c;
+        let cp1 = c.add(ldc);
+        let cp2 = c.add(2 * ldc);
+        let cp3 = c.add(3 * ldc);
 
-    if accumulate {
-        c00 = _mm256_add_ps(_mm256_loadu_ps(cp0), c00);
-        c01 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(8)), c01);
-        c02 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(16)), c02);
-        c10 = _mm256_add_ps(_mm256_loadu_ps(cp1), c10);
-        c11 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(8)), c11);
-        c12 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(16)), c12);
-        c20 = _mm256_add_ps(_mm256_loadu_ps(cp2), c20);
-        c21 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(8)), c21);
-        c22 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(16)), c22);
-        c30 = _mm256_add_ps(_mm256_loadu_ps(cp3), c30);
-        c31 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(8)), c31);
-        c32 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(16)), c32);
-    }
-
-    if is_last_k {
-        if let Some(bias) = epilogue.bias {
-            let bv0 = _mm256_loadu_ps(bias.add(col_offset));
-            let bv1 = _mm256_loadu_ps(bias.add(col_offset + 8));
-            let bv2 = _mm256_loadu_ps(bias.add(col_offset + 16));
-            c00 = _mm256_add_ps(c00, bv0);
-            c01 = _mm256_add_ps(c01, bv1);
-            c02 = _mm256_add_ps(c02, bv2);
-            c10 = _mm256_add_ps(c10, bv0);
-            c11 = _mm256_add_ps(c11, bv1);
-            c12 = _mm256_add_ps(c12, bv2);
-            c20 = _mm256_add_ps(c20, bv0);
-            c21 = _mm256_add_ps(c21, bv1);
-            c22 = _mm256_add_ps(c22, bv2);
-            c30 = _mm256_add_ps(c30, bv0);
-            c31 = _mm256_add_ps(c31, bv1);
-            c32 = _mm256_add_ps(c32, bv2);
+        if accumulate {
+            c00 = _mm256_add_ps(_mm256_loadu_ps(cp0), c00);
+            c01 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(8)), c01);
+            c02 = _mm256_add_ps(_mm256_loadu_ps(cp0.add(16)), c02);
+            c10 = _mm256_add_ps(_mm256_loadu_ps(cp1), c10);
+            c11 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(8)), c11);
+            c12 = _mm256_add_ps(_mm256_loadu_ps(cp1.add(16)), c12);
+            c20 = _mm256_add_ps(_mm256_loadu_ps(cp2), c20);
+            c21 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(8)), c21);
+            c22 = _mm256_add_ps(_mm256_loadu_ps(cp2.add(16)), c22);
+            c30 = _mm256_add_ps(_mm256_loadu_ps(cp3), c30);
+            c31 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(8)), c31);
+            c32 = _mm256_add_ps(_mm256_loadu_ps(cp3.add(16)), c32);
         }
-        // Residual add: out = acc + bias + residual (Phase 1.2). Load 12
-        // YMMs from the pre-computed per-tile residual base. Stride same
-        // as `ldc` (row k = base + k*ldc). Only fires on is_last_k so
-        // residual isn't double-added across accumulator k-blocks.
-        if let Some(res_tile) = residual_tile {
-            let rp0 = res_tile;
-            let rp1 = res_tile.add(ldc);
-            let rp2 = res_tile.add(2 * ldc);
-            let rp3 = res_tile.add(3 * ldc);
-            c00 = _mm256_add_ps(c00, _mm256_loadu_ps(rp0));
-            c01 = _mm256_add_ps(c01, _mm256_loadu_ps(rp0.add(8)));
-            c02 = _mm256_add_ps(c02, _mm256_loadu_ps(rp0.add(16)));
-            c10 = _mm256_add_ps(c10, _mm256_loadu_ps(rp1));
-            c11 = _mm256_add_ps(c11, _mm256_loadu_ps(rp1.add(8)));
-            c12 = _mm256_add_ps(c12, _mm256_loadu_ps(rp1.add(16)));
-            c20 = _mm256_add_ps(c20, _mm256_loadu_ps(rp2));
-            c21 = _mm256_add_ps(c21, _mm256_loadu_ps(rp2.add(8)));
-            c22 = _mm256_add_ps(c22, _mm256_loadu_ps(rp2.add(16)));
-            c30 = _mm256_add_ps(c30, _mm256_loadu_ps(rp3));
-            c31 = _mm256_add_ps(c31, _mm256_loadu_ps(rp3.add(8)));
-            c32 = _mm256_add_ps(c32, _mm256_loadu_ps(rp3.add(16)));
-        }
-        match epilogue.activation {
-            Activation::Relu => {
-                let zero = _mm256_setzero_ps();
-                c00 = _mm256_max_ps(c00, zero);
-                c01 = _mm256_max_ps(c01, zero);
-                c02 = _mm256_max_ps(c02, zero);
-                c10 = _mm256_max_ps(c10, zero);
-                c11 = _mm256_max_ps(c11, zero);
-                c12 = _mm256_max_ps(c12, zero);
-                c20 = _mm256_max_ps(c20, zero);
-                c21 = _mm256_max_ps(c21, zero);
-                c22 = _mm256_max_ps(c22, zero);
-                c30 = _mm256_max_ps(c30, zero);
-                c31 = _mm256_max_ps(c31, zero);
-                c32 = _mm256_max_ps(c32, zero);
+
+        if is_last_k {
+            if let Some(bias) = epilogue.bias {
+                let bv0 = _mm256_loadu_ps(bias.add(col_offset));
+                let bv1 = _mm256_loadu_ps(bias.add(col_offset + 8));
+                let bv2 = _mm256_loadu_ps(bias.add(col_offset + 16));
+                c00 = _mm256_add_ps(c00, bv0);
+                c01 = _mm256_add_ps(c01, bv1);
+                c02 = _mm256_add_ps(c02, bv2);
+                c10 = _mm256_add_ps(c10, bv0);
+                c11 = _mm256_add_ps(c11, bv1);
+                c12 = _mm256_add_ps(c12, bv2);
+                c20 = _mm256_add_ps(c20, bv0);
+                c21 = _mm256_add_ps(c21, bv1);
+                c22 = _mm256_add_ps(c22, bv2);
+                c30 = _mm256_add_ps(c30, bv0);
+                c31 = _mm256_add_ps(c31, bv1);
+                c32 = _mm256_add_ps(c32, bv2);
             }
-            Activation::Silu => {
-                c00 = silu_avx_fma(c00);
-                c01 = silu_avx_fma(c01);
-                c02 = silu_avx_fma(c02);
-                c10 = silu_avx_fma(c10);
-                c11 = silu_avx_fma(c11);
-                c12 = silu_avx_fma(c12);
-                c20 = silu_avx_fma(c20);
-                c21 = silu_avx_fma(c21);
-                c22 = silu_avx_fma(c22);
-                c30 = silu_avx_fma(c30);
-                c31 = silu_avx_fma(c31);
-                c32 = silu_avx_fma(c32);
+            // Residual add: out = acc + bias + residual (Phase 1.2). Load 12
+            // YMMs from the pre-computed per-tile residual base. Stride same
+            // as `ldc` (row k = base + k*ldc). Only fires on is_last_k so
+            // residual isn't double-added across accumulator k-blocks.
+            if let Some(res_tile) = residual_tile {
+                let rp0 = res_tile;
+                let rp1 = res_tile.add(ldc);
+                let rp2 = res_tile.add(2 * ldc);
+                let rp3 = res_tile.add(3 * ldc);
+                c00 = _mm256_add_ps(c00, _mm256_loadu_ps(rp0));
+                c01 = _mm256_add_ps(c01, _mm256_loadu_ps(rp0.add(8)));
+                c02 = _mm256_add_ps(c02, _mm256_loadu_ps(rp0.add(16)));
+                c10 = _mm256_add_ps(c10, _mm256_loadu_ps(rp1));
+                c11 = _mm256_add_ps(c11, _mm256_loadu_ps(rp1.add(8)));
+                c12 = _mm256_add_ps(c12, _mm256_loadu_ps(rp1.add(16)));
+                c20 = _mm256_add_ps(c20, _mm256_loadu_ps(rp2));
+                c21 = _mm256_add_ps(c21, _mm256_loadu_ps(rp2.add(8)));
+                c22 = _mm256_add_ps(c22, _mm256_loadu_ps(rp2.add(16)));
+                c30 = _mm256_add_ps(c30, _mm256_loadu_ps(rp3));
+                c31 = _mm256_add_ps(c31, _mm256_loadu_ps(rp3.add(8)));
+                c32 = _mm256_add_ps(c32, _mm256_loadu_ps(rp3.add(16)));
             }
-            Activation::None => {}
+            match epilogue.activation {
+                Activation::Relu => {
+                    let zero = _mm256_setzero_ps();
+                    c00 = _mm256_max_ps(c00, zero);
+                    c01 = _mm256_max_ps(c01, zero);
+                    c02 = _mm256_max_ps(c02, zero);
+                    c10 = _mm256_max_ps(c10, zero);
+                    c11 = _mm256_max_ps(c11, zero);
+                    c12 = _mm256_max_ps(c12, zero);
+                    c20 = _mm256_max_ps(c20, zero);
+                    c21 = _mm256_max_ps(c21, zero);
+                    c22 = _mm256_max_ps(c22, zero);
+                    c30 = _mm256_max_ps(c30, zero);
+                    c31 = _mm256_max_ps(c31, zero);
+                    c32 = _mm256_max_ps(c32, zero);
+                }
+                Activation::Silu => {
+                    c00 = silu_avx_fma(c00);
+                    c01 = silu_avx_fma(c01);
+                    c02 = silu_avx_fma(c02);
+                    c10 = silu_avx_fma(c10);
+                    c11 = silu_avx_fma(c11);
+                    c12 = silu_avx_fma(c12);
+                    c20 = silu_avx_fma(c20);
+                    c21 = silu_avx_fma(c21);
+                    c22 = silu_avx_fma(c22);
+                    c30 = silu_avx_fma(c30);
+                    c31 = silu_avx_fma(c31);
+                    c32 = silu_avx_fma(c32);
+                }
+                Activation::None => {}
+            }
         }
-    }
 
-    _mm256_storeu_ps(cp0, c00);
-    _mm256_storeu_ps(cp0.add(8), c01);
-    _mm256_storeu_ps(cp0.add(16), c02);
-    _mm256_storeu_ps(cp1, c10);
-    _mm256_storeu_ps(cp1.add(8), c11);
-    _mm256_storeu_ps(cp1.add(16), c12);
-    _mm256_storeu_ps(cp2, c20);
-    _mm256_storeu_ps(cp2.add(8), c21);
-    _mm256_storeu_ps(cp2.add(16), c22);
-    _mm256_storeu_ps(cp3, c30);
-    _mm256_storeu_ps(cp3.add(8), c31);
-    _mm256_storeu_ps(cp3.add(16), c32);
+        _mm256_storeu_ps(cp0, c00);
+        _mm256_storeu_ps(cp0.add(8), c01);
+        _mm256_storeu_ps(cp0.add(16), c02);
+        _mm256_storeu_ps(cp1, c10);
+        _mm256_storeu_ps(cp1.add(8), c11);
+        _mm256_storeu_ps(cp1.add(16), c12);
+        _mm256_storeu_ps(cp2, c20);
+        _mm256_storeu_ps(cp2.add(8), c21);
+        _mm256_storeu_ps(cp2.add(16), c22);
+        _mm256_storeu_ps(cp3, c30);
+        _mm256_storeu_ps(cp3.add(8), c31);
+        _mm256_storeu_ps(cp3.add(16), c32);
     }
 }
 
@@ -1946,11 +1956,11 @@ unsafe fn microkernel_4x24_avx_fma(
 #[inline]
 pub(super) unsafe fn silu_avx_fma(x: __m256) -> __m256 {
     unsafe {
-    let one = _mm256_set1_ps(1.0);
-    let neg_x = _mm256_sub_ps(_mm256_setzero_ps(), x);
-    let exp_neg = super::super::simd::exp::fast_exp_bittrick_avx(neg_x);
-    let denom = _mm256_add_ps(one, exp_neg);
-    _mm256_div_ps(x, denom)
+        let one = _mm256_set1_ps(1.0);
+        let neg_x = _mm256_sub_ps(_mm256_setzero_ps(), x);
+        let exp_neg = super::super::simd::exp::fast_exp_bittrick_avx(neg_x);
+        let denom = _mm256_add_ps(one, exp_neg);
+        _mm256_div_ps(x, denom)
     }
 }
 
@@ -1961,11 +1971,11 @@ pub(super) unsafe fn silu_avx_fma(x: __m256) -> __m256 {
 #[inline]
 unsafe fn silu_avx(x: __m256) -> __m256 {
     unsafe {
-    let one = _mm256_set1_ps(1.0);
-    let neg_x = _mm256_sub_ps(_mm256_setzero_ps(), x);
-    let exp_neg = super::super::simd::exp::fast_exp_bittrick_avx(neg_x);
-    let denom = _mm256_add_ps(one, exp_neg);
-    _mm256_div_ps(x, denom)
+        let one = _mm256_set1_ps(1.0);
+        let neg_x = _mm256_sub_ps(_mm256_setzero_ps(), x);
+        let exp_neg = super::super::simd::exp::fast_exp_bittrick_avx(neg_x);
+        let denom = _mm256_add_ps(one, exp_neg);
+        _mm256_div_ps(x, denom)
     }
 }
 
@@ -1976,10 +1986,10 @@ unsafe fn silu_avx(x: __m256) -> __m256 {
 #[inline]
 unsafe fn silu_sse(x: __m128) -> __m128 {
     unsafe {
-    let one = _mm_set1_ps(1.0);
-    let neg_x = _mm_sub_ps(_mm_setzero_ps(), x);
-    let exp_neg = super::super::simd::exp::fast_exp_bittrick_sse(neg_x);
-    let denom = _mm_add_ps(one, exp_neg);
-    _mm_div_ps(x, denom)
+        let one = _mm_set1_ps(1.0);
+        let neg_x = _mm_sub_ps(_mm_setzero_ps(), x);
+        let exp_neg = super::super::simd::exp::fast_exp_bittrick_sse(neg_x);
+        let denom = _mm_add_ps(one, exp_neg);
+        _mm_div_ps(x, denom)
     }
 }

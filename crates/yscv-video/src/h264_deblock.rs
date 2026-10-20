@@ -1059,28 +1059,30 @@ fn deblock_luma_h16_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) { unsafe {
-    use std::arch::aarch64::*;
-    debug_assert!(q0_base >= 4 * stride && q0_base + 3 * stride + 16 <= plane.len());
-    let base = plane.as_mut_ptr().add(q0_base);
-    let v = [
-        vld1q_u8(base.sub(4 * stride)),
-        vld1q_u8(base.sub(3 * stride)),
-        vld1q_u8(base.sub(2 * stride)),
-        vld1q_u8(base.sub(stride)),
-        vld1q_u8(base),
-        vld1q_u8(base.add(stride)),
-        vld1q_u8(base.add(2 * stride)),
-        vld1q_u8(base.add(3 * stride)),
-    ];
-    let o = luma_core_neon(&v, bs, alpha, beta, tc0);
-    vst1q_u8(base.sub(3 * stride), o[0]);
-    vst1q_u8(base.sub(2 * stride), o[1]);
-    vst1q_u8(base.sub(stride), o[2]);
-    vst1q_u8(base, o[3]);
-    vst1q_u8(base.add(stride), o[4]);
-    vst1q_u8(base.add(2 * stride), o[5]);
-} }
+) {
+    unsafe {
+        use std::arch::aarch64::*;
+        debug_assert!(q0_base >= 4 * stride && q0_base + 3 * stride + 16 <= plane.len());
+        let base = plane.as_mut_ptr().add(q0_base);
+        let v = [
+            vld1q_u8(base.sub(4 * stride)),
+            vld1q_u8(base.sub(3 * stride)),
+            vld1q_u8(base.sub(2 * stride)),
+            vld1q_u8(base.sub(stride)),
+            vld1q_u8(base),
+            vld1q_u8(base.add(stride)),
+            vld1q_u8(base.add(2 * stride)),
+            vld1q_u8(base.add(3 * stride)),
+        ];
+        let o = luma_core_neon(&v, bs, alpha, beta, tc0);
+        vst1q_u8(base.sub(3 * stride), o[0]);
+        vst1q_u8(base.sub(2 * stride), o[1]);
+        vst1q_u8(base.sub(stride), o[2]);
+        vst1q_u8(base, o[3]);
+        vst1q_u8(base.add(stride), o[4]);
+        vst1q_u8(base.add(2 * stride), o[5]);
+    }
+}
 
 /// Transposes an 8x8 byte tile held as eight row vectors.
 #[cfg(target_arch = "aarch64")]
@@ -1129,72 +1131,74 @@ fn deblock_luma_v16_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) { unsafe {
-    use std::arch::aarch64::*;
-    debug_assert!(q0_base >= 4 && q0_base + 15 * stride + 4 <= plane.len());
-    let base = plane.as_mut_ptr().add(q0_base - 4);
-    let row = |i: usize| vld1_u8(base.add(i * stride));
-    let top = transpose_8x8_neon([
-        row(0),
-        row(1),
-        row(2),
-        row(3),
-        row(4),
-        row(5),
-        row(6),
-        row(7),
-    ]);
-    let bot = transpose_8x8_neon([
-        row(8),
-        row(9),
-        row(10),
-        row(11),
-        row(12),
-        row(13),
-        row(14),
-        row(15),
-    ]);
-    let v = [
-        vcombine_u8(top[0], bot[0]),
-        vcombine_u8(top[1], bot[1]),
-        vcombine_u8(top[2], bot[2]),
-        vcombine_u8(top[3], bot[3]),
-        vcombine_u8(top[4], bot[4]),
-        vcombine_u8(top[5], bot[5]),
-        vcombine_u8(top[6], bot[6]),
-        vcombine_u8(top[7], bot[7]),
-    ];
-    let o = luma_core_neon(&v, bs, alpha, beta, tc0);
-    // p3/q3 are never modified; transpose the full eight columns back and
-    // store whole 8-byte rows.
-    let full = [v[0], o[0], o[1], o[2], o[3], o[4], o[5], v[7]];
-    let rt = transpose_8x8_neon([
-        vget_low_u8(full[0]),
-        vget_low_u8(full[1]),
-        vget_low_u8(full[2]),
-        vget_low_u8(full[3]),
-        vget_low_u8(full[4]),
-        vget_low_u8(full[5]),
-        vget_low_u8(full[6]),
-        vget_low_u8(full[7]),
-    ]);
-    let rb = transpose_8x8_neon([
-        vget_high_u8(full[0]),
-        vget_high_u8(full[1]),
-        vget_high_u8(full[2]),
-        vget_high_u8(full[3]),
-        vget_high_u8(full[4]),
-        vget_high_u8(full[5]),
-        vget_high_u8(full[6]),
-        vget_high_u8(full[7]),
-    ]);
-    for (i, r) in rt.into_iter().enumerate() {
-        vst1_u8(base.add(i * stride), r);
+) {
+    unsafe {
+        use std::arch::aarch64::*;
+        debug_assert!(q0_base >= 4 && q0_base + 15 * stride + 4 <= plane.len());
+        let base = plane.as_mut_ptr().add(q0_base - 4);
+        let row = |i: usize| vld1_u8(base.add(i * stride));
+        let top = transpose_8x8_neon([
+            row(0),
+            row(1),
+            row(2),
+            row(3),
+            row(4),
+            row(5),
+            row(6),
+            row(7),
+        ]);
+        let bot = transpose_8x8_neon([
+            row(8),
+            row(9),
+            row(10),
+            row(11),
+            row(12),
+            row(13),
+            row(14),
+            row(15),
+        ]);
+        let v = [
+            vcombine_u8(top[0], bot[0]),
+            vcombine_u8(top[1], bot[1]),
+            vcombine_u8(top[2], bot[2]),
+            vcombine_u8(top[3], bot[3]),
+            vcombine_u8(top[4], bot[4]),
+            vcombine_u8(top[5], bot[5]),
+            vcombine_u8(top[6], bot[6]),
+            vcombine_u8(top[7], bot[7]),
+        ];
+        let o = luma_core_neon(&v, bs, alpha, beta, tc0);
+        // p3/q3 are never modified; transpose the full eight columns back and
+        // store whole 8-byte rows.
+        let full = [v[0], o[0], o[1], o[2], o[3], o[4], o[5], v[7]];
+        let rt = transpose_8x8_neon([
+            vget_low_u8(full[0]),
+            vget_low_u8(full[1]),
+            vget_low_u8(full[2]),
+            vget_low_u8(full[3]),
+            vget_low_u8(full[4]),
+            vget_low_u8(full[5]),
+            vget_low_u8(full[6]),
+            vget_low_u8(full[7]),
+        ]);
+        let rb = transpose_8x8_neon([
+            vget_high_u8(full[0]),
+            vget_high_u8(full[1]),
+            vget_high_u8(full[2]),
+            vget_high_u8(full[3]),
+            vget_high_u8(full[4]),
+            vget_high_u8(full[5]),
+            vget_high_u8(full[6]),
+            vget_high_u8(full[7]),
+        ]);
+        for (i, r) in rt.into_iter().enumerate() {
+            vst1_u8(base.add(i * stride), r);
+        }
+        for (i, r) in rb.into_iter().enumerate() {
+            vst1_u8(base.add((8 + i) * stride), r);
+        }
     }
-    for (i, r) in rb.into_iter().enumerate() {
-        vst1_u8(base.add((8 + i) * stride), r);
-    }
-} }
+}
 
 /// `|a - b|` per u8 lane (SSE2 has no unsigned abs-diff).
 #[cfg(target_arch = "x86_64")]
@@ -1963,21 +1967,23 @@ fn deblock_chroma_h8_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) { unsafe {
-    use std::arch::aarch64::*;
-    debug_assert!(q0_base >= 2 * stride && q0_base + stride + 8 <= u.len().min(v.len()));
-    let ub = u.as_mut_ptr().add(q0_base);
-    let vb = v.as_mut_ptr().add(q0_base);
-    let p1 = vcombine_u8(vld1_u8(ub.sub(2 * stride)), vld1_u8(vb.sub(2 * stride)));
-    let p0 = vcombine_u8(vld1_u8(ub.sub(stride)), vld1_u8(vb.sub(stride)));
-    let q0 = vcombine_u8(vld1_u8(ub), vld1_u8(vb));
-    let q1 = vcombine_u8(vld1_u8(ub.add(stride)), vld1_u8(vb.add(stride)));
-    let (np0, nq0) = chroma_core_neon(p1, p0, q0, q1, bs, alpha, beta, tc0);
-    vst1_u8(ub.sub(stride), vget_low_u8(np0));
-    vst1_u8(vb.sub(stride), vget_high_u8(np0));
-    vst1_u8(ub, vget_low_u8(nq0));
-    vst1_u8(vb, vget_high_u8(nq0));
-} }
+) {
+    unsafe {
+        use std::arch::aarch64::*;
+        debug_assert!(q0_base >= 2 * stride && q0_base + stride + 8 <= u.len().min(v.len()));
+        let ub = u.as_mut_ptr().add(q0_base);
+        let vb = v.as_mut_ptr().add(q0_base);
+        let p1 = vcombine_u8(vld1_u8(ub.sub(2 * stride)), vld1_u8(vb.sub(2 * stride)));
+        let p0 = vcombine_u8(vld1_u8(ub.sub(stride)), vld1_u8(vb.sub(stride)));
+        let q0 = vcombine_u8(vld1_u8(ub), vld1_u8(vb));
+        let q1 = vcombine_u8(vld1_u8(ub.add(stride)), vld1_u8(vb.add(stride)));
+        let (np0, nq0) = chroma_core_neon(p1, p0, q0, q1, bs, alpha, beta, tc0);
+        vst1_u8(ub.sub(stride), vget_low_u8(np0));
+        vst1_u8(vb.sub(stride), vget_high_u8(np0));
+        vst1_u8(ub, vget_low_u8(nq0));
+        vst1_u8(vb, vget_high_u8(nq0));
+    }
+}
 
 /// NEON kernel for one vertical chroma MB edge: each of the 8 rows packs the
 /// four U cross-edge samples and the four V ones into one 8-byte lane row,
@@ -1995,47 +2001,49 @@ fn deblock_chroma_v8_neon(
     alpha: i32,
     beta: i32,
     tc0: &[i32; 4],
-) { unsafe {
-    use std::arch::aarch64::*;
-    debug_assert!(q0_base >= 2 && q0_base + 7 * stride + 2 <= u.len().min(v.len()));
-    let ub = u.as_mut_ptr().add(q0_base - 2);
-    let vb = v.as_mut_ptr().add(q0_base - 2);
-    let row = |i: usize| {
-        let uw = (ub.add(i * stride) as *const u32).read_unaligned() as u64;
-        let vw = (vb.add(i * stride) as *const u32).read_unaligned() as u64;
-        vcreate_u8(uw | (vw << 32))
-    };
-    let cols = transpose_8x8_neon([
-        row(0),
-        row(1),
-        row(2),
-        row(3),
-        row(4),
-        row(5),
-        row(6),
-        row(7),
-    ]);
-    let p1 = vcombine_u8(cols[0], cols[4]);
-    let p0 = vcombine_u8(cols[1], cols[5]);
-    let q0 = vcombine_u8(cols[2], cols[6]);
-    let q1 = vcombine_u8(cols[3], cols[7]);
-    let (np0, nq0) = chroma_core_neon(p1, p0, q0, q1, bs, alpha, beta, tc0);
-    let back = transpose_8x8_neon([
-        cols[0],
-        vget_low_u8(np0),
-        vget_low_u8(nq0),
-        cols[3],
-        cols[4],
-        vget_high_u8(np0),
-        vget_high_u8(nq0),
-        cols[7],
-    ]);
-    for (i, r) in back.into_iter().enumerate() {
-        let w = vreinterpret_u32_u8(r);
-        (ub.add(i * stride) as *mut u32).write_unaligned(vget_lane_u32::<0>(w));
-        (vb.add(i * stride) as *mut u32).write_unaligned(vget_lane_u32::<1>(w));
+) {
+    unsafe {
+        use std::arch::aarch64::*;
+        debug_assert!(q0_base >= 2 && q0_base + 7 * stride + 2 <= u.len().min(v.len()));
+        let ub = u.as_mut_ptr().add(q0_base - 2);
+        let vb = v.as_mut_ptr().add(q0_base - 2);
+        let row = |i: usize| {
+            let uw = (ub.add(i * stride) as *const u32).read_unaligned() as u64;
+            let vw = (vb.add(i * stride) as *const u32).read_unaligned() as u64;
+            vcreate_u8(uw | (vw << 32))
+        };
+        let cols = transpose_8x8_neon([
+            row(0),
+            row(1),
+            row(2),
+            row(3),
+            row(4),
+            row(5),
+            row(6),
+            row(7),
+        ]);
+        let p1 = vcombine_u8(cols[0], cols[4]);
+        let p0 = vcombine_u8(cols[1], cols[5]);
+        let q0 = vcombine_u8(cols[2], cols[6]);
+        let q1 = vcombine_u8(cols[3], cols[7]);
+        let (np0, nq0) = chroma_core_neon(p1, p0, q0, q1, bs, alpha, beta, tc0);
+        let back = transpose_8x8_neon([
+            cols[0],
+            vget_low_u8(np0),
+            vget_low_u8(nq0),
+            cols[3],
+            cols[4],
+            vget_high_u8(np0),
+            vget_high_u8(nq0),
+            cols[7],
+        ]);
+        for (i, r) in back.into_iter().enumerate() {
+            let w = vreinterpret_u32_u8(r);
+            (ub.add(i * stride) as *mut u32).write_unaligned(vget_lane_u32::<0>(w));
+            (vb.add(i * stride) as *mut u32).write_unaligned(vget_lane_u32::<1>(w));
+        }
     }
-} }
+}
 
 /// Shared 16-lane chroma filter core (SSE2 analogue of [`chroma_core_neon`]).
 #[cfg(target_arch = "x86_64")]

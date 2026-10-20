@@ -212,173 +212,177 @@ unsafe fn exp_avx(data: &[f32], out: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(dead_code, unsafe_code, unsafe_op_in_unsafe_fn)]
 #[inline(always)]
-unsafe fn fast_exp_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t { unsafe {
-    use std::arch::aarch64::{
-        vaddq_s32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32, vreinterpretq_f32_s32,
-        vshlq_n_s32,
-    };
+unsafe fn fast_exp_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+    unsafe {
+        use std::arch::aarch64::{
+            vaddq_s32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32,
+            vreinterpretq_f32_s32, vshlq_n_s32,
+        };
 
-    let ln2_inv = vdupq_n_f32(std::f32::consts::LOG2_E);
-    let ln2_hi = vdupq_n_f32(0.693_359_4);
-    let ln2_lo = vdupq_n_f32(-2.121_944_4e-4);
+        let ln2_inv = vdupq_n_f32(std::f32::consts::LOG2_E);
+        let ln2_hi = vdupq_n_f32(0.693_359_4);
+        let ln2_lo = vdupq_n_f32(-2.121_944_4e-4);
 
-    let c1 = vdupq_n_f32(1.0);
-    let c2 = vdupq_n_f32(0.5);
-    let c3 = vdupq_n_f32(1.0 / 6.0);
-    let c4 = vdupq_n_f32(1.0 / 24.0);
-    let c5 = vdupq_n_f32(1.0 / 120.0);
-    let c6 = vdupq_n_f32(1.0 / 720.0);
+        let c1 = vdupq_n_f32(1.0);
+        let c2 = vdupq_n_f32(0.5);
+        let c3 = vdupq_n_f32(1.0 / 6.0);
+        let c4 = vdupq_n_f32(1.0 / 24.0);
+        let c5 = vdupq_n_f32(1.0 / 120.0);
+        let c6 = vdupq_n_f32(1.0 / 720.0);
 
-    let x = vmaxq_f32(vdupq_n_f32(-88.0), vminq_f32(vdupq_n_f32(88.0), x));
+        let x = vmaxq_f32(vdupq_n_f32(-88.0), vminq_f32(vdupq_n_f32(88.0), x));
 
-    let n_f = vmulq_f32(x, ln2_inv);
-    let n_i = vcvtnq_s32_f32(n_f);
-    let n_f = vcvtq_f32_s32(n_i);
+        let n_f = vmulq_f32(x, ln2_inv);
+        let n_i = vcvtnq_s32_f32(n_f);
+        let n_f = vcvtq_f32_s32(n_i);
 
-    // r = x - n * ln2  (Cody-Waite two-step)
-    let r = vsubq_f32(vsubq_f32(x, vmulq_f32(n_f, ln2_hi)), vmulq_f32(n_f, ln2_lo));
+        // r = x - n * ln2  (Cody-Waite two-step)
+        let r = vsubq_f32(vsubq_f32(x, vmulq_f32(n_f, ln2_hi)), vmulq_f32(n_f, ln2_lo));
 
-    // Horner: 1 + r*(1 + r*(0.5 + r*(1/6 + r*(1/24 + r*(1/120 + r/720)))))
-    let mut poly = vfmaq_f32(c5, r, c6);
-    poly = vfmaq_f32(c4, r, poly);
-    poly = vfmaq_f32(c3, r, poly);
-    poly = vfmaq_f32(c2, r, poly);
-    poly = vfmaq_f32(c1, r, poly);
-    poly = vfmaq_f32(c1, r, poly); // c0 == c1 == 1.0
+        // Horner: 1 + r*(1 + r*(0.5 + r*(1/6 + r*(1/24 + r*(1/120 + r/720)))))
+        let mut poly = vfmaq_f32(c5, r, c6);
+        poly = vfmaq_f32(c4, r, poly);
+        poly = vfmaq_f32(c3, r, poly);
+        poly = vfmaq_f32(c2, r, poly);
+        poly = vfmaq_f32(c1, r, poly);
+        poly = vfmaq_f32(c1, r, poly); // c0 == c1 == 1.0
 
-    let bias = vdupq_n_s32(127);
-    let pow2n = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n_i, bias)));
+        let bias = vdupq_n_s32(127);
+        let pow2n = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n_i, bias)));
 
-    vmulq_f32(poly, pow2n)
-} }
+        vmulq_f32(poly, pow2n)
+    }
+}
 
 #[cfg(target_arch = "aarch64")]
 #[allow(dead_code, unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn exp_neon(data: &[f32], out: &mut [f32]) { unsafe {
-    use std::arch::aarch64::{
-        vaddq_s32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32, vreinterpretq_f32_s32,
-        vshlq_n_s32,
-    };
+unsafe fn exp_neon(data: &[f32], out: &mut [f32]) {
+    unsafe {
+        use std::arch::aarch64::{
+            vaddq_s32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32,
+            vreinterpretq_f32_s32, vshlq_n_s32,
+        };
 
-    let len = data.len();
-    let inp = data.as_ptr();
-    let op = out.as_mut_ptr();
-    let mut i = 0usize;
+        let len = data.len();
+        let inp = data.as_ptr();
+        let op = out.as_mut_ptr();
+        let mut i = 0usize;
 
-    // Constants hoisted out of the loop
-    let ln2_inv = vdupq_n_f32(std::f32::consts::LOG2_E);
-    let ln2_hi = vdupq_n_f32(0.693_359_4);
-    let ln2_lo = vdupq_n_f32(-2.121_944_4e-4);
-    let c1 = vdupq_n_f32(1.0);
-    let c2 = vdupq_n_f32(0.5);
-    let c3 = vdupq_n_f32(1.0 / 6.0);
-    let c4 = vdupq_n_f32(1.0 / 24.0);
-    let c5 = vdupq_n_f32(1.0 / 120.0);
-    let c6 = vdupq_n_f32(1.0 / 720.0);
-    let lo_clamp = vdupq_n_f32(-88.0);
-    let hi_clamp = vdupq_n_f32(88.0);
-    let bias = vdupq_n_s32(127);
+        // Constants hoisted out of the loop
+        let ln2_inv = vdupq_n_f32(std::f32::consts::LOG2_E);
+        let ln2_hi = vdupq_n_f32(0.693_359_4);
+        let ln2_lo = vdupq_n_f32(-2.121_944_4e-4);
+        let c1 = vdupq_n_f32(1.0);
+        let c2 = vdupq_n_f32(0.5);
+        let c3 = vdupq_n_f32(1.0 / 6.0);
+        let c4 = vdupq_n_f32(1.0 / 24.0);
+        let c5 = vdupq_n_f32(1.0 / 120.0);
+        let c6 = vdupq_n_f32(1.0 / 720.0);
+        let lo_clamp = vdupq_n_f32(-88.0);
+        let hi_clamp = vdupq_n_f32(88.0);
+        let bias = vdupq_n_s32(127);
 
-    // 4x interleaved: all polynomial steps run across 4 vectors
-    // for maximum instruction-level parallelism on wide pipelines.
-    while i + 16 <= len {
-        // Load
-        let mut x0 = vld1q_f32(inp.add(i));
-        let mut x1 = vld1q_f32(inp.add(i + 4));
-        let mut x2 = vld1q_f32(inp.add(i + 8));
-        let mut x3 = vld1q_f32(inp.add(i + 12));
+        // 4x interleaved: all polynomial steps run across 4 vectors
+        // for maximum instruction-level parallelism on wide pipelines.
+        while i + 16 <= len {
+            // Load
+            let mut x0 = vld1q_f32(inp.add(i));
+            let mut x1 = vld1q_f32(inp.add(i + 4));
+            let mut x2 = vld1q_f32(inp.add(i + 8));
+            let mut x3 = vld1q_f32(inp.add(i + 12));
 
-        // Clamp
-        x0 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x0));
-        x1 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x1));
-        x2 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x2));
-        x3 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x3));
+            // Clamp
+            x0 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x0));
+            x1 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x1));
+            x2 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x2));
+            x3 = vmaxq_f32(lo_clamp, vminq_f32(hi_clamp, x3));
 
-        // n = round(x / ln2)
-        let n0 = vcvtnq_s32_f32(vmulq_f32(x0, ln2_inv));
-        let n1 = vcvtnq_s32_f32(vmulq_f32(x1, ln2_inv));
-        let n2 = vcvtnq_s32_f32(vmulq_f32(x2, ln2_inv));
-        let n3 = vcvtnq_s32_f32(vmulq_f32(x3, ln2_inv));
-        let nf0 = vcvtq_f32_s32(n0);
-        let nf1 = vcvtq_f32_s32(n1);
-        let nf2 = vcvtq_f32_s32(n2);
-        let nf3 = vcvtq_f32_s32(n3);
+            // n = round(x / ln2)
+            let n0 = vcvtnq_s32_f32(vmulq_f32(x0, ln2_inv));
+            let n1 = vcvtnq_s32_f32(vmulq_f32(x1, ln2_inv));
+            let n2 = vcvtnq_s32_f32(vmulq_f32(x2, ln2_inv));
+            let n3 = vcvtnq_s32_f32(vmulq_f32(x3, ln2_inv));
+            let nf0 = vcvtq_f32_s32(n0);
+            let nf1 = vcvtq_f32_s32(n1);
+            let nf2 = vcvtq_f32_s32(n2);
+            let nf3 = vcvtq_f32_s32(n3);
 
-        // r = x - n * ln2 (Cody-Waite)
-        let r0 = vsubq_f32(
-            vsubq_f32(x0, vmulq_f32(nf0, ln2_hi)),
-            vmulq_f32(nf0, ln2_lo),
-        );
-        let r1 = vsubq_f32(
-            vsubq_f32(x1, vmulq_f32(nf1, ln2_hi)),
-            vmulq_f32(nf1, ln2_lo),
-        );
-        let r2 = vsubq_f32(
-            vsubq_f32(x2, vmulq_f32(nf2, ln2_hi)),
-            vmulq_f32(nf2, ln2_lo),
-        );
-        let r3 = vsubq_f32(
-            vsubq_f32(x3, vmulq_f32(nf3, ln2_hi)),
-            vmulq_f32(nf3, ln2_lo),
-        );
+            // r = x - n * ln2 (Cody-Waite)
+            let r0 = vsubq_f32(
+                vsubq_f32(x0, vmulq_f32(nf0, ln2_hi)),
+                vmulq_f32(nf0, ln2_lo),
+            );
+            let r1 = vsubq_f32(
+                vsubq_f32(x1, vmulq_f32(nf1, ln2_hi)),
+                vmulq_f32(nf1, ln2_lo),
+            );
+            let r2 = vsubq_f32(
+                vsubq_f32(x2, vmulq_f32(nf2, ln2_hi)),
+                vmulq_f32(nf2, ln2_lo),
+            );
+            let r3 = vsubq_f32(
+                vsubq_f32(x3, vmulq_f32(nf3, ln2_hi)),
+                vmulq_f32(nf3, ln2_lo),
+            );
 
-        // Horner polynomial: interleaved across all 4 vectors
-        let mut p0 = vfmaq_f32(c5, r0, c6);
-        let mut p1 = vfmaq_f32(c5, r1, c6);
-        let mut p2 = vfmaq_f32(c5, r2, c6);
-        let mut p3 = vfmaq_f32(c5, r3, c6);
+            // Horner polynomial: interleaved across all 4 vectors
+            let mut p0 = vfmaq_f32(c5, r0, c6);
+            let mut p1 = vfmaq_f32(c5, r1, c6);
+            let mut p2 = vfmaq_f32(c5, r2, c6);
+            let mut p3 = vfmaq_f32(c5, r3, c6);
 
-        p0 = vfmaq_f32(c4, r0, p0);
-        p1 = vfmaq_f32(c4, r1, p1);
-        p2 = vfmaq_f32(c4, r2, p2);
-        p3 = vfmaq_f32(c4, r3, p3);
+            p0 = vfmaq_f32(c4, r0, p0);
+            p1 = vfmaq_f32(c4, r1, p1);
+            p2 = vfmaq_f32(c4, r2, p2);
+            p3 = vfmaq_f32(c4, r3, p3);
 
-        p0 = vfmaq_f32(c3, r0, p0);
-        p1 = vfmaq_f32(c3, r1, p1);
-        p2 = vfmaq_f32(c3, r2, p2);
-        p3 = vfmaq_f32(c3, r3, p3);
+            p0 = vfmaq_f32(c3, r0, p0);
+            p1 = vfmaq_f32(c3, r1, p1);
+            p2 = vfmaq_f32(c3, r2, p2);
+            p3 = vfmaq_f32(c3, r3, p3);
 
-        p0 = vfmaq_f32(c2, r0, p0);
-        p1 = vfmaq_f32(c2, r1, p1);
-        p2 = vfmaq_f32(c2, r2, p2);
-        p3 = vfmaq_f32(c2, r3, p3);
+            p0 = vfmaq_f32(c2, r0, p0);
+            p1 = vfmaq_f32(c2, r1, p1);
+            p2 = vfmaq_f32(c2, r2, p2);
+            p3 = vfmaq_f32(c2, r3, p3);
 
-        p0 = vfmaq_f32(c1, r0, p0);
-        p1 = vfmaq_f32(c1, r1, p1);
-        p2 = vfmaq_f32(c1, r2, p2);
-        p3 = vfmaq_f32(c1, r3, p3);
+            p0 = vfmaq_f32(c1, r0, p0);
+            p1 = vfmaq_f32(c1, r1, p1);
+            p2 = vfmaq_f32(c1, r2, p2);
+            p3 = vfmaq_f32(c1, r3, p3);
 
-        p0 = vfmaq_f32(c1, r0, p0); // c0 == c1 == 1.0
-        p1 = vfmaq_f32(c1, r1, p1);
-        p2 = vfmaq_f32(c1, r2, p2);
-        p3 = vfmaq_f32(c1, r3, p3);
+            p0 = vfmaq_f32(c1, r0, p0); // c0 == c1 == 1.0
+            p1 = vfmaq_f32(c1, r1, p1);
+            p2 = vfmaq_f32(c1, r2, p2);
+            p3 = vfmaq_f32(c1, r3, p3);
 
-        // 2^n via integer bit manipulation
-        let pow0 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n0, bias)));
-        let pow1 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n1, bias)));
-        let pow2 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n2, bias)));
-        let pow3 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n3, bias)));
+            // 2^n via integer bit manipulation
+            let pow0 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n0, bias)));
+            let pow1 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n1, bias)));
+            let pow2 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n2, bias)));
+            let pow3 = vreinterpretq_f32_s32(vshlq_n_s32::<23>(vaddq_s32(n3, bias)));
 
-        // Store
-        vst1q_f32(op.add(i), vmulq_f32(p0, pow0));
-        vst1q_f32(op.add(i + 4), vmulq_f32(p1, pow1));
-        vst1q_f32(op.add(i + 8), vmulq_f32(p2, pow2));
-        vst1q_f32(op.add(i + 12), vmulq_f32(p3, pow3));
-        i += 16;
+            // Store
+            vst1q_f32(op.add(i), vmulq_f32(p0, pow0));
+            vst1q_f32(op.add(i + 4), vmulq_f32(p1, pow1));
+            vst1q_f32(op.add(i + 8), vmulq_f32(p2, pow2));
+            vst1q_f32(op.add(i + 12), vmulq_f32(p3, pow3));
+            i += 16;
+        }
+
+        while i + 4 <= len {
+            let v = vld1q_f32(inp.add(i));
+            vst1q_f32(op.add(i), fast_exp_neon(v));
+            i += 4;
+        }
+
+        while i < len {
+            *op.add(i) = (*inp.add(i)).exp();
+            i += 1;
+        }
     }
-
-    while i + 4 <= len {
-        let v = vld1q_f32(inp.add(i));
-        vst1q_f32(op.add(i), fast_exp_neon(v));
-        i += 4;
-    }
-
-    while i < len {
-        *op.add(i) = (*inp.add(i)).exp();
-        i += 1;
-    }
-} }
+}
 
 // ===========================================================================
 // sin: out[i] = sin(data[i]) -- SIMD polynomial approximation
@@ -476,99 +480,105 @@ fn cos_scalar(data: &[f32], out: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn fast_sin_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t { unsafe {
-    use std::arch::aarch64::{
-        vandq_s32, vbslq_f32, vcgtq_f32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32,
-        vorrq_s32, vreinterpretq_f32_s32, vreinterpretq_s32_f32,
-    };
+unsafe fn fast_sin_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
+    unsafe {
+        use std::arch::aarch64::{
+            vandq_s32, vbslq_f32, vcgtq_f32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32,
+            vorrq_s32, vreinterpretq_f32_s32, vreinterpretq_s32_f32,
+        };
 
-    // Constants
-    let two_pi = vdupq_n_f32(std::f32::consts::TAU); // 2*pi
-    let inv_two_pi = vdupq_n_f32(1.0 / std::f32::consts::TAU); // 1/(2*pi)
-    let pi = vdupq_n_f32(std::f32::consts::PI);
-    let half_pi = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+        // Constants
+        let two_pi = vdupq_n_f32(std::f32::consts::TAU); // 2*pi
+        let inv_two_pi = vdupq_n_f32(1.0 / std::f32::consts::TAU); // 1/(2*pi)
+        let pi = vdupq_n_f32(std::f32::consts::PI);
+        let half_pi = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
 
-    // Minimax polynomial coefficients for sin(x) on [-pi/2, pi/2]
-    // sin(x) ~ x * (1 + x^2 * (c1 + x^2 * (c2 + x^2 * c3)))
-    let c1 = vdupq_n_f32(-1.666_666_6e-1); // -1/6
-    let c2 = vdupq_n_f32(8.333_331e-3); // 1/120
-    let c3 = vdupq_n_f32(-1.980_741e-4); // -1/5040
-    let c4 = vdupq_n_f32(2.601_903e-6); // ~1/362880
+        // Minimax polynomial coefficients for sin(x) on [-pi/2, pi/2]
+        // sin(x) ~ x * (1 + x^2 * (c1 + x^2 * (c2 + x^2 * c3)))
+        let c1 = vdupq_n_f32(-1.666_666_6e-1); // -1/6
+        let c2 = vdupq_n_f32(8.333_331e-3); // 1/120
+        let c3 = vdupq_n_f32(-1.980_741e-4); // -1/5040
+        let c4 = vdupq_n_f32(2.601_903e-6); // ~1/362880
 
-    // 1. Range reduce to [-pi, pi]
-    let n = vcvtnq_s32_f32(vmulq_f32(x, inv_two_pi));
-    let nf = vcvtq_f32_s32(n);
-    let x_red = vsubq_f32(x, vmulq_f32(nf, two_pi));
+        // 1. Range reduce to [-pi, pi]
+        let n = vcvtnq_s32_f32(vmulq_f32(x, inv_two_pi));
+        let nf = vcvtq_f32_s32(n);
+        let x_red = vsubq_f32(x, vmulq_f32(nf, two_pi));
 
-    // 2. Reduce to [-pi/2, pi/2] using reflection:
-    //    if x > pi/2:  x = pi - x
-    //    if x < -pi/2: x = -pi - x
-    let abs_mask_i = vdupq_n_s32(0x7FFF_FFFFu32 as i32);
-    let sign_mask_i = vdupq_n_s32(0x8000_0000u32 as i32);
-    let abs_x = vreinterpretq_f32_s32(vandq_s32(vreinterpretq_s32_f32(x_red), abs_mask_i));
-    let sign_x = vandq_s32(vreinterpretq_s32_f32(x_red), sign_mask_i);
-    let signed_pi = vreinterpretq_f32_s32(vorrq_s32(vreinterpretq_s32_f32(pi), sign_x));
+        // 2. Reduce to [-pi/2, pi/2] using reflection:
+        //    if x > pi/2:  x = pi - x
+        //    if x < -pi/2: x = -pi - x
+        let abs_mask_i = vdupq_n_s32(0x7FFF_FFFFu32 as i32);
+        let sign_mask_i = vdupq_n_s32(0x8000_0000u32 as i32);
+        let abs_x = vreinterpretq_f32_s32(vandq_s32(vreinterpretq_s32_f32(x_red), abs_mask_i));
+        let sign_x = vandq_s32(vreinterpretq_s32_f32(x_red), sign_mask_i);
+        let signed_pi = vreinterpretq_f32_s32(vorrq_s32(vreinterpretq_s32_f32(pi), sign_x));
 
-    // if abs_x > half_pi, reflect
-    let needs_reflect = vcgtq_f32(abs_x, half_pi);
-    // reflected = signed_pi - x_red
-    let reflected = vsubq_f32(signed_pi, x_red);
-    let x_final = vbslq_f32(needs_reflect, reflected, x_red);
+        // if abs_x > half_pi, reflect
+        let needs_reflect = vcgtq_f32(abs_x, half_pi);
+        // reflected = signed_pi - x_red
+        let reflected = vsubq_f32(signed_pi, x_red);
+        let x_final = vbslq_f32(needs_reflect, reflected, x_red);
 
-    // 3. Evaluate polynomial: sin(x) = x * (1 + x^2*(c1 + x^2*(c2 + x^2*(c3 + x^2*c4))))
-    let x2 = vmulq_f32(x_final, x_final);
-    let mut poly = vfmaq_f32(c3, x2, c4);
-    poly = vfmaq_f32(c2, x2, poly);
-    poly = vfmaq_f32(c1, x2, poly);
-    poly = vfmaq_f32(vdupq_n_f32(1.0), x2, poly);
+        // 3. Evaluate polynomial: sin(x) = x * (1 + x^2*(c1 + x^2*(c2 + x^2*(c3 + x^2*c4))))
+        let x2 = vmulq_f32(x_final, x_final);
+        let mut poly = vfmaq_f32(c3, x2, c4);
+        poly = vfmaq_f32(c2, x2, poly);
+        poly = vfmaq_f32(c1, x2, poly);
+        poly = vfmaq_f32(vdupq_n_f32(1.0), x2, poly);
 
-    vmulq_f32(x_final, poly)
-} }
+        vmulq_f32(x_final, poly)
+    }
+}
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn sin_neon(data: &[f32], out: &mut [f32]) { unsafe {
-    let len = data.len();
-    let inp = data.as_ptr();
-    let op = out.as_mut_ptr();
-    let mut i = 0usize;
+unsafe fn sin_neon(data: &[f32], out: &mut [f32]) {
+    unsafe {
+        let len = data.len();
+        let inp = data.as_ptr();
+        let op = out.as_mut_ptr();
+        let mut i = 0usize;
 
-    while i + 4 <= len {
-        let v = vld1q_f32(inp.add(i));
-        vst1q_f32(op.add(i), fast_sin_neon(v));
-        i += 4;
-    }
+        while i + 4 <= len {
+            let v = vld1q_f32(inp.add(i));
+            vst1q_f32(op.add(i), fast_sin_neon(v));
+            i += 4;
+        }
 
-    while i < len {
-        *op.add(i) = (*inp.add(i)).sin();
-        i += 1;
+        while i < len {
+            *op.add(i) = (*inp.add(i)).sin();
+            i += 1;
+        }
     }
-} }
+}
 
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn cos_neon(data: &[f32], out: &mut [f32]) { unsafe {
-    let len = data.len();
-    let inp = data.as_ptr();
-    let op = out.as_mut_ptr();
-    let mut i = 0usize;
+unsafe fn cos_neon(data: &[f32], out: &mut [f32]) {
+    unsafe {
+        let len = data.len();
+        let inp = data.as_ptr();
+        let op = out.as_mut_ptr();
+        let mut i = 0usize;
 
-    let half_pi = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
+        let half_pi = vdupq_n_f32(std::f32::consts::FRAC_PI_2);
 
-    while i + 4 <= len {
-        let v = vld1q_f32(inp.add(i));
-        // cos(x) = sin(x + pi/2)
-        vst1q_f32(op.add(i), fast_sin_neon(vaddq_f32(v, half_pi)));
-        i += 4;
+        while i + 4 <= len {
+            let v = vld1q_f32(inp.add(i));
+            // cos(x) = sin(x + pi/2)
+            vst1q_f32(op.add(i), fast_sin_neon(vaddq_f32(v, half_pi)));
+            i += 4;
+        }
+
+        while i < len {
+            *op.add(i) = (*inp.add(i)).cos();
+            i += 1;
+        }
     }
-
-    while i < len {
-        *op.add(i) = (*inp.add(i)).cos();
-        i += 1;
-    }
-} }
+}
 
 // -- SSE sin/cos (4-wide) --
 
@@ -848,60 +858,62 @@ pub(crate) fn ln_dispatch(data: &[f32], out: &mut [f32]) {
 #[cfg(target_arch = "aarch64")]
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
-unsafe fn ln_neon(data: &[f32], out: &mut [f32]) { unsafe {
-    use std::arch::aarch64::{
-        vandq_s32, vcvtq_f32_s32, vdivq_f32, vdupq_n_s32, vfmaq_f32, vorrq_s32,
-        vreinterpretq_f32_s32, vreinterpretq_s32_f32, vshrq_n_s32, vsubq_s32,
-    };
+unsafe fn ln_neon(data: &[f32], out: &mut [f32]) {
+    unsafe {
+        use std::arch::aarch64::{
+            vandq_s32, vcvtq_f32_s32, vdivq_f32, vdupq_n_s32, vfmaq_f32, vorrq_s32,
+            vreinterpretq_f32_s32, vreinterpretq_s32_f32, vshrq_n_s32, vsubq_s32,
+        };
 
-    let len = data.len();
-    let inp = data.as_ptr();
-    let op = out.as_mut_ptr();
-    let mut i = 0usize;
+        let len = data.len();
+        let inp = data.as_ptr();
+        let op = out.as_mut_ptr();
+        let mut i = 0usize;
 
-    // ln(x) = e * ln(2) + ln(m), where x = m * 2^e, m in [1, 2)
-    // s = (m-1)/(m+1) maps [1,2) -> [0, 1/3)
-    // ln(m) = 2*s*(1 + s^2/3 + s^4/5 + s^6/7 + s^8/9 + s^10/11)
-    let mantissa_mask = vdupq_n_s32(0x007F_FFFF);
-    let one_bits = vdupq_n_s32(0x3F80_0000u32 as i32);
-    let bias = vdupq_n_s32(127);
-    let ln2 = vdupq_n_f32(std::f32::consts::LN_2);
-    let one = vdupq_n_f32(1.0);
-    let two = vdupq_n_f32(2.0);
-    // Coefficients: 1/3, 1/5, 1/7, 1/9, 1/11
-    let c1 = vdupq_n_f32(1.0 / 3.0);
-    let c2 = vdupq_n_f32(1.0 / 5.0);
-    let c3 = vdupq_n_f32(1.0 / 7.0);
-    let c4 = vdupq_n_f32(1.0 / 9.0);
-    let c5 = vdupq_n_f32(1.0 / 11.0);
+        // ln(x) = e * ln(2) + ln(m), where x = m * 2^e, m in [1, 2)
+        // s = (m-1)/(m+1) maps [1,2) -> [0, 1/3)
+        // ln(m) = 2*s*(1 + s^2/3 + s^4/5 + s^6/7 + s^8/9 + s^10/11)
+        let mantissa_mask = vdupq_n_s32(0x007F_FFFF);
+        let one_bits = vdupq_n_s32(0x3F80_0000u32 as i32);
+        let bias = vdupq_n_s32(127);
+        let ln2 = vdupq_n_f32(std::f32::consts::LN_2);
+        let one = vdupq_n_f32(1.0);
+        let two = vdupq_n_f32(2.0);
+        // Coefficients: 1/3, 1/5, 1/7, 1/9, 1/11
+        let c1 = vdupq_n_f32(1.0 / 3.0);
+        let c2 = vdupq_n_f32(1.0 / 5.0);
+        let c3 = vdupq_n_f32(1.0 / 7.0);
+        let c4 = vdupq_n_f32(1.0 / 9.0);
+        let c5 = vdupq_n_f32(1.0 / 11.0);
 
-    while i + 4 <= len {
-        let bits = vreinterpretq_s32_f32(vld1q_f32(inp.add(i)));
-        let exp_i = vsubq_s32(vshrq_n_s32::<23>(bits), bias);
-        let exp_f = vcvtq_f32_s32(exp_i);
-        let m = vreinterpretq_f32_s32(vorrq_s32(vandq_s32(bits, mantissa_mask), one_bits));
-        // s = (m - 1) / (m + 1)
-        let s = vdivq_f32(vsubq_f32(m, one), vaddq_f32(m, one));
-        let s2 = vmulq_f32(s, s);
-        // Horner: p = 1 + s^2*(c1 + s^2*(c2 + s^2*(c3 + s^2*(c4 + s^2*c5))))
-        let mut p = vfmaq_f32(c4, s2, c5);
-        p = vfmaq_f32(c3, s2, p);
-        p = vfmaq_f32(c2, s2, p);
-        p = vfmaq_f32(c1, s2, p);
-        p = vfmaq_f32(one, s2, p);
-        // ln(m) = 2 * s * p
-        let ln_m = vmulq_f32(two, vmulq_f32(s, p));
-        // result = e * ln(2) + ln(m)
-        let result = vfmaq_f32(ln_m, exp_f, ln2);
-        vst1q_f32(op.add(i), result);
-        i += 4;
+        while i + 4 <= len {
+            let bits = vreinterpretq_s32_f32(vld1q_f32(inp.add(i)));
+            let exp_i = vsubq_s32(vshrq_n_s32::<23>(bits), bias);
+            let exp_f = vcvtq_f32_s32(exp_i);
+            let m = vreinterpretq_f32_s32(vorrq_s32(vandq_s32(bits, mantissa_mask), one_bits));
+            // s = (m - 1) / (m + 1)
+            let s = vdivq_f32(vsubq_f32(m, one), vaddq_f32(m, one));
+            let s2 = vmulq_f32(s, s);
+            // Horner: p = 1 + s^2*(c1 + s^2*(c2 + s^2*(c3 + s^2*(c4 + s^2*c5))))
+            let mut p = vfmaq_f32(c4, s2, c5);
+            p = vfmaq_f32(c3, s2, p);
+            p = vfmaq_f32(c2, s2, p);
+            p = vfmaq_f32(c1, s2, p);
+            p = vfmaq_f32(one, s2, p);
+            // ln(m) = 2 * s * p
+            let ln_m = vmulq_f32(two, vmulq_f32(s, p));
+            // result = e * ln(2) + ln(m)
+            let result = vfmaq_f32(ln_m, exp_f, ln2);
+            vst1q_f32(op.add(i), result);
+            i += 4;
+        }
+
+        while i < len {
+            *op.add(i) = (*inp.add(i)).ln();
+            i += 1;
+        }
     }
-
-    while i < len {
-        *op.add(i) = (*inp.add(i)).ln();
-        i += 1;
-    }
-} }
+}
 
 /// SSE polynomial ln using s=(m-1)/(m+1) substitution.
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
