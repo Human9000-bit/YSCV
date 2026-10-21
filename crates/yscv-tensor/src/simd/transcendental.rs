@@ -481,7 +481,7 @@ fn cos_scalar(data: &[f32], out: &mut [f32]) {
 #[allow(unsafe_code, unsafe_op_in_unsafe_fn)]
 #[target_feature(enable = "neon")]
 unsafe fn fast_sin_neon(x: std::arch::aarch64::float32x4_t) -> std::arch::aarch64::float32x4_t {
-    unsafe {
+    {
         use std::arch::aarch64::{
             vandq_s32, vbslq_f32, vcgtq_f32, vcvtnq_s32_f32, vcvtq_f32_s32, vdupq_n_s32, vfmaq_f32,
             vorrq_s32, vreinterpretq_f32_s32, vreinterpretq_s32_f32,

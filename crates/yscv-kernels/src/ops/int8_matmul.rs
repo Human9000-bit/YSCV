@@ -471,7 +471,7 @@ unsafe fn int8_matmul_neon_sdot(a: &[i8], b: &[i8], m: usize, k: usize, n: usize
 #[target_feature(enable = "neon")]
 #[inline]
 unsafe fn widen_dot_1col(ap: *const i8, bp: *const i8, k: usize) -> i32 {
-    unsafe {
+    {
         use std::arch::aarch64::*;
         unsafe {
             let mut acc = vdupq_n_s32(0);
@@ -917,7 +917,7 @@ unsafe fn neon_gemm4x4_asm(a: &[i8], bt: &[i8], m: usize, k: usize, n: usize, ou
 /// SAFETY: `a.len() >= m*k`, `b.len() >= k*n`, `out.len() >= m*n`.
 #[cfg(target_arch = "aarch64")]
 unsafe fn neon_mlal_lane_gemm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
-    unsafe {
+    {
         let kp = k.div_ceil(8) * 8;
         let mut ap = vec![0i8; m * kp];
         for i in 0..m {
@@ -1194,7 +1194,7 @@ unsafe fn mlal_lane_tail_4xnr(
     ldo: usize,
     nb: usize,
 ) {
-    unsafe {
+    {
         use std::arch::aarch64::*;
         unsafe {
             let ar = [ap, ap.add(kp), ap.add(2 * kp), ap.add(3 * kp)];
@@ -1259,7 +1259,7 @@ unsafe fn mlal_lane_tail_4xnr(
 /// SAFETY: `a.len() >= m*k`, `b.len() >= k*n`, `out.len() >= m*n`.
 #[cfg(target_arch = "aarch64")]
 unsafe fn neon_mlal4x16_gemm(a: &[i8], b: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
-    unsafe {
+    {
         let b16 = widen_kmajor_b_i16(b, k, n);
         let kp = k.div_ceil(8) * 8;
         // SAFETY: b16 is [kp,n]; a=[m,k]; out=[m,n].
@@ -1330,7 +1330,7 @@ unsafe fn neon_mlal4x16_i16b(
     n: usize,
     out: &mut [i32],
 ) {
-    unsafe {
+    {
         // A: pad K to kp only when needed; else use `a` directly (kp == k).
         let ap_owned: Vec<i8>;
         let (ap, lda): (&[i8], usize) = if kp == k {
@@ -1408,7 +1408,7 @@ unsafe fn neon_mlal4x16_i16b(
 #[cfg(target_arch = "aarch64")]
 #[target_feature(enable = "neon")]
 unsafe fn neon_widen_gemm(a: &[i8], bt: &[i8], m: usize, k: usize, n: usize, out: &mut [i32]) {
-    unsafe {
+    {
         use std::arch::aarch64::*;
         unsafe {
             let ab = a.as_ptr();
@@ -1641,7 +1641,7 @@ unsafe fn int8_matmul_neon_widen(
     n: usize,
     out: &mut [i32],
 ) {
-    unsafe {
+    {
         // Small-K (MobileNet 1×1 c_in ≤ 48, plus the im2col'd 3×3 stem K=27): the
         // hand-asm 4×16 SMLAL-lane kernel wins big (no per-output horizontal
         // reduction, wide NR, B prefetch), consuming `b` in its native k-major
