@@ -446,6 +446,8 @@ pub struct NedOut {
     pub v_closing: f32,
     /// true while the terminal intercept PID has replaced PN
     pub intercept: bool,
+    /// current adaptive navigation constant
+    pub n: f32,
 }
 
 /// Rz(yaw)·Ry(pitch)·Rx(roll), the FRD body → NED rotation.
@@ -630,6 +632,7 @@ impl NedGuidance {
             range_m: range,
             v_closing: vc,
             intercept,
+            n: self.n,
         }
     }
 
@@ -666,6 +669,7 @@ impl NedGuidance {
             range_m: range,
             v_closing: vc,
             intercept: false,
+            n: self.n,
         }
     }
 
@@ -742,6 +746,7 @@ impl NedGuidance {
             },
             v_closing: self.closing_velocity(0.0),
             intercept: false,
+            n: self.n,
         }
     }
 }
