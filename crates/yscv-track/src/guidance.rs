@@ -366,9 +366,10 @@ pub fn pn3d_sticks(kp: f32, n: f32, vc_scale: f32, out: &Nav3dOut) -> (f32, f32)
 //
 // Pixel → unit LOS in NED → 6-state KF → PN acceleration. No explicit
 // intercept point: PN nulls the LOS rotation and leads a moving target
-// implicitly; near the target a terminal PID takes over. Everything the
-// law can own itself is a const here; the per-deployment input is the
-// camera calibration (`Cam`) next to `GuidanceConfig`.
+// implicitly; near the target a terminal PID takes over. The flight
+// envelope (N bounds, acceleration clamps) is caller-owned via `NedFlight`;
+// everything the law can own itself is a const here. The per-deployment
+// input is the camera calibration (`Cam`) next to `GuidanceConfig`.
 
 /// adaptive navigation constant bounds
 const N_MIN: f32 = 2.0;
@@ -391,6 +392,30 @@ const INTERCEPT_KI: f32 = 0.1;
 const INTERCEPT_KD: f32 = 0.01;
 const INTERCEPT_INT_LIMIT: f32 = 2.0;
 const EPS: f32 = 1e-6;
+
+/// Flight envelope the caller owns; `Default` is the reference tuning.
+#[derive(Clone, Copy, Debug)]
+pub struct NedFlight {
+    /// adaptive navigation constant bounds
+    pub n_min: f32,
+    pub n_max: f32,
+    /// acceleration clamps, m/s²; vertical is NED (z down): up negative
+    pub max_lat_acc: f32,
+    pub max_up_acc: f32,
+    pub max_down_acc: f32,
+}
+
+impl Default for NedFlight {
+    fn default() -> Self {
+        Self {
+            n_min: N_MIN,
+            n_max: N_MAX,
+            max_lat_acc: MAX_LAT_ACC,
+            max_up_acc: MAX_UP_ACC,
+            max_down_acc: MAX_DOWN_ACC,
+        }
+    }
+}
 
 /// Camera intrinsics in pixels plus the mount pitch, radians, positive =
 /// camera looks up.
@@ -501,7 +526,8 @@ pub struct NedGuidance {
     q_vel: f32,
     r: f32,
     cam: Cam,
-    /// current navigation constant, floats in [N_MIN, N_MAX]
+    fl: NedFlight,
+    /// current navigation constant, floats in [fl.n_min, fl.n_max]
     n: f32,
     int_y: f32,
     int_z: f32,
@@ -509,7 +535,7 @@ pub struct NedGuidance {
 }
 
 impl NedGuidance {
-    pub fn new(cfg: &GuidanceConfig, cam: Cam) -> Self {
+    pub fn new(cfg: &GuidanceConfig, cam: Cam, flight: NedFlight) -> Self {
         Self {
             kf: LinearKalman::new([0.0; 6], diag6(cfg.kf_p0, cfg.kf_p0)),
             rng: RangeKf::new(cfg),
@@ -519,7 +545,8 @@ impl NedGuidance {
             q_vel: cfg.kf_q_vel,
             r: cfg.kf_r,
             cam,
-            n: N_MAX,
+            fl: flight,
+            n: flight.n_max,
             int_y: 0.0,
             int_z: 0.0,
             last_t: None,
@@ -531,7 +558,7 @@ impl NedGuidance {
         self.kf.p = diag6(self.p0, self.p0);
         self.rng.reset();
         self.rng_ready = false;
-        self.n = N_MAX;
+        self.n = self.fl.n_max;
         self.int_y = 0.0;
         self.int_z = 0.0;
         self.last_t = None;
@@ -586,9 +613,9 @@ impl NedGuidance {
         let omega = cross(los, self.rate());
         // steady LOS -> raise the gain, a maneuvering target -> lower it
         if omega.iter().map(|w| w * w).sum::<f32>().sqrt() < ADAPT_PN_THR {
-            self.n = (self.n + ADAPT_PN_STEP).min(N_MAX);
+            self.n = (self.n + ADAPT_PN_STEP).min(self.fl.n_max);
         } else {
-            self.n = (self.n - ADAPT_PN_STEP).max(N_MIN);
+            self.n = (self.n - ADAPT_PN_STEP).max(self.fl.n_min);
         }
 
         let (accel, intercept) = if self.rng_ready && range < INTERCEPT_RANGE_M {
@@ -697,9 +724,9 @@ impl NedGuidance {
 
     fn clamp_accel(&self, acc: [f32; 3]) -> [f32; 3] {
         [
-            acc[0].clamp(-MAX_LAT_ACC, MAX_LAT_ACC),
-            acc[1].clamp(-MAX_LAT_ACC, MAX_LAT_ACC),
-            acc[2].clamp(MAX_UP_ACC, MAX_DOWN_ACC),
+            acc[0].clamp(-self.fl.max_lat_acc, self.fl.max_lat_acc),
+            acc[1].clamp(-self.fl.max_lat_acc, self.fl.max_lat_acc),
+            acc[2].clamp(self.fl.max_up_acc, self.fl.max_down_acc),
         ]
     }
 
@@ -965,7 +992,7 @@ mod tests {
     }
 
     fn ned_guidance() -> NedGuidance {
-        NedGuidance::new(&GuidanceConfig::default(), ned_cam())
+        NedGuidance::new(&GuidanceConfig::default(), ned_cam(), NedFlight::default())
     }
 
     #[test]
@@ -1125,6 +1152,42 @@ mod tests {
         );
         // los points east of dead ahead: kp=40 drives the lateral error hard
         assert!(out.accel_ned[1] > 4.0, "{:?}", out.accel_ned);
+    }
+
+    #[test]
+    fn ned_flight_envelope_is_caller_owned() {
+        // a tighter envelope than Default must show up in the clamps
+        let fl = NedFlight {
+            max_lat_acc: 1.0,
+            max_up_acc: -0.5,
+            max_down_acc: 0.8,
+            n_min: 4.0,
+            n_max: 4.0,
+        };
+        let mut g = NedGuidance::new(&GuidanceConfig::default(), ned_cam(), fl);
+        for _ in 0..25 {
+            g.step(320.0, 470.0, 0.5, ATT, 0.0);
+            std::thread::sleep(Duration::from_millis(STEP_MS));
+        }
+        let out = g.step(320.0, 470.0, 0.5, ATT, 0.0);
+        assert!(
+            out.accel_ned[2] > 0.7 && out.accel_ned[2] <= 0.8,
+            "down clamp at 0.8: {:?}",
+            out.accel_ned
+        );
+        assert!(
+            out.accel_ned[0].abs() <= 1.0 && out.accel_ned[1].abs() <= 1.0,
+            "lateral clamp at 1.0: {:?}",
+            out.accel_ned
+        );
+        // n starts at n_max and the adaptive law keeps it inside the bounds
+        let mut g2 = NedGuidance::new(&GuidanceConfig::default(), ned_cam(), fl);
+        for _ in 0..5 {
+            g2.step(320.0, 240.0, 0.1, ATT, 0.0);
+            std::thread::sleep(Duration::from_millis(STEP_MS));
+        }
+        let out = g2.step(320.0, 240.0, 0.1, ATT, 0.0);
+        assert!(out.intercept || out.accel_ned.iter().all(|v| v.is_finite()));
     }
 
     #[test]

@@ -47,7 +47,9 @@ perpendicular to the LOS, with the navigation constant adaptive in [2, 5] and
 the closing velocity from the range EKF. No intercept point is computed: PN
 nulls the LOS rotation, which is itself the lead. Closer than 4 m a terminal
 PID takes over; acceleration clamps are asymmetric vertically (NED z is
-down). The law's gains are module constants; the per-deployment input is the
+down). The flight envelope — navigation-constant bounds and the acceleration
+clamps — is caller-owned via `NedFlight` (`Default` is the reference tuning);
+the law's own gains stay module constants, and the per-deployment input is the
 camera calibration (`Cam`) beside `GuidanceConfig`.
 
 ## Tests
