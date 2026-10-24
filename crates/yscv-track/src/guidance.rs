@@ -394,7 +394,7 @@ const INTERCEPT_INT_LIMIT: f32 = 2.0;
 const EPS: f32 = 1e-6;
 
 /// Flight envelope the caller owns; `Default` is the reference tuning.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct NedFlight {
     /// adaptive navigation constant bounds
     pub n_min: f32,
