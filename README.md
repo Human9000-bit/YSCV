@@ -1,8 +1,7 @@
-> **Status: work in progress.** Usable today for small inputs and specific
-> models. The self-contained crates — `yscv-tensor`, `yscv-kernels`,
+> **Status: work in progress.** Report any bugs, unsoundness etc.
+> The self-contained crates — `yscv-tensor`, `yscv-kernels`,
 > `yscv-imgproc` — stand on their own already. Dropping the WIP label is the
-> 0.2.0 milestone. Found a problem? Open an issue, or reach me via Telegram
-> from my GitHub page.
+> 0.2.0 milestone. Found a problem? Open an issue/PR
 
 # yscv
 ![Crates.io User Total Downloads](https://img.shields.io/crates/udt/370586)
