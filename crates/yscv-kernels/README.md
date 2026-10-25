@@ -24,7 +24,8 @@ paths.
 - **Pooling**: max, average, global average
 - **Normalization**: batch norm, layer norm, group norm, RMS norm
 - **Attention**: multi-head scaled dot-product
-- **Softmax**: fused max+exp+sum+div in one pass
+- **Softmax**: fused max+exp+sum+div in one pass; `log_softmax` keeps the
+  dominant logit's `e^-m` mass instead of collapsing it to zero (see below)
 - **KAN**: `KanLinear`, a B-spline Kolmogorov–Arnold layer (efficient-kan parameters, cubic
   splines on a uniform grid). Evaluates only the four active bases per input in closed form and
   reads only their coefficients, stored input-major with the outputs padded to 8; NEON / AVX /

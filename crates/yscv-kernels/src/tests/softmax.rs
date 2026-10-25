@@ -98,6 +98,70 @@ fn log_softmax_last_dim_matches_ln_softmax() {
     }
 }
 
+/// Softmax Collapse (Barron et al., 2026): a confidently-correct logit must keep
+/// its (tiny, negative) log-probability instead of rounding to exactly `0.0`.
+/// `1 + e^-18` is `1.0` in f32, which is why the standard formulation collapses.
+#[test]
+fn log_softmax_last_dim_does_not_collapse_at_high_margin() {
+    let input = Tensor::from_vec(vec![3], vec![9.0, -9.0, -9.0]).unwrap();
+    let out = log_softmax_last_dim(&input).unwrap();
+
+    assert!(
+        out.data()[0] < 0.0,
+        "dominant logit collapsed: {}",
+        out.data()[0]
+    );
+    assert!(
+        (out.data()[0] + 3.045_995_8e-8).abs() <= 1e-14,
+        "expected -3.046e-8, got {:e}",
+        out.data()[0]
+    );
+    assert_eq!(out.data()[1], -18.0);
+    assert_eq!(out.data()[2], -18.0);
+}
+
+#[test]
+fn log_softmax_last_dim_preserves_tied_maxima() {
+    // All logits equal: every log-probability is -ln(K).
+    let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, 0.0]).unwrap();
+    let out = log_softmax_last_dim(&input).unwrap();
+    let expected = -(3.0f32.ln());
+    assert_slice_close(out.data(), &[expected, expected, expected], 1e-6);
+
+    // Tied maxima plus a lower logit.
+    let input = Tensor::from_vec(vec![3], vec![0.0, 0.0, -1.0]).unwrap();
+    let out = log_softmax_last_dim(&input).unwrap();
+    let top = -((2.0f32 + (-1.0f32).exp()).ln());
+    let bottom = -1.0 - (2.0f32 + (-1.0f32).exp()).ln();
+    assert_slice_close(out.data(), &[top, top, bottom], 1e-6);
+}
+
+#[test]
+fn log_softmax_last_dim_keeps_mass_beyond_the_precision_cliff() {
+    // One dominant logit, many non-max ones, across scalar/SIMD and tail widths.
+    for len in [2usize, 3, 4, 7, 8, 16, 17, 32, 33, 1000] {
+        let mut data = vec![-20.0f32; len];
+        data[0] = 20.0;
+        let input = Tensor::from_vec(vec![len], data).unwrap();
+        let out = log_softmax_last_dim(&input).unwrap();
+
+        // Margin 40: log_softmax(20) = -ln(1 + (len-1) * e^-40) ~= -(len-1) * e^-40.
+        let expected = -((len - 1) as f64 * (-40.0f64).exp());
+        let got = out.data()[0] as f64;
+        assert!(got < 0.0, "len={len}: dominant logit collapsed to {got:e}");
+        assert!(
+            (got - expected).abs() <= expected.abs() * 1e-4,
+            "len={len}: expected {expected:e}, got {got:e}"
+        );
+        for index in 1..len {
+            assert_eq!(out.data()[index], -40.0, "len={len} index={index}");
+        }
+        // exp(log_softmax) still sums to one.
+        let total: f32 = out.data().iter().map(|v| v.exp()).sum();
+        assert!((total - 1.0).abs() <= 1e-6, "len={len}: total={total}");
+    }
+}
+
 #[test]
 fn log_softmax_last_dim_rejects_scalar_rank() {
     let input = Tensor::scalar(1.0);

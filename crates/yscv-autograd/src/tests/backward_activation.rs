@@ -218,3 +218,78 @@ fn softmax_forward_and_backward() {
     let grad = g.grad(x).unwrap().unwrap();
     assert_eq!(grad.shape(), &[1, 3]);
 }
+
+/// Softmax Collapse (Barron et al. 2026): with a dominant logit the standard
+/// backward rounds the dominant gradient to zero while the rest stay non-zero,
+/// so the gradient no longer sums to zero.
+#[test]
+fn softmax_backward_preserves_dominant_gradient_at_high_margin() {
+    let mut graph = Graph::new();
+    let x = graph.variable(Tensor::from_vec(vec![1, 3], vec![9.0, -9.0, -9.0]).unwrap());
+    let sm = graph.softmax(x).unwrap();
+    let picked = graph.select(sm, 1, 0).unwrap();
+    let loss = graph.sum(picked).unwrap();
+    graph.backward(loss).unwrap();
+
+    let grad = graph.grad(x).unwrap().unwrap().data().to_vec();
+    assert_eq!(grad.iter().sum::<f32>(), 0.0, "gradients: {grad:?}");
+    assert!(
+        (grad[0] - 3.045_995_8e-8).abs() <= 1e-14,
+        "dominant gradient collapsed: {grad:?}"
+    );
+    assert!((grad[1] + 1.522_997_9e-8).abs() <= 1e-14, "{grad:?}");
+    assert!((grad[2] + 1.522_997_9e-8).abs() <= 1e-14, "{grad:?}");
+}
+
+#[test]
+fn log_softmax_backward_preserves_dominant_gradient_at_high_margin() {
+    let mut graph = Graph::new();
+    let x = graph.variable(Tensor::from_vec(vec![1, 3], vec![9.0, -9.0, -9.0]).unwrap());
+    let log_probs = graph.log_softmax(x).unwrap();
+    let picked = graph.select(log_probs, 1, 0).unwrap();
+    let loss = graph.sum(picked).unwrap();
+    graph.backward(loss).unwrap();
+
+    let forward = graph.value(log_probs).unwrap().data().to_vec();
+    assert!(forward[0] < 0.0, "log-softmax collapsed to 0: {forward:?}");
+    assert_eq!(forward[1], -18.0);
+
+    let grad = graph.grad(x).unwrap().unwrap().data().to_vec();
+    assert_eq!(grad.iter().sum::<f32>(), 0.0, "gradients: {grad:?}");
+    assert!(
+        (grad[0] - 3.045_995_8e-8).abs() <= 1e-14,
+        "dominant gradient collapsed: {grad:?}"
+    );
+}
+
+/// The old autograd `log_softmax` was `ln(softmax(x).max(1e-12))`, which floored
+/// every log-probability at -27.63 regardless of how unlikely the class was.
+#[test]
+fn log_softmax_preserves_probabilities_below_the_old_floor() {
+    let mut graph = Graph::new();
+    let x = graph.variable(Tensor::from_vec(vec![2], vec![0.0, -40.0]).unwrap());
+    let log_probs = graph.log_softmax(x).unwrap();
+    let value = graph.value(log_probs).unwrap().data()[1];
+    assert!(
+        (value + 40.0).abs() <= 1e-5,
+        "expected ~-40, got {value} (old 1e-12 clamp returns -27.63)"
+    );
+}
+
+#[test]
+fn log_softmax_exp_matches_softmax() {
+    let data = vec![1.0f32, 2.0, 3.0, 9.0, -9.0, -9.0];
+    let mut graph = Graph::new();
+    let x = graph.variable(Tensor::from_vec(vec![2, 3], data).unwrap());
+    let sm = graph.softmax(x).unwrap();
+    let log_probs = graph.log_softmax(x).unwrap();
+    let sm_value = graph.value(sm).unwrap();
+    let log_value = graph.value(log_probs).unwrap();
+    for (softmax, log_prob) in sm_value.data().iter().zip(log_value.data().iter()) {
+        assert!(
+            (softmax - log_prob.exp()).abs() <= 1e-6,
+            "softmax={softmax} exp(log_softmax)={}",
+            log_prob.exp()
+        );
+    }
+}

@@ -71,6 +71,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Softmax Collapse in `log_softmax` and in the autograd softmax gradients.**
+  The denominator included the argmax's `exp(0) == 1`, which rounds the non-max
+  mass away once the logit margin passes ~16.6 in f32: `log_softmax(z_max)`
+  collapsed to `0`, and the backward pass zeroed the dominant gradient while the
+  non-max gradients stayed positive, so gradients no longer summed to zero.
+  `log_softmax_last_dim` (scalar, NEON, SSE, AVX, AVX512) now re-sums the non-max
+  logits and uses `ln_1p` whenever the fast sum is dominated by the argmax — only
+  those confident rows pay for the extra pass, so throughput is unchanged. The
+  softmax and log-softmax backward passes recover the dominant entry as the
+  negated sum of the rest, which stays accurate down to exponent underflow.
+  Matches Barron, Gnanapragasam & Tschannen, *A Fix for Softmax and
+  Cross-Entropy* (2026).
+- **`Graph::log_softmax` no longer floors log-probabilities at `1e-12`.** It
+  computed `ln(softmax(x).max(1e-12))`, clamping every log-probability at -27.63
+  and disagreeing with the kernel; it now calls the `yscv-kernels`
+  log-softmax kernel (or the bound backend's), so forward values, the autograd
+  backward pass and `softmax` all use the same definition.
 - **`yscv-model`**: `inspect_weights` no longer panics on a weight file whose
   header is truncated; it returns `ModelError::Truncated` like `load_weights`.
 

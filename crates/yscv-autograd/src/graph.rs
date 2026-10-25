@@ -396,7 +396,7 @@ impl Graph {
             let result = if let Some(ref backend) = self.backend {
                 backend.softmax_last_dim(v)?
             } else {
-                softmax_last_dim(v)
+                yscv_kernels::softmax_last_dim(v)?
             };
             (result, self.nodes[input.0].requires_grad)
         };
@@ -404,15 +404,14 @@ impl Graph {
     }
 
     /// Applies log-softmax along the last dimension.
+    ///
+    /// Always computed by the CPU kernel: the wgpu `log_softmax` shader does not yet
+    /// carry the Softmax Collapse fix, and the previous implementation was CPU-only too.
     pub fn log_softmax(&mut self, input: NodeId) -> Result<NodeId, AutogradError> {
         let (value, requires_grad) = {
             let v = &self.nodes[input.0].value;
-            let sm = softmax_last_dim(v);
-            let data: Vec<f32> = sm.data().iter().map(|&x| x.max(1e-12).ln()).collect();
-            (
-                Tensor::from_vec(sm.shape().to_vec(), data)?,
-                self.nodes[input.0].requires_grad,
-            )
+            let result = yscv_kernels::log_softmax_last_dim(v)?;
+            (result, self.nodes[input.0].requires_grad)
         };
         Ok(self.push_node(value, requires_grad, Op::LogSoftmax(input)))
     }
@@ -2183,38 +2182,6 @@ impl Graph {
             }
         }
     }
-}
-
-/// Softmax along last dimension (local utility to avoid tight coupling with kernel version).
-fn softmax_last_dim(input: &Tensor) -> Tensor {
-    let shape = input.shape();
-    if shape.is_empty() {
-        return input.clone();
-    }
-    let last = *shape.last().expect("non-empty shape");
-    let outer = input.len() / last;
-    let data = input.data();
-    let mut out = vec![0.0f32; input.len()];
-
-    for o in 0..outer {
-        let base = o * last;
-        let max_val = data[base..base + last]
-            .iter()
-            .copied()
-            .fold(f32::NEG_INFINITY, f32::max);
-        let mut sum = 0.0f32;
-        for i in 0..last {
-            let e = (data[base + i] - max_val).exp();
-            out[base + i] = e;
-            sum += e;
-        }
-        let inv = 1.0 / sum;
-        for i in 0..last {
-            out[base + i] *= inv;
-        }
-    }
-
-    Tensor::from_vec(shape.to_vec(), out).expect("softmax_last_dim preserves shape")
 }
 
 #[inline]

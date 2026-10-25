@@ -238,6 +238,42 @@ fn softmax_row_fused_scalar(input: &[f32], output: &mut [f32]) {
     }
 }
 
+/// Below this, `sum_exp` is dominated by the argmax's `exp(0) == 1`; `ln(sum_exp)`
+/// then loses more than ~1e-5 relative accuracy on the non-max mass, so the exact
+/// path is taken instead. `ln(1.01) * 2^-24 ~ 6e-8`, i.e. <= 6e-6 relative error.
+const LOG_SOFTMAX_ROBUST_SUM: f32 = 1.01;
+
+/// `ln(Σ_j exp(z_j - z_max))`, with the Softmax Collapse fix.
+///
+/// The fast sum includes `exp(0) == 1` for the argmax, so once the logit margin
+/// exceeds ~16.6 in f32 the non-max terms are rounded away and `ln(sum)` is exactly
+/// 0, collapsing `log_softmax(z_max)` and its gradient. Whenever the non-max mass
+/// may have been lost, redo the sum over the non-max logits only and use `ln_1p`,
+/// which keeps `e^-m` representable down to exponent underflow. The extra pass only
+/// runs for confident rows, so the common case stays on the vectorised fast path.
+fn log_softmax_lse(input: &[f32], max_val: f32, sum_exp: f32) -> f32 {
+    if sum_exp >= LOG_SOFTMAX_ROBUST_SUM {
+        return sum_exp.ln();
+    }
+    let mut max_count = 0usize;
+    let mut rest = 0.0f32;
+    for &v in input {
+        let shifted = v - max_val;
+        if shifted == 0.0 {
+            max_count += 1;
+        } else {
+            rest += shifted.exp();
+        }
+    }
+    // With ties the denominator is ln(c + rest); plain addition is exact enough
+    // there because the result is >= ln(2).
+    if max_count == 1 {
+        rest.ln_1p()
+    } else {
+        (max_count as f32 + rest).ln()
+    }
+}
+
 fn log_softmax_row_fused_scalar(input: &[f32], output: &mut [f32]) {
     if input.is_empty() {
         return;
@@ -255,10 +291,10 @@ fn log_softmax_row_fused_scalar(input: &[f32], output: &mut [f32]) {
         sum_exp += (v - max_val).exp();
     }
 
-    // 3. output[i] = x[i] - max - log(sum_exp)
-    let log_denom = max_val + sum_exp.ln();
+    // 3. output[i] = (x[i] - max) - softplus(-m)
+    let lse = log_softmax_lse(input, max_val, sum_exp);
     for (o, &v) in output.iter_mut().zip(input.iter()) {
-        *o = v - log_denom;
+        *o = (v - max_val) - lse;
     }
 }
 
@@ -802,38 +838,38 @@ unsafe fn log_softmax_row_fused_neon(input: &[f32], output: &mut [f32]) {
         i += 1;
     }
 
-    // 3. output[i] = x[i] - (max + log(sum_exp))
-    let log_denom = vdupq_n_f32(max_val + sum_exp.ln());
+    // 3. output[i] = (x[i] - max) - softplus(-m)
+    let lse = log_softmax_lse(input, max_val, sum_exp);
+    let lse_v = vdupq_n_f32(lse);
     i = 0;
     while i + 16 <= len {
         vst1q_f32(
             out_ptr.add(i),
-            vsubq_f32(vld1q_f32(in_ptr.add(i)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i)), off), lse_v),
         );
         vst1q_f32(
             out_ptr.add(i + 4),
-            vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), off), lse_v),
         );
         vst1q_f32(
             out_ptr.add(i + 8),
-            vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), off), lse_v),
         );
         vst1q_f32(
             out_ptr.add(i + 12),
-            vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), off), lse_v),
         );
         i += 16;
     }
     while i + 4 <= len {
         vst1q_f32(
             out_ptr.add(i),
-            vsubq_f32(vld1q_f32(in_ptr.add(i)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i)), off), lse_v),
         );
         i += 4;
     }
-    let log_denom_s = max_val + sum_exp.ln();
     while i < len {
-        *out_ptr.add(i) = *in_ptr.add(i) - log_denom_s;
+        *out_ptr.add(i) = (*in_ptr.add(i) - max_val) - lse;
         i += 1;
     }
 }
@@ -898,38 +934,38 @@ unsafe fn log_softmax_row_fused_neon(input: &[f32], output: &mut [f32]) {
         i += 1;
     }
 
-    // 3. output[i] = x[i] - (max + log(sum_exp))
-    let log_denom = vdupq_n_f32(max_val + sum_exp.ln());
+    // 3. output[i] = (x[i] - max) - softplus(-m)
+    let lse = log_softmax_lse(input, max_val, sum_exp);
+    let lse_v = vdupq_n_f32(lse);
     i = 0;
     while i + 16 <= len {
         vst1q_f32(
             out_ptr.add(i),
-            vsubq_f32(vld1q_f32(in_ptr.add(i)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i)), off), lse_v),
         );
         vst1q_f32(
             out_ptr.add(i + 4),
-            vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i + 4)), off), lse_v),
         );
         vst1q_f32(
             out_ptr.add(i + 8),
-            vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i + 8)), off), lse_v),
         );
         vst1q_f32(
             out_ptr.add(i + 12),
-            vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i + 12)), off), lse_v),
         );
         i += 16;
     }
     while i + 4 <= len {
         vst1q_f32(
             out_ptr.add(i),
-            vsubq_f32(vld1q_f32(in_ptr.add(i)), log_denom),
+            vsubq_f32(vsubq_f32(vld1q_f32(in_ptr.add(i)), off), lse_v),
         );
         i += 4;
     }
-    let log_denom_s = max_val + sum_exp.ln();
     while i < len {
-        *out_ptr.add(i) = *in_ptr.add(i) - log_denom_s;
+        *out_ptr.add(i) = (*in_ptr.add(i) - max_val) - lse;
         i += 1;
     }
 }
@@ -974,19 +1010,19 @@ unsafe fn log_softmax_row_fused_sse(input: &[f32], output: &mut [f32]) {
         i += 1;
     }
 
-    // 3. output[i] = x[i] - (max + log(sum_exp))
-    let log_denom = _mm_set1_ps(max_val + sum_exp.ln());
+    // 3. output[i] = (x[i] - max) - softplus(-m)
+    let lse = log_softmax_lse(input, max_val, sum_exp);
+    let lse_v = _mm_set1_ps(lse);
     i = 0;
     while i + 4 <= len {
         _mm_storeu_ps(
             out_ptr.add(i),
-            _mm_sub_ps(_mm_loadu_ps(in_ptr.add(i)), log_denom),
+            _mm_sub_ps(_mm_sub_ps(_mm_loadu_ps(in_ptr.add(i)), off), lse_v),
         );
         i += 4;
     }
-    let log_denom_s = max_val + sum_exp.ln();
     while i < len {
-        *out_ptr.add(i) = *in_ptr.add(i) - log_denom_s;
+        *out_ptr.add(i) = (*in_ptr.add(i) - max_val) - lse;
         i += 1;
     }
 }
@@ -1043,26 +1079,29 @@ unsafe fn log_softmax_row_fused_avx512(input: &[f32], output: &mut [f32]) {
         i += 1;
     }
 
-    let log_denom_val = max_val + sum_exp.ln();
-    let log_denom = _mm512_set1_ps(log_denom_val);
+    // Output uses the shifted form so a dominant logit keeps its e^-m log-probability:
+    // (x - max) - log_denom would round max + log_denom back to max and return 0.
+    let lse = log_softmax_lse(input, max_val, sum_exp);
+    let lse512 = _mm512_set1_ps(lse);
     i = 0;
     while i + 16 <= len {
         _mm512_storeu_ps(
             out_ptr.add(i),
-            _mm512_sub_ps(_mm512_loadu_ps(in_ptr.add(i)), log_denom),
+            _mm512_sub_ps(_mm512_sub_ps(_mm512_loadu_ps(in_ptr.add(i)), off), lse512),
         );
         i += 16;
     }
     if i + 8 <= len {
-        let log_denom8 = _mm256_set1_ps(log_denom_val);
+        let off8 = _mm256_set1_ps(max_val);
+        let lse8 = _mm256_set1_ps(lse);
         _mm256_storeu_ps(
             out_ptr.add(i),
-            _mm256_sub_ps(_mm256_loadu_ps(in_ptr.add(i)), log_denom8),
+            _mm256_sub_ps(_mm256_sub_ps(_mm256_loadu_ps(in_ptr.add(i)), off8), lse8),
         );
         i += 8;
     }
     while i < len {
-        *out_ptr.add(i) = *in_ptr.add(i) - log_denom_val;
+        *out_ptr.add(i) = (*in_ptr.add(i) - max_val) - lse;
         i += 1;
     }
 }
@@ -1118,27 +1157,88 @@ unsafe fn log_softmax_row_fused_avx(input: &[f32], output: &mut [f32]) {
         i += 1;
     }
 
-    // 3. output[i] = x[i] - (max + log(sum_exp))
-    let log_denom_val = max_val + sum_exp.ln();
-    let log_denom8 = _mm256_set1_ps(log_denom_val);
+    // 3. output[i] = (x[i] - max) - softplus(-m)
+    let lse = log_softmax_lse(input, max_val, sum_exp);
+    let lse8 = _mm256_set1_ps(lse);
     i = 0;
     while i + 8 <= len {
         _mm256_storeu_ps(
             out_ptr.add(i),
-            _mm256_sub_ps(_mm256_loadu_ps(in_ptr.add(i)), log_denom8),
+            _mm256_sub_ps(_mm256_sub_ps(_mm256_loadu_ps(in_ptr.add(i)), off), lse8),
         );
         i += 8;
     }
-    let log_denom4 = _mm_set1_ps(log_denom_val);
+    let lse4 = _mm_set1_ps(lse);
     while i + 4 <= len {
         _mm_storeu_ps(
             out_ptr.add(i),
-            _mm_sub_ps(_mm_loadu_ps(in_ptr.add(i)), log_denom4),
+            _mm_sub_ps(_mm_sub_ps(_mm_loadu_ps(in_ptr.add(i)), off4), lse4),
         );
         i += 4;
     }
     while i < len {
-        *out_ptr.add(i) = *in_ptr.add(i) - log_denom_val;
+        *out_ptr.add(i) = (*in_ptr.add(i) - max_val) - lse;
         i += 1;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn extreme_row(len: usize, dominant: f32, others: f32) -> Vec<f32> {
+        let mut row = vec![others; len];
+        row[0] = dominant;
+        row
+    }
+
+    fn assert_rows_match(scalar: &[f32], dispatched: &[f32], len: usize, op: &str) {
+        for index in 0..len {
+            let a = scalar[index];
+            let b = dispatched[index];
+            let tolerance = 1e-4 * a.abs().max(1.0);
+            assert!(
+                (a - b).abs() <= tolerance,
+                "{op} len={len} index={index}: scalar={a:e} dispatched={b:e}"
+            );
+        }
+    }
+
+    #[test]
+    // Miri cannot emulate the AVX/NEON intrinsics used by the dispatched path.
+    #[cfg_attr(miri, ignore)]
+    fn log_softmax_dispatch_matches_scalar_at_high_margin() {
+        for len in [1usize, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 1000] {
+            // (dominant, others) pairs: below, at and above the precision cliff, plus ties.
+            for (dominant, others) in [
+                (20.0f32, -20.0f32),
+                (40.0, 0.0),
+                (0.0, -40.0),
+                (-1.0, -20.0),
+                (1.0, 0.5),
+                (0.0, 0.0),
+            ] {
+                let input = extreme_row(len, dominant, others);
+                let mut scalar = vec![0.0f32; len];
+                log_softmax_row_fused_scalar(&input, &mut scalar);
+                let mut dispatched = vec![0.0f32; len];
+                log_softmax_rows_fused_dispatch(&input, &mut dispatched, len);
+                assert_rows_match(&scalar, &dispatched, len, "log_softmax");
+            }
+        }
+    }
+
+    #[test]
+    // Miri cannot emulate the AVX/NEON intrinsics used by the dispatched path.
+    #[cfg_attr(miri, ignore)]
+    fn softmax_dispatch_matches_scalar_at_high_margin() {
+        for len in [1usize, 2, 3, 4, 5, 7, 8, 9, 15, 16, 17, 31, 32, 33, 1000] {
+            let input = extreme_row(len, 40.0, -20.0);
+            let mut scalar = vec![0.0f32; len];
+            softmax_row_fused_scalar(&input, &mut scalar);
+            let mut dispatched = vec![0.0f32; len];
+            softmax_rows_fused_dispatch(&input, &mut dispatched, len);
+            assert_rows_match(&scalar, &dispatched, len, "softmax");
+        }
     }
 }

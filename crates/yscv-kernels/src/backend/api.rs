@@ -230,6 +230,9 @@ pub fn softmax_last_dim_out_with_config(
 }
 
 /// Log-softmax along the last tensor dimension (parallel by default).
+///
+/// The dominant logit keeps its `e^-m` log-probability instead of collapsing to
+/// `0` once the logit margin passes ~16.6 in f32 (Barron et al. 2026).
 pub fn log_softmax_last_dim(input: &Tensor) -> Result<Tensor, KernelError> {
     ops::log_softmax_last_dim_with_config_and_pool(
         input,

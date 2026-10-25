@@ -245,11 +245,35 @@ pub(crate) fn softmax_backward(
             let up_row = &up[base..base + last];
             let sm_row = &sm[base..base + last];
             let grad_row = &mut grad[base..base + last];
-            let dot: f32 = up_row.iter().zip(sm_row.iter()).map(|(&u, &s)| u * s).sum();
-            grad_row
-                .iter_mut()
-                .zip(sm_row.iter().zip(up_row.iter()))
-                .for_each(|(g, (&s, &u))| *g = s * (u - dot));
+
+            // Pass 1: dot product and the dominant (largest-probability) index.
+            let mut dot = 0.0f32;
+            let mut dominant = 0usize;
+            for i in 0..last {
+                dot += up_row[i] * sm_row[i];
+                if sm_row[i] > sm_row[dominant] {
+                    dominant = i;
+                }
+            }
+
+            // Pass 2: g_i = q_i * (u_i - dot), with the dominant entry taken as the
+            // negated sum of the rest. WHEN one logit dominates, q_max rounds to 1.0
+            // and q_max * (u_max - dot) rounds to 0 while the other gradients stay
+            // non-zero, so they no longer sum to zero (Softmax Collapse, Barron et
+            // al. 2026). Sum(g) == 0 holds exactly, so the negated sum of the rest
+            // is the same quantity and stays accurate down to exponent underflow.
+            let mut rest = 0.0f32;
+            for i in 0..dominant {
+                let g = sm_row[i] * (up_row[i] - dot);
+                grad_row[i] = g;
+                rest += g;
+            }
+            for i in dominant + 1..last {
+                let g = sm_row[i] * (up_row[i] - dot);
+                grad_row[i] = g;
+                rest += g;
+            }
+            grad_row[dominant] = -rest;
         }
         Tensor::from_vec(shape.to_vec(), grad)?
     };
@@ -278,11 +302,31 @@ pub(crate) fn log_softmax_backward(
             let up_row = &up[base..base + last];
             let ov_row = &ov_data[base..base + last];
             let grad_row = &mut grad[base..base + last];
+
             let sum_up: f32 = up_row.iter().sum();
-            grad_row
-                .iter_mut()
-                .zip(up_row.iter().zip(ov_row.iter()))
-                .for_each(|(g, (&u, &v))| *g = u - v.exp() * sum_up);
+            // The dominant index is the largest log-probability; its Jacobian row
+            // suffers the same cancellation as softmax's when q -> 1.
+            let mut dominant = 0usize;
+            for i in 0..last {
+                if ov_row[i] > ov_row[dominant] {
+                    dominant = i;
+                }
+            }
+            // g_i = u_i - q_i * sum(u), with the dominant entry taken as the negated
+            // sum of the rest: the Jacobian's column sums are zero, and computing it
+            // directly loses the target gradient once q_max rounds to 1.0.
+            let mut rest = 0.0f32;
+            for i in 0..dominant {
+                let g = up_row[i] - ov_row[i].exp() * sum_up;
+                grad_row[i] = g;
+                rest += g;
+            }
+            for i in dominant + 1..last {
+                let g = up_row[i] - ov_row[i].exp() * sum_up;
+                grad_row[i] = g;
+                rest += g;
+            }
+            grad_row[dominant] = -rest;
         }
         Tensor::from_vec(shape.to_vec(), grad)?
     };
